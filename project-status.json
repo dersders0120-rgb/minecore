@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "updated": "2026-10-24",
+  "current_milestone": "M0",
+  "milestones": [
+    {"id": "M0", "title": "Foundation", "status": "IN_REVIEW", "evidence": "PR m0-foundation: all local gates pass (34 pytest, 2 cargo tests, ruff, mypy strict, clippy -D warnings, cargo-deny); CI result pending"},
+    {"id": "M1", "title": "Core contracts", "status": "READY", "evidence": null},
+    {"id": "M2", "title": "Drillhole data", "status": "BACKLOG", "evidence": null},
+    {"id": "M3", "title": "Geometry and 3D", "status": "BACKLOG", "evidence": null},
+    {"id": "M4", "title": "Block model", "status": "BACKLOG", "evidence": null},
+    {"id": "M5", "title": "Estimation", "status": "BACKLOG", "evidence": null},
+    {"id": "M6", "title": "Resource reporting (alpha)", "status": "BACKLOG", "evidence": null},
+    {"id": "M7", "title": "Open-pit optimisation", "status": "BACKLOG", "evidence": null},
+    {"id": "M8", "title": "Open-pit design and scheduling", "status": "BACKLOG", "evidence": null},
+    {"id": "M9", "title": "Underground", "status": "BACKLOG", "evidence": null},
+    {"id": "M10", "title": "Advanced geology", "status": "BACKLOG", "evidence": null},
+    {"id": "M11", "title": "Interoperability and automation", "status": "BACKLOG", "evidence": null},
+    {"id": "M12", "title": "Commercial readiness", "status": "BACKLOG", "evidence": null}
+  ],
+  "tasks": [
+    {"id": "T-001", "milestone": "M0", "title": "Repository foundation, CI, governance, verification script", "owner": "opus", "status": "SUBMITTED", "depends_on": [], "brief": null},
+    {"id": "T-002", "milestone": "M1", "title": "Competitive capability matrix from public documentation", "owner": "gemini", "status": "READY", "depends_on": [], "brief": "docs/tasks/T-002.md"},
+    {"id": "T-003", "milestone": "M1", "title": "Units and quantities contract (mc-core::units)", "owner": "opus", "status": "READY", "depends_on": ["T-001"], "brief": null},
+    {"id": "T-004", "milestone": "M1", "title": "CRS and local mine grid contract", "owner": "opus", "status": "BACKLOG", "depends_on": ["T-003"], "brief": null},
+    {"id": "T-005", "milestone": "M1", "title": "Project package v1: SQLite schema, versioning, migrations", "owner": "opus", "status": "READY", "depends_on": ["T-001"], "brief": null},
+    {"id": "T-006", "milestone": "M1", "title": "Operation log and undo/redo model", "owner": "opus", "status": "BACKLOG", "depends_on": ["T-005"], "brief": null},
+    {"id": "T-007", "milestone": "M1", "title": "Error hierarchy and job/cancellation model", "owner": "opus", "status": "BACKLOG", "depends_on": ["T-001"], "brief": null},
+    {"id": "T-008", "milestone": "M2", "title": "Synthetic drillhole dataset generator", "owner": "deepseek", "status": "BACKLOG", "depends_on": ["T-003", "T-005"], "brief": null},
+    {"id": "T-009", "milestone": "M2", "title": "Independent reference cases for minimum-curvature desurvey", "owner": "chatgpt", "status": "READY", "depends_on": [], "brief": "docs/tasks/T-009.md"}
+  ]
+}

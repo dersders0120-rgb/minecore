@@ -1,0 +1,49 @@
+# Dependency policy for a proprietary, commercially distributed product.
+# Any change to this file needs an ADR.
+
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+yanked = "deny"
+
+[licenses]
+version = 2
+confidence-threshold = 0.9
+unused-allowed-license = "allow"
+# Permissive licences only. Copyleft (GPL, AGPL, LGPL for static Rust linking)
+# is not allowed in the Rust core because it is linked statically.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "MPL-2.0",
+]
+
+[[licenses.clarify]]
+crate = "mc-core"
+expression = "LicenseRef-MineCore-Proprietary"
+license-files = []
+
+[[licenses.clarify]]
+crate = "mc-py"
+expression = "LicenseRef-MineCore-Proprietary"
+license-files = []
+
+[licenses.private]
+ignore = true
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
