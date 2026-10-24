@@ -1,0 +1,26 @@
+# Rust
+/target/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+*.so
+*.pyd
+dist/
+build/
+*.egg-info/
+
+# Local project data (real drillhole data must never be committed)
+/data/private/
+*.mcproj/
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
