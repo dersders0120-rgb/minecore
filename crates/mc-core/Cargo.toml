@@ -1,0 +1,14 @@
+[package]
+name = "mc-core"
+description = "MineCore core engine: units, coordinates, geometry, data model and numerics. No GUI, no Python."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+authors.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

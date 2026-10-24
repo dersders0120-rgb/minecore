@@ -1,0 +1,71 @@
+[build-system]
+requires = ["maturin>=1.15,<2"]
+build-backend = "maturin"
+
+[project]
+name = "minecore"
+description = "MineCore mining engineering platform"
+readme = "README.md"
+requires-python = ">=3.12"
+dynamic = ["version"]
+license = { file = "LICENSE" }
+classifiers = [
+    "License :: Other/Proprietary License",
+    "Private :: Do Not Upload",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Rust",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+]
+dependencies = []
+
+[project.scripts]
+minecore = "minecore.cli:main"
+
+[dependency-groups]
+dev = [
+    "maturin>=1.15,<2",
+    "pytest>=9.1",
+    "hypothesis>=6.170",
+    "ruff>=0.17",
+    "mypy>=2.4",
+]
+
+[tool.maturin]
+manifest-path = "crates/mc-py/Cargo.toml"
+python-source = "python"
+module-name = "minecore._core"
+
+[tool.uv]
+# Rebuild the native extension whenever Rust sources change.
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "Cargo.toml" },
+    { file = "Cargo.lock" },
+    { file = "crates/**/*.rs" },
+    { file = "crates/**/Cargo.toml" },
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["python", "tests/python", "tools"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "N", "SIM", "RUF", "PT", "PL", "C4", "PTH"]
+ignore = ["PLR2004"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["PLR0913"]
+
+[tool.mypy]
+strict = true
+python_version = "3.12"
+files = ["python/minecore", "tests/python", "tools"]
+mypy_path = ["python", "tools"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/python"]
+pythonpath = ["tools"]
+addopts = ["-ra", "--strict-markers", "--strict-config"]
+xfail_strict = true
