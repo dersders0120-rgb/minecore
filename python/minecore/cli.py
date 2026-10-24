@@ -15,6 +15,8 @@ from importlib.metadata import version
 from typing import TextIO
 
 from minecore import _core
+from minecore._core import MineCoreError
+from minecore.project import Project
 
 
 def environment_info() -> dict[str, str]:
@@ -51,7 +53,40 @@ def build_parser() -> argparse.ArgumentParser:
 
     info = commands.add_parser("info", help="show build and environment information")
     info.add_argument("--json", action="store_true", help="print machine-readable JSON")
+
+    project = commands.add_parser("project", help="create or inspect project packages")
+    project_cmds = project.add_subparsers(dest="project_command", metavar="ACTION", required=True)
+    create = project_cmds.add_parser("create", help="create a new .mcproj package")
+    create.add_argument("path", help="package directory, ending in .mcproj")
+    create.add_argument("--name", required=True, help="project name")
+    show = project_cmds.add_parser("info", help="show project identity and catalogue size")
+    show.add_argument("path", help="package directory")
+    show.add_argument("--json", action="store_true", help="print machine-readable JSON")
     return parser
+
+
+def _project_command(args: argparse.Namespace, out: TextIO) -> int:
+    if args.project_command == "create":
+        with Project.create(args.path, args.name) as created:
+            out.write(f"created {created.path} ({created.info.project_id})\n")
+        return 0
+    with Project.open(args.path, read_only=True) as opened:
+        info = opened.info
+        summary = {
+            "project_id": info.project_id,
+            "name": info.name,
+            "created_utc": info.created_utc,
+            "created_by": info.created_by,
+            "schema_version": str(info.schema_version),
+            "objects": str(len(opened.objects())),
+        }
+    if args.json:
+        json.dump(summary, out, indent=2, sort_keys=True)
+        out.write("\n")
+    else:
+        for key, value in summary.items():
+            out.write(f"{key:15}: {value}\n")
+    return 0
 
 
 def main(argv: Sequence[str] | None = None, out: TextIO | None = None) -> int:
@@ -62,5 +97,11 @@ def main(argv: Sequence[str] | None = None, out: TextIO | None = None) -> int:
     if args.command == "info":
         _write_info(stream, as_json=args.json)
         return 0
+    if args.command == "project":
+        try:
+            return _project_command(args, stream)
+        except MineCoreError as exc:
+            sys.stderr.write(f"error: {exc}\n")
+            return 1
     parser.print_help(stream)
     return 2

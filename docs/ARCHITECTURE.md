@@ -23,7 +23,8 @@ users script against.
 
 | Concern | Location | Rule |
 | --- | --- | --- |
-| Units, CRS, geometry, block model schema, project format | `mc-core` | Single owner: architect. ADR + compatibility test to change. |
+| Units, CRS, geometry, block model schema | `mc-core` | Single owner: architect. ADR + compatibility test to change. |
+| Project package format and schema migrations | `python/minecore/project` | Single owner: architect (ADR-0004). Kernels never do file I/O. |
 | Numerical kernels (desurvey, compositing, variograms, kriging, pit optimisation, scheduling solvers) | `mc-core::<domain>` | Rust; release the GIL; parallel with rayon; cancellable. |
 | Workflows, parameter sets, validation reports | `python/minecore/<domain>` | Python; calls kernels through `minecore._core`. |
 | File import/export (CSV, XLSX, DXF, OMF, ...) | `python/minecore/io` | Python adapters writing to core data contracts. |
@@ -57,16 +58,20 @@ several crates when compile time or ownership boundaries justify it (ADR).
   engine version and random seed in the project operation log.
 - **Time:** UTC, ISO 8601.
 
-## 4. Project package (`.mcproj`, detailed in M1)
+## 4. Project package (`.mcproj`, ADR-0004)
 
 A directory package:
-- `project.sqlite` — metadata, object catalogue, CRS, units, schema version,
-  operation log, undo history.
+- `project.sqlite` — identity, settings, object catalogue, migration history
+  (later: CRS, operation log, undo history). `application_id` "MCOR",
+  `user_version` = schema version, rollback journal (safe on network shares).
+- `project.lock` — OS-level single-writer lock; released automatically on crash.
 - `tables/*.parquet` — large tabular data (collars, surveys, assays, composites).
 - `blocks/` — chunked block model storage (3D tiles, loaded on demand).
 - `geometry/` — versioned binary meshes, strings and solids.
+- `backups/` — automatic copies of `project.sqlite` taken before each migration.
 
-The format is versioned; opening an older version runs tested migrations.
+Older projects are migrated transactionally after a backup; newer projects are
+refused untouched; read-only opening never migrates or locks.
 
 ## 5. Runtime behaviour
 

@@ -56,6 +56,8 @@ src = ["python", "tests/python", "tools"]
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "N", "SIM", "RUF", "PT", "PL", "C4", "PTH"]
 ignore = ["PLR2004"]
+# Turkish text (place and project names) is expected in data and tests.
+allowed-confusables = ["ı"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["PLR0913"]

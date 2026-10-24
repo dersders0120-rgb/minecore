@@ -128,18 +128,18 @@
       "milestone": "M1",
       "title": "Project package v1: SQLite schema, versioning, migrations",
       "owner": "opus",
-      "status": "READY",
+      "status": "SUBMITTED",
       "depends_on": [
         "T-001"
       ],
-      "brief": null
+      "brief": "docs/adr/0004-project-package-persistence.md"
     },
     {
       "id": "T-006",
       "milestone": "M1",
       "title": "Operation log and undo/redo model",
       "owner": "opus",
-      "status": "BACKLOG",
+      "status": "READY",
       "depends_on": [
         "T-005"
       ],
