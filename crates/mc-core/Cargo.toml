@@ -9,6 +9,10 @@ publish.workspace = true
 authors.workspace = true
 
 [dependencies]
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
 
 [lints]
 workspace = true

@@ -13,6 +13,8 @@ authors = ["MineCore"]
 [workspace.dependencies]
 mc-core = { path = "crates/mc-core" }
 pyo3 = { version = "0.30", features = ["abi3-py312"] }
+thiserror = "2.0"
+proptest = "1.12"
 
 [workspace.lints.rust]
 unsafe_code = "deny"
