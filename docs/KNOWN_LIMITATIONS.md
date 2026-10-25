@@ -30,8 +30,9 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
   search is a SciPy KD-tree. Measured on 4 cores (3000 samples, 16 per block,
   2x2x2 discretisation, release build): IDW about 230k blocks/s, ordinary
   kriging about 143k blocks/s.
-- No CLI commands for import, block model, estimation or reporting yet (rule 5
-  debt): the workbench calls the public Python API, which scripts can call.
+- CLI covers the chain (`drillholes`, `surface`, `bm`, `pit` commands); the
+  CLI variogram is omnidirectional and isotropic only, and swath/cross-
+  validation are GUI and Python API only.
 - Grade-tonnage is a report, not a resource classification (rule 8).
 
 ## Open-pit optimisation (M7 alpha)

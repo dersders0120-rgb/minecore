@@ -15,7 +15,7 @@ from collections.abc import Sequence
 from importlib.metadata import version
 from typing import Any, TextIO
 
-from minecore import _core, coords
+from minecore import _core, cli_modelling, coords
 from minecore._core import MineCoreError
 from minecore.jobs import CancelledError
 from minecore.project import Project
@@ -109,6 +109,7 @@ def build_parser() -> argparse.ArgumentParser:
     fit.add_argument("--scale", type=float, help="hold the scale (1 = rigid)")
     fit.add_argument("--z-offset", type=float, help="hold the vertical offset")
     fit.add_argument("--json", action="store_true", help="print machine-readable JSON")
+    cli_modelling.add_parsers(commands)
     return parser
 
 
@@ -263,7 +264,12 @@ def main(argv: Sequence[str] | None = None, out: TextIO | None = None) -> int:
     if args.command == "info":
         _write_info(stream, as_json=args.json)
         return 0
-    handlers = {"project": _project_command, "crs": _crs_command, "grid": _grid_command}
+    handlers = {
+        "project": _project_command,
+        "crs": _crs_command,
+        "grid": _grid_command,
+        **cli_modelling.HANDLERS,
+    }
     if args.command in handlers:
         try:
             return handlers[args.command](args, stream)
