@@ -43,7 +43,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from minecore import __version__, surfaces
+from minecore import __version__, solids, surfaces
 from minecore.blockmodel import BlockModel
 from minecore.blockmodel.workflow import load_variograms
 from minecore.drillholes import (
@@ -242,6 +242,9 @@ class MainWindow(QMainWindow):
         action(surf, "Topoğrafya noktalarını içe aktar (x, y, z CSV)...", self.import_surface)
         action(surf, "Kuyu ağızlarından topoğrafya oluştur", self.surface_from_collars)
         action(surf, "Blok modelini topoğrafyayla kes (kaya/hava)...", self.flag_blocks)
+        surf.addSeparator()
+        action(surf, "Katı model (wireframe) içe aktar: OBJ, STL, DXF...", self.import_solid)
+        action(surf, "Blok modelini katı ile işaretle (domen)...", self.flag_solid)
         pit = self.menuBar().addMenu("&Açık Ocak")
         action(pit, "Ocak optimizasyonu, pushback ve çizelge...", self.optimise_pit)
         help_menu = self.menuBar().addMenu("&Yardım")
@@ -511,6 +514,52 @@ class MainWindow(QMainWindow):
             ),
         )
 
+    def import_solid(self) -> None:
+        project = self._need_project()
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Katı model", "", "Katı modeller (*.obj *.stl *.dxf)"
+        )
+        if not path:
+            return
+        solid = solids.read_solid(Path(path))
+        name, ok = QInputDialog.getText(self, "Katı adı", "Ad:", text=Path(path).stem)
+        if not ok or not name.strip():
+            return
+        solids.save_solid(project, name.strip(), solid)
+        self.refresh()
+        open_edges = solid.open_edges()
+        QMessageBox.information(
+            self,
+            "Katı model",
+            f"'{name.strip()}': {len(solid.triangles):,} üçgen, hacim {solid.volume():,.0f} m³."
+            + (
+                f"\nUyarı: {open_edges} açık kenar var; katı kapalı değil, "
+                "içeride/dışarıda testi güvenilir olmayabilir."
+                if open_edges
+                else ""
+            ),
+        )
+
+    def flag_solid(self) -> None:
+        project = self._need_project()
+        names = solids.solid_names(project)
+        models = block_models(project)
+        if not names or not models:
+            raise RuntimeError("Önce bir katı model ve bir blok modeli gerekli.")
+        solid, ok = QInputDialog.getItem(self, "Domen", "Katı:", names, 0, False)
+        if not ok:
+            return
+        model_name, ok = QInputDialog.getItem(self, "Domen", "Blok modeli:", models, 0, False)
+        if not ok:
+            return
+        model = BlockModel.open(project, model_name)
+        attribute = f"dom_{solid}"
+        count = solids.flag_blocks(model, solids.load_solid(project, solid), attribute)
+        self.refresh()
+        QMessageBox.information(
+            self, "Domen", f"'{attribute}': {count:,} blok katının içinde (1), diğerleri 0."
+        )
+
     def optimise_pit(self) -> None:
         from minecore.gui.pit import PitDialog  # noqa: PLC0415
 
@@ -564,6 +613,27 @@ class MainWindow(QMainWindow):
             for attr in model.attributes:
                 item.addChild(QTreeWidgetItem([attr, ""]))
             root.addChild(item)
+        self._add_object_items(root)
+        self.tree.expandAll()
+        self._fill_issues()
+        self._fill_color_choices()
+        self._fill_block_choices()
+        self.redraw()
+        if self.report is not None:
+            errors = self.report.count(severity=Severity.ERROR)
+            warnings = self.report.count(severity=Severity.WARNING)
+            self.statusBar().showMessage(
+                f"{len(self.report.holes)} kullanılabilir kuyu, {errors} hata, {warnings} uyarı"
+            )
+
+    def _add_object_items(self, root: QTreeWidgetItem) -> None:
+        assert self.project is not None
+        solid_list = solids.solid_names(self.project)
+        if solid_list:
+            k_item = QTreeWidgetItem(["Katı modeller", str(len(solid_list))])
+            for k_name in solid_list:
+                k_item.addChild(QTreeWidgetItem([k_name, ""]))
+            root.addChild(k_item)
         surface_list = surfaces.surface_names(self.project)
         if surface_list:
             s_item = QTreeWidgetItem(["Yüzeyler", str(len(surface_list))])
@@ -583,17 +653,6 @@ class MainWindow(QMainWindow):
                 )
                 vg_item.addChild(QTreeWidgetItem([vg_name, text]))
             root.addChild(vg_item)
-        self.tree.expandAll()
-        self._fill_issues()
-        self._fill_color_choices()
-        self._fill_block_choices()
-        self.redraw()
-        if self.report is not None:
-            errors = self.report.count(severity=Severity.ERROR)
-            warnings = self.report.count(severity=Severity.WARNING)
-            self.statusBar().showMessage(
-                f"{len(self.report.holes)} kullanılabilir kuyu, {errors} hata, {warnings} uyarı"
-            )
 
     def _fill_issues(self) -> None:
         self.issues.setSortingEnabled(False)
@@ -722,6 +781,13 @@ class MainWindow(QMainWindow):
             faces = np.column_stack([np.full(len(tri), 3), tri]).ravel()
             mesh = pv.PolyData(surface.points - origin, faces=faces)
             self.view.add_mesh(mesh, color="#8d6e63", opacity=0.45, show_edges=False)
+        for name in solids.solid_names(self.project):
+            solid = solids.load_solid(self.project, name)
+            faces = np.column_stack([np.full(len(solid.triangles), 3), solid.triangles]).ravel()
+            mesh = pv.PolyData(solid.vertices - origin, faces=faces)
+            self.view.add_mesh(
+                mesh, color="#26a69a", opacity=0.35, show_edges=True, edge_color="#004d40"
+            )
 
     def _selected_block_model(self) -> tuple[BlockModel, str | None] | None:
         choice = self.block_by.currentText()
