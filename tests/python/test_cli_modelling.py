@@ -307,3 +307,9 @@ def test_project_cash_flow_from_the_cli(tmp_path: Path) -> None:
     assert "project NPV" in text
     no_plant = [a for a in econ if a not in ("--plant", "5e5", "--json")]
     assert main([*no_plant, "--capex", "0:1"], io.StringIO()) == 1  # needs --plant
+    # A co-product (here the same grade priced as a second metal) adds revenue.
+    co = json.loads(_run(*econ, "--coproduct", "au:200:ozt:50:90"))
+    assert co["shells"][-1]["coproduct_metal"][0] > 0
+    assert co["npv"] > plain["npv"]
+    assert "co-product au:" in _run(*econ[:-1], "--coproduct", "au:200:ozt:50:90")
+    assert main([*econ, "--coproduct", "au:200:kg:50"], io.StringIO()) == 1

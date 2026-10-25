@@ -233,6 +233,10 @@ def cutoffs_from_model(  # noqa: PLR0913 - options are keyword-only
     Mining recovery, dilution and bench costs are not applied (Lane works on
     the in-situ grade distribution of the pit); NSR models use a price of 1
     per NSR unit. Payables and royalty scale the net metal price.
+    Co-products enter as a main-metal equivalent grade,
+    ``g_eq = g + sum_m g_m * v_m / v`` with ``v`` the net value per grade unit
+    (contained metal per grade unit x recovery x payable x (price - selling));
+    Lane's cash is linear in the recovered metal, so this is exact.
     """
     if "pit_shell" not in model.attributes:
         raise PitOptError(f"{model.name} has no pit_shell; run the pit optimisation first")
@@ -269,6 +273,14 @@ def cutoffs_from_model(  # noqa: PLR0913 - options are keyword-only
         market_capacity,
         discount,
     )
-    return optimise_cutoffs(
-        inputs, model.values(grade_attribute), tonnes, metal_per_grade=per_grade
-    )
+    grade = np.nan_to_num(model.values(grade_attribute), nan=0.0)
+    if econ.coproducts:
+        main = per_grade * econ.recovery * econ.payable * (econ.price - econ.selling_cost)
+        for p in econ.coproducts:
+            unit_m = model.attributes[p.attribute].get("unit")
+            if unit_m is None:
+                raise PitOptError(f"co-product attribute {p.attribute!r} has no unit")
+            per_m = 1000.0 * Unit(unit_m).si_factor / p.price_unit.kilograms
+            value_m = per_m * p.recovery * p.payable * (p.price - p.selling_cost)
+            grade = grade + np.nan_to_num(model.values(p.attribute), nan=0.0) * value_m / main
+    return optimise_cutoffs(inputs, grade, tonnes, metal_per_grade=per_grade)

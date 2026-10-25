@@ -48,7 +48,7 @@ from minecore.pitopt.benchdesign import BenchGeometry, Ramp, design_from_model, 
 from minecore.pitopt.cashflow import CashFlow, FinancialTerms, cash_flow, parse_capital
 from minecore.pitopt.cutoff import cutoffs_from_model
 from minecore.pitopt.design import edge_blocks, export_pit, period_surfaces
-from minecore.pitopt.economics import PitOptError, parse_routes
+from minecore.pitopt.economics import PitOptError, parse_products, parse_routes
 from minecore.pitopt.optimise import PitResult, Schedule, route_tonnes, store
 from minecore.pitopt.scheduling import ConstrainedSchedule, Limits, schedule_constrained
 from minecore.pitopt.width import apply_mining_width
@@ -276,6 +276,13 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     opt.add_argument("--dilution", type=float, default=0.0, help="zero-grade dilution fraction")
     opt.add_argument("--payable", type=float, default=1.0, help="fraction of metal paid for")
     opt.add_argument("--royalty", type=float, default=0.0, help="fraction of sales revenue")
+    opt.add_argument(
+        "--coproduct",
+        action="append",
+        default=[],
+        metavar="ATTR:PRICE:UNIT:REC[:PAYABLE[:SELLING[:R2/R3]]]",
+        help="further metal valued with GRADE (repeatable), e.g. ag:24:ozt:70:95",
+    )
     fin = opt.add_argument_group("project cash flow (needs --plant)")
     fin.add_argument(
         "--capex", default="", metavar="T:AMOUNT;...", help="capital by period, 0 = pre-production"
@@ -366,6 +373,13 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     cut.add_argument("--mining-cost", type=float, required=True)
     cut.add_argument("--processing-cost", type=float, required=True)
     cut.add_argument("--selling-cost", type=float, default=0.0)
+    cut.add_argument(
+        "--coproduct",
+        action="append",
+        default=[],
+        metavar="ATTR:PRICE:UNIT:REC[:PAYABLE[:SELLING[:R2/R3]]]",
+        help="further metal valued with GRADE (repeatable), e.g. ag:24:ozt:70:95",
+    )
     cut.add_argument("--fixed-cost", type=float, default=0.0, help="fixed cost per year")
     cut.add_argument("--mine", type=float, required=True, help="mining capacity, t/year")
     cut.add_argument("--mill", type=float, required=True, help="plant capacity, ore t/year")
@@ -790,6 +804,8 @@ def pit_design(project: Project, args: argparse.Namespace, out: TextIO) -> int:
 
 
 def _write_routes(result: PitResult, econ: Economics, final: int, out: TextIO) -> None:
+    for p, metal in zip(econ.coproducts, result.rows[final - 1].coproduct_metal, strict=True):
+        out.write(f"co-product {p.attribute}: {metal:,.1f} {p.price_unit.value} recovered\n")
     if econ.routes:
         for name, feed_t, metal in route_tonnes(result, econ, final):
             out.write(f"route {name}: {feed_t:,.0f} t feed, {metal:,.1f} metal\n")
@@ -836,6 +852,7 @@ def pit_optimise(project: Project, args: argparse.Namespace, out: TextIO) -> int
         parse_routes(";".join(args.route)),
         args.payable,
         args.royalty,
+        parse_products(";".join(args.coproduct)),
     )
     terms = FinancialTerms(
         parse_capital(args.capex),
@@ -969,6 +986,7 @@ def pit_cutoff(project: Project, args: argparse.Namespace, out: TextIO) -> int:
         0.0 if args.nsr else args.selling_cost,
         density=_density(args.density),
         nsr=args.nsr,
+        coproducts=parse_products(";".join(args.coproduct)),
     )
     result = cutoffs_from_model(
         model,

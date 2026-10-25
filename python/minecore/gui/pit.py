@@ -62,7 +62,7 @@ from minecore.pitopt.cashflow import (
 )
 from minecore.pitopt.cutoff import LaneResult, cutoffs_from_model
 from minecore.pitopt.design import edge_blocks
-from minecore.pitopt.economics import PitOptError, parse_routes
+from minecore.pitopt.economics import PitOptError, parse_products, parse_routes
 from minecore.pitopt.optimise import route_tonnes, store
 from minecore.pitopt.scheduling import (
     ConstrainedSchedule,
@@ -176,6 +176,16 @@ class PitDialog(QDialog):
             "her blok en yüksek marjı veren yola gider (pit_route özniteliği)."
         )
         ef.addRow("Ek işleme yolları", self.routes)
+        self.coproducts = QLineEdit()
+        self.coproducts.setPlaceholderText(
+            "örn. ag:24:ozt:70:95 (öznitelik:fiyat:birim:kazanım %:ödenebilir %:satış)"
+        )
+        self.coproducts.setToolTip(
+            "Ana metalle birlikte değerlenen yan ürünler, ';' ile ayrılır. Birim ozt, g, lb "
+            "veya t. Ek işleme yolu varsa son alan her yol için kazanımı '/' ile verir "
+            "(örn. ag:24:ozt:70:95:0:20). Blok geliri tüm metallerin toplamıdır."
+        )
+        ef.addRow("Yan ürünler", self.coproducts)
         self.route_label = QLabel()
         self.route_label.setWordWrap(True)
         ef.addRow(self.route_label)
@@ -349,7 +359,14 @@ class PitDialog(QDialog):
             self.price.setValue(2000.0)
 
     def _sync_nsr(self, on: bool) -> None:
-        for w in (self.price, self.price_unit, self.recovery, self.selling, self.routes):
+        for w in (
+            self.price,
+            self.price_unit,
+            self.recovery,
+            self.selling,
+            self.routes,
+            self.coproducts,
+        ):
             w.setEnabled(not on)
 
     def economics(self) -> Economics:
@@ -369,6 +386,7 @@ class PitDialog(QDialog):
             routes=() if self.nsr.isChecked() else parse_routes(self.routes.text()),
             payable=self.payable.value() / 100.0,
             royalty=self.royalty.value() / 100.0,
+            coproducts=() if self.nsr.isChecked() else parse_products(self.coproducts.text()),
         )
 
     def terms(self) -> FinancialTerms:
@@ -412,15 +430,24 @@ class PitDialog(QDialog):
         )
         self.phase, self.sched = None, None
         self._show_shells()
-        self.route_label.setText(
-            "Nihai kabukta yollar: "
-            + "; ".join(
-                f"{'ana' if name == 'main' else name} {feed_t / 1e6:,.2f} Mt"
-                for name, feed_t, _ in route_tonnes(self.pit, econ, len(self.pit.rows))
+        parts = []
+        if econ.routes:
+            parts.append(
+                "Nihai kabukta yollar: "
+                + "; ".join(
+                    f"{'ana' if name == 'main' else name} {feed_t / 1e6:,.2f} Mt"
+                    for name, feed_t, _ in route_tonnes(self.pit, econ, len(self.pit.rows))
+                )
             )
-            if econ.routes
-            else ""
-        )
+        if econ.coproducts:
+            parts.append(
+                "Nihai kabukta kazanılan yan ürün: "
+                + "; ".join(
+                    f"{p.attribute} {m:,.0f} {p.price_unit.value}"
+                    for p, m in zip(econ.coproducts, self.pit.rows[-1].coproduct_metal, strict=True)
+                )
+            )
+        self.route_label.setText("\n".join(parts))
         edge = edge_blocks(model.grid, self.pit.shell > 0)
         if edge:
             self.inform(
@@ -1043,6 +1070,11 @@ class CutoffDialog(QDialog):
         self.economics.setText(
             ("NSR" if e.nsr else f"fiyat {e.price:g}/{e.price_unit.value}, verim {e.recovery:g}")
             + f"; madencilik {e.mining_cost:g}/t, işleme {e.processing_cost:g}/t"
+            + (
+                "; yan ürünler (eşdeğer tenör): " + ", ".join(p.attribute for p in e.coproducts)
+                if e.coproducts
+                else ""
+            )
         )
 
     def run(self) -> None:
