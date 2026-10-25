@@ -1,57 +1,40 @@
 # Session handoff
 
-Updated: 2026-10-25 01:25 UTC (architect, end of thread 1)
+Updated: 2026-10-25 ~02:30 UTC (architect, thread 2 "Build block model and estimation")
 
 ## Owner direction (binding)
-- Windows 11 is the only target. Owner wants a usable program fast ("jet hızında"),
-  accepts some bugs, tests the GUI himself. Ship vertical slices with a runnable
-  Windows build; fewer docs; no stacked PRs; one PR to merge at a time.
-- Reply to the owner in Turkish, short, plain (he is not a GitHub/CI user).
+- Windows 11 only. Wants a usable program fast, accepts some bugs, tests the GUI
+  himself. Reply in Turkish, short, plain. He is not a GitHub user.
+- Claude may merge PRs itself when CI is green (owner, 2026-10-25).
+- Overnight 2026-10-25: work without asking until 09:55 TR (06:55 UTC), or 11:55
+  TR if he does not answer; skip blockers and report them.
+- Target depth: Datamine (Studio RM + NPVS + OP) as one integrated program.
+  Next after pit work: solids/wireframes, domains, design, scheduling.
+- Open-source libraries welcome if permissive (MIT/BSD/Apache); no GPL.
 
-## State of `main`
-- Merged: #1–#5 (M0, units, project package, CRS/local grid, delegated T-008/10/11),
-  #7 (M1 close-out: oplog/undo/jobs/errors; ADR-0008 drillhole contract,
-  `minecore.project.bulk`, `minecore.drillholes` model + validate, T-013 sniffer,
-  T-012 compositing references, T-014 QA/QC research with review note).
-- #6 closed (superseded by #7).
+## State
+- `main`: PRs #1-#8 merged (foundation, contracts, drillholes, first GUI).
+- PR #9 (branch `claude/project-thread-3hc3k9`): estimation engine + GUI,
+  grade-tonnage, pit optimisation (Rust max closure), shells/pushbacks/schedule,
+  DTM surfaces + rock/air, swath + cross-validation, Rust estimation kernels
+  (OK ~143k blocks/s on 4 cores), CLI for the whole chain. 322 pytest pass.
+- Workbench menus: Proje, Sondaj, Blok Modeli, Yüzey, Açık Ocak, Yardım.
+- Windows exe: GitHub Actions "Windows app" workflow, artifact `MineCore-windows`.
 
-## Open PR #8 — branch `m2-app` (all CI green incl. Windows build)
-First workbench release. Importer (`drillholes/importer.py`), min-curvature
-desurvey, fixed/domain compositing (matches T-012), `drillholes/workflow.py`,
-PySide6+VTK GUI (`python/minecore/gui/app.py`, Turkish), Help → sample project
-(bundled `gui/sample/*.csv`), `.github/workflows/windows-app.yml` (PyInstaller,
-artifact `MineCore-windows`, ~243 MB). Owner launched the .exe on Windows 11 —
-it opens. Owner should merge #8 (latest commit 6f1fb54 still needs its CI run).
+## Where things live
+- Rust: `mc-core::pitopt` (max closure), `mc-core::kriging` (NN/IDW/OK kernels).
+- Python: `minecore.estimation`, `minecore.blockmodel` (+ `workflow`,
+  `validation`), `minecore.pitopt`, `minecore.surfaces`, `minecore.cli_modelling`.
+- GUI: `gui/app.py` (main window), `gui/resource.py`, `gui/pit.py`.
+- Limits: `docs/KNOWN_LIMITATIONS.md` (keep it honest).
 
-## Work in progress — branch `m3-estimation` (based on `m2-app`, pushed, NO PR yet)
-Done and tested (302 pytest pass, ruff, mypy strict clean):
-- `minecore.estimation.variogram`: Ellipsoid (azimuth/dip/rake, right-handed
-  frame, documented convention), spherical/exponential/gaussian practical-range
-  structures, nested VariogramModel (+ JSON), experimental variogram
-  (omni/directional, pair subsampling), `fit_spherical` (weighted LSQ grid search).
-- `minecore.estimation.kriging.estimate`: NN, IDW, ordinary kriging (point or
-  block with discretisation), anisotropic KD-tree search, min/max samples,
-  max per hole, kriging variance, progress.
-- `minecore.blockmodel`: regular `Grid` (covering, centroids), `BlockModel`
-  object with Parquet attributes (undoable), `grade_tonnage` (constant or
-  attribute density, metal in g for g/t|ppm else t).
-- `minecore.blockmodel.workflow`: `interval_samples` (composites mid_x/y/z or
-  desurvey), `estimate_blocks` (stores value, _n, _dist, _kv + parameters).
-- Tests: `tests/python/estimation/test_estimation.py` (analytic cases).
-- New dependency: scipy (BSD) — add to docs/DEPENDENCIES.md.
-
-## Next actions (in order)
-1. After #8 merges: open PR for `m3-estimation` → `main` (rebase/merge main first).
-2. GUI for M3–M6 in `gui/app.py`: "Blok modeli" menu — create grid from
-   composites extent; experimental variogram + fit dialog (matplotlib Qt plot);
-   estimation dialog (method, search ellipsoid, min/max, variogram); 3D block
-   view (pyvista ImageData/threshold by cut-off); grade-tonnage table + curve,
-   CSV/XLSX export. Rebuild Windows artifact and give owner the link.
-3. Delegate T-016 to ChatGPT: independent OK/IDW reference values using the
-   conventions in `estimation/variogram.py` docstring; compare in tests.
-4. Rust port of the kriging loop only if performance requires (10M blocks).
-5. Known: synthetic generator injects error rows by copying the first sample row,
-   so `--errors` data shows ~111 overlaps on RC0001 (noisy but correct).
+## Next actions
+1. Merge PR #9 when CI is green; post the Windows artifact link to the owner.
+2. Solids: closed triangulated wireframes (import OBJ/STL/DXF 3DFACE), point-in-
+   solid block flagging, domain-restricted estimation.
+3. Pit design basics: shell to surface/contours, ramps later.
+4. Scheduling: bench lag, plant capacity, stockpile.
+5. Rotated block models and sub-cells.
 
 ## Owner owes
-- Merge #8. Try his real drillhole data in the app and report problems.
+- Try the Windows build with real data and report problems.

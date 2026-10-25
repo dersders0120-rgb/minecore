@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "updated": "2026-10-25T01:25:00Z",
-  "current_milestone": "M3-M6 (estimation chain) in progress; M2 first release in PR #8",
+  "updated": "2026-10-25",
+  "current_milestone": "M7",
   "milestones": [
     {
       "id": "M0",
@@ -12,44 +12,44 @@
     {
       "id": "M1",
       "title": "Core contracts",
-      "status": "IN_PROGRESS",
-      "evidence": null
+      "status": "DONE",
+      "evidence": "PR #7 merged"
     },
     {
       "id": "M2",
       "title": "Drillhole data",
-      "status": "BACKLOG",
-      "evidence": null
+      "status": "DONE",
+      "evidence": "PR #8 merged: import, validation, desurvey, composites, 3D view, Windows build"
     },
     {
       "id": "M3",
       "title": "Geometry and 3D",
-      "status": "BACKLOG",
-      "evidence": null
+      "status": "IN_PROGRESS",
+      "evidence": "DTM surfaces (Delaunay) in PR #9; solids/wireframes pending."
     },
     {
       "id": "M4",
       "title": "Block model",
-      "status": "BACKLOG",
-      "evidence": null
+      "status": "IN_PROGRESS",
+      "evidence": "Regular block model, rock/air flag by DTM (PR #9). Rotated/sub-celled models and solids pending."
     },
     {
       "id": "M5",
       "title": "Estimation",
-      "status": "BACKLOG",
-      "evidence": null
+      "status": "IN_PROGRESS",
+      "evidence": "Variograms, NN/IDW/OK in Rust, swath and cross-validation (PR #9). Domains and neighbourhood analysis pending."
     },
     {
       "id": "M6",
       "title": "Resource reporting (alpha)",
-      "status": "BACKLOG",
-      "evidence": null
+      "status": "IN_PROGRESS",
+      "evidence": "Grade-tonnage table, curve and CSV in GUI and CLI (PR #9)."
     },
     {
       "id": "M7",
       "title": "Open-pit optimisation",
-      "status": "BACKLOG",
-      "evidence": null
+      "status": "IN_PROGRESS",
+      "evidence": "Ultimate pit by max closure (Rust), nested shells, best/worst NPV, pushbacks, fixed-rate schedule (PR #9)."
     },
     {
       "id": "M8",
@@ -118,7 +118,7 @@
       "milestone": "M1",
       "title": "CRS and local mine grid contract",
       "owner": "opus",
-      "status": "SUBMITTED",
+      "status": "INTEGRATED",
       "depends_on": [
         "T-003"
       ],
