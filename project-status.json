@@ -25,55 +25,55 @@
       "id": "M3",
       "title": "Geometry and 3D",
       "status": "IN_PROGRESS",
-      "evidence": "DTM surfaces (Delaunay) in PR #9; solids/wireframes pending."
+      "evidence": "DTM surfaces (PR #9); solids import/export, grade shells, section linking of strings, partial-block fractions (PR #12-#16). Solid editing/booleans pending."
     },
     {
       "id": "M4",
       "title": "Block model",
       "status": "IN_PROGRESS",
-      "evidence": "Regular block model, rock/air flag by DTM (PR #9). Rotated/sub-celled models and solids pending."
+      "evidence": "Regular models, rock/air flag, CSV import with sub-block merge, re-blocking, calculator, solid flags with volume fractions (PR #9-#16). Rotated/sub-celled storage pending (needs ADR)."
     },
     {
       "id": "M5",
       "title": "Estimation",
       "status": "IN_PROGRESS",
-      "evidence": "Variograms, NN/IDW/OK in Rust, swath and cross-validation (PR #9). Domains and neighbourhood analysis pending."
+      "evidence": "Variograms (incl. downhole, nested), NN/IDW/OK in Rust, domains, top-cut, declustering, swath (GUI+CLI) and cross-validation (PR #9-#16)."
     },
     {
       "id": "M6",
       "title": "Resource reporting (alpha)",
       "status": "IN_PROGRESS",
-      "evidence": "Grade-tonnage table, curve, CSV/XLSX in GUI and CLI (PR #9, #11); domain/category/pit filters, confidence categories (PR #12)."
+      "evidence": "Grade-tonnage table/curve/CSV/XLSX with domain/category/pit filters and partial-block weights; confidence categories (not JORC) (PR #9-#16)."
     },
     {
       "id": "M7",
       "title": "Open-pit optimisation",
       "status": "IN_PROGRESS",
-      "evidence": "Ultimate pit by max closure (Rust), nested shells, best/worst NPV, pushbacks with minimum mining width, recovery/dilution, NSR mode (PR #9-#12)."
+      "evidence": "Max-closure pit in Rust, nested shells, best/worst NPV, pushbacks with minimum mining width, recovery/dilution, NSR, Lane cut-off optimisation (PR #10-#16)."
     },
     {
       "id": "M8",
       "title": "Open-pit design and scheduling",
       "status": "IN_PROGRESS",
-      "evidence": "Constrained schedule (PR #11); bench outlines, pit solid, mined-out surface, DXF export (PR #12). Ramps/berms pending."
+      "evidence": "Constrained schedule, bench inventory, bench design with spiral ramp, pit/design DXF, end-of-period surfaces, section/plan PDF plots (PR #11-#20). Geotechnical sectors and switchbacks pending."
     },
     {
       "id": "M9",
       "title": "Underground",
-      "status": "BACKLOG",
-      "evidence": null
+      "status": "IN_PROGRESS",
+      "evidence": "Floating stope envelope and greedy stope selection (PR #14); decline and level crosscut concept layout (PR #20)."
     },
     {
       "id": "M10",
       "title": "Advanced geology",
-      "status": "BACKLOG",
-      "evidence": null
+      "status": "IN_PROGRESS",
+      "evidence": "Implicit RBF domain from drillhole intervals with anisotropy (PR #18); section linking (PR #15)."
     },
     {
       "id": "M11",
       "title": "Interoperability and automation",
-      "status": "BACKLOG",
-      "evidence": null
+      "status": "IN_PROGRESS",
+      "evidence": "DXF R12 export (polylines, 3DFACE) and DXF/OBJ/STL import, CSV block model import, headless CLI for every feature, installation self-test (PR #12-#20). OMF/Surpac pending."
     },
     {
       "id": "M12",
