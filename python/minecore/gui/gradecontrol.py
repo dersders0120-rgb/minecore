@@ -181,9 +181,7 @@ class GradeControlDialog(QDialog):
             raise RuntimeError("Önce hesaplayın.")
         path, _ = QFileDialog.getSaveFileName(self, "DXF", "kazi_hatlari.dxf", "DXF (*.dxf)")
         if path:
-            write_dxf(
-                Path(path), [Polyline(f"GC_CLASS_{c}", p, True) for c, p in self.gc.lines]
-            )
+            write_dxf(Path(path), [Polyline(f"GC_CLASS_{c}", p, True) for c, p in self.gc.lines])
 
 
 def _class_name(cls: int, cutoffs: tuple[float, ...]) -> str:

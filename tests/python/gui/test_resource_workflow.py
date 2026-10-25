@@ -795,6 +795,14 @@ def test_pit_dialog_scenarios(qapp: QApplication, tmp_path: Path) -> None:
     assert dialog.reserves[-1].ore_t == pytest.approx(float(pit.feed[mined_ore].sum()))
     dialog.run_fleet()
     assert dialog.fleet
+    plain = [r.haul_m for r in dialog.fleet]
+    dialog.fl_dumps.setText("yakin:0.01:500; uzak:100:4000")
+    dialog.run_fleet()
+    waste = sum(p.waste_t for p in dialog.dump_plan)
+    assert sum(p.by_dump[0] for p in dialog.dump_plan) == pytest.approx(min(waste, 0.01e6))
+    assert "Döküm sahaları" in dialog.fleet_note.text()
+    if waste > 0.02e6:  # some waste goes to the far dump: longer surface haul
+        assert [r.haul_m for r in dialog.fleet] != plain
     assert dialog.fleet_table.rowCount() == len(dialog.sched.rows)  # type: ignore[union-attr]
     assert all(r.trucks >= 1 for r in dialog.fleet)
     dialog.ask_name = lambda default: "baz"  # type: ignore[method-assign]

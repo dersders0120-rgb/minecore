@@ -362,3 +362,11 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
   raster dig lines (staircase edges at the cell size, no simplification).
   One blast outline per run; no blast movement correction; no monthly
   shot sequencing (short-term scheduling is not implemented yet).
+
+## Dump sequencing and haul distance
+
+- `pitopt.fleet.dump_schedule` (GUI "Ekipman" → "Döküm sahaları"): waste
+  fills the dumps nearest first up to their capacity; haul distances are
+  given per dump (no road network or shortest-path routing, no lift-by-lift
+  dump elevation, no rehandle). Waste beyond the total capacity is reported
+  and costed at the farthest dump. Smoke-tested only.

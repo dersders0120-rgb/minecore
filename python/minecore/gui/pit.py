@@ -73,7 +73,16 @@ from minecore.pitopt.economics import (
     parse_products,
     parse_routes,
 )
-from minecore.pitopt.fleet import Fleet, FleetRow, fleet_by_period, period_lifts
+from minecore.pitopt.fleet import (
+    DumpPeriod,
+    DumpSite,
+    Fleet,
+    FleetRow,
+    dump_schedule,
+    fleet_by_period,
+    parse_dumps,
+    period_lifts,
+)
 from minecore.pitopt.milp import OptimisedSchedule, schedule_optimised
 from minecore.pitopt.optimise import route_tonnes, store
 from minecore.pitopt.phases import best_pushbacks
@@ -888,6 +897,15 @@ class PitDialog(QDialog):
         form.addRow(
             "Yükleyici kapasitesi (t/sa) / maliyeti ($/sa)", _row(self.fl_lrate, self.fl_lcost)
         )
+        self.fl_dumps = QLineEdit()
+        self.fl_dumps.setPlaceholderText(
+            "örn. kuzey:40:1200; guney:80:2500 (ad:kapasite Mt:mesafe m)"
+        )
+        self.fl_dumps.setToolTip(
+            "Döküm sahaları: her dönemin pasası en yakın sahadan başlayarak kapasite dolana "
+            "kadar yerleştirilir; yüzey mesafesi (tesise) cevher için kullanılır."
+        )
+        form.addRow("Döküm sahaları", self.fl_dumps)
         run = QPushButton("Kamyon ve yükleyici filosunu hesapla")
         run.clicked.connect(self._guard(self.run_fleet))
         form.addRow(run)
@@ -899,6 +917,7 @@ class PitDialog(QDialog):
         self.fleet_note.setWordWrap(True)
         v.addWidget(self.fleet_note)
         self.fleet: list[FleetRow] = []
+        self.dump_plan: list[DumpPeriod] = []
         return page
 
     def fleet_inputs(self) -> Fleet:
@@ -925,7 +944,11 @@ class PitDialog(QDialog):
             raise RuntimeError("Önce kabukları hesaplayıp kısıtlı üretim çizelgesi oluşturun.")
         grid = BlockModel.open(self.project, self.model.currentText()).grid
         lifts = period_lifts(self.pit, self.sched, grid.size[2])
-        self.fleet = rows = fleet_by_period(self.sched, lifts, self.fleet_inputs())
+        dumps = parse_dumps(self.fl_dumps.text())
+        fleet = self.fleet_inputs()
+        self.dump_plan = dump_schedule(self.sched, dumps, fleet.surface_m) if dumps else []
+        surface = {d.period: d.surface_m for d in self.dump_plan}
+        self.fleet = rows = fleet_by_period(self.sched, lifts, fleet, surface)
         self.fleet_table.setRowCount(len(rows))
         for n, r in enumerate(rows):
             cells = [
@@ -950,6 +973,7 @@ class PitDialog(QDialog):
             f"Nakliye+yükleme ortalama {total / tonnes if tonnes else 0:,.2f} $/t. "
             "Ortalama çevrim tahminidir (kuyruk/eşleşme benzetimi yok); maliyet çizelge "
             "nakit akışına eklenmez, madencilik maliyetiyle karşılaştırmak içindir."
+            + _dump_note(self.dump_plan, dumps)
         )
 
     def _scenario_page(self) -> QWidget:
@@ -1210,6 +1234,32 @@ SCHED_HEADERS = [
     "Nakit M$",
     "İskontolu M$",
 ]
+
+
+def _dump_note(plan: list[DumpPeriod], dumps: tuple[DumpSite, ...]) -> str:
+    if not plan:
+        return ""
+    parts = []
+    for k, d in enumerate(dumps):
+        total, full_at = 0.0, 0
+        for p in plan:
+            total += p.by_dump[k]
+            if not full_at and total >= d.capacity_t - 1:
+                full_at = p.period
+        parts.append(
+            f"{d.name} {total / 1e6:,.1f}/{d.capacity_t / 1e6:,.1f} Mt"
+            + (f" ({full_at}. dönemde doldu)" if full_at else "")
+        )
+    lost = sum(p.unplaced_t for p in plan)
+    return (
+        "\nDöküm sahaları: "
+        + "; ".join(parts)
+        + (
+            f". Uyarı: {lost / 1e6:,.2f} Mt pasaya yer kalmadı (en uzak saha mesafesiyle sayıldı)."
+            if lost > 1
+            else "."
+        )
+    )
 
 
 def _method_note(sched: ConstrainedSchedule) -> str:
