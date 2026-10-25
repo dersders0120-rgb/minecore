@@ -313,3 +313,20 @@ def test_classification_dialog_and_filtered_report(qapp: QApplication, tmp_path:
     assert gt.report is not None
     assert gt.report.rows[0].blocks == 2
     project.close()
+
+
+def test_calculator_dialog(qapp: QApplication, tmp_path: Path) -> None:
+    from minecore.blockmodel import Grid  # noqa: PLC0415
+
+    project = Project.create(tmp_path / "h.mcproj", "h")
+    model = BlockModel.create(project, "BM", Grid((0.0, 0.0, 0.0), (10.0, 10.0, 10.0), (2, 1, 1)))
+    model.set_attributes({"cu": np.array([1.0, 2.0])}, {"cu": {"unit": "%"}}, "cu")
+    parent = QWidget()
+    dialog = resource.CalculatorDialog(project, parent)
+    dialog.target.setText("cu2")
+    dialog.expression.setText("cu * 2 + x")
+    dialog.unit.setText("%")
+    dialog.run()
+    assert BlockModel.open(project, "BM").values("cu2").tolist() == [7.0, 19.0]
+    assert "cu2" in [dialog.names.item(i).text() for i in range(dialog.names.count())]
+    project.close()

@@ -25,6 +25,7 @@ import numpy as np
 
 from minecore import surfaces
 from minecore.blockmodel import BlockModel, BlockModelError, Grid
+from minecore.blockmodel.calc import calculate
 from minecore.blockmodel.classify import Criteria, classify
 from minecore.blockmodel.workflow import (
     estimate_blocks,
@@ -112,6 +113,12 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     rep.add_argument("--density", default="2.7", help="t/m3 or a density attribute")
     rep.add_argument("--json", action="store_true")
     rep.add_argument("--filter", nargs=3, metavar=("ATTR", "MIN", "MAX"), help="report subset")
+    calc = bm_cmds.add_parser("calc", help="new attribute from an expression")
+    calc.add_argument("project")
+    calc.add_argument("model")
+    calc.add_argument("attribute")
+    calc.add_argument("expression")
+    calc.add_argument("--unit")
     cls = bm_cmds.add_parser(
         "classify", help="confidence categories (not a JORC/NI 43-101 classification)"
     )
@@ -227,6 +234,29 @@ def surface_command(args: argparse.Namespace, out: TextIO) -> int:
     return 0
 
 
+def _bm_derive(model: BlockModel, args: argparse.Namespace, out: TextIO) -> int:
+    if args.bm_command == "calc":
+        values = calculate(model, args.attribute, args.expression, args.unit)
+        known = int(np.isfinite(values).sum())
+        out.write(f"{args.attribute}: {known} values, {values.size - known} missing\n")
+        return 0
+    if args.bm_command == "classify":
+        n = len(args.distance)
+        kv = args.kv or [0.0] * n
+        if len(args.samples) != n or len(kv) != n:
+            raise BlockModelError("give one --distance, --samples (and --kv) per category")
+        criteria = [
+            Criteria(d, k, v if v > 0 else None)
+            for d, k, v in zip(args.distance, args.samples, kv, strict=True)
+        ]
+        counts = classify(model, args.attribute, criteria)
+        for cat, count in counts.items():
+            out.write(f"category {cat}: {count} blocks\n")
+        out.write("note: not a JORC/NI 43-101 classification; needs a Competent Person\n")
+        return 0
+    raise AssertionError(args.bm_command)
+
+
 def bm_command(args: argparse.Namespace, out: TextIO) -> int:
     with Project.open(args.project) as project:
         if args.bm_command == "create":
@@ -271,20 +301,8 @@ def bm_command(args: argparse.Namespace, out: TextIO) -> int:
             )
             out.write(f"{args.attribute}: estimated; {missed} blocks without enough samples\n")
             return 0
-        if args.bm_command == "classify":
-            n = len(args.distance)
-            kv = args.kv or [0.0] * n
-            if len(args.samples) != n or len(kv) != n:
-                raise BlockModelError("give one --distance, --samples (and --kv) per category")
-            criteria = [
-                Criteria(d, k, v if v > 0 else None)
-                for d, k, v in zip(args.distance, args.samples, kv, strict=True)
-            ]
-            counts = classify(model, args.attribute, criteria)
-            for cat, count in counts.items():
-                out.write(f"category {cat}: {count} blocks\n")
-            out.write("note: not a JORC/NI 43-101 classification; needs a Competent Person\n")
-            return 0
+        if args.bm_command in ("calc", "classify"):
+            return _bm_derive(model, args, out)
         density: float | str = _density(args.density)
         mask = None
         if args.filter:

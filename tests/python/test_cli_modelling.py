@@ -43,6 +43,7 @@ def test_csv_to_pit_schedule(tmp_path: Path) -> None:
         "--rock-only",
     )
     assert "estimated" in out
+    assert "values" in _run("bm", "calc", p, "BM", "au2", "au_ok * 2", "--unit", "g/t")
     assert "category 1" in _run(
         "bm", "classify", p, "BM", "au_ok", "--distance", "30", "60", "--samples", "8", "4"
     )

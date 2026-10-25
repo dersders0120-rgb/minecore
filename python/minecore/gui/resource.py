@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
     QInputDialog,
     QLabel,
     QLineEdit,
+    QListWidget,
     QMessageBox,
     QProgressDialog,
     QPushButton,
@@ -40,6 +41,7 @@ from PySide6.QtWidgets import (
 )
 
 from minecore.blockmodel import BlockModel, GradeTonnage, Grid
+from minecore.blockmodel.calc import calculate
 from minecore.blockmodel.classify import Criteria, classify
 from minecore.blockmodel.model import KIND as BLOCK_MODEL_KIND
 from minecore.blockmodel.workflow import (
@@ -1010,3 +1012,67 @@ class ClassificationDialog(QDialog):
         self.result_label.setText(
             f"'kat_{attr}' kaydedildi. " + "; ".join(parts) + f"; kategorisiz: {self.counts[0]:,}."
         )
+
+
+class CalculatorDialog(QDialog):
+    """New block attribute from an expression over existing attributes."""
+
+    def __init__(self, project: Project, parent: QWidget) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Blok modeli hesaplayıcı")
+        self.resize(640, 420)
+        self.project = project
+        form = QFormLayout(self)
+        self.model = QComboBox()
+        self.model.addItems(block_models(project))
+        self.target = QLineEdit("yeni")
+        self.expression = QLineEdit()
+        self.expression.setPlaceholderText("örn. where(lito == 2, 2.65, 2.50) veya cu + au * 0.62")
+        self.unit = QLineEdit()
+        self.unit.setPlaceholderText("boş, %, g/t, ppm, t/m3 ...")
+        self.names = QListWidget()
+        self.names.itemDoubleClicked.connect(lambda item: self.expression.insert(item.text()))
+        form.addRow("Blok modeli", self.model)
+        form.addRow("Yeni öznitelik adı", self.target)
+        form.addRow("İfade", self.expression)
+        form.addRow("Birim", self.unit)
+        form.addRow("Öznitelikler (çift tık: ekle)", self.names)
+        help_text = QLabel(
+            "İşlemler: + - * / ** %, karşılaştırma, and/or/not, 'a if koşul else b'. "
+            "Fonksiyonlar: abs sqrt exp log log10 min max clip where isnan round floor ceil. "
+            "x, y, z blok merkezleridir."
+        )
+        help_text.setWordWrap(True)
+        form.addRow(help_text)
+        run = QPushButton("Hesapla ve kaydet")
+        run.clicked.connect(self.run)
+        form.addRow(run)
+        self.result_label = QLabel()
+        form.addRow(self.result_label)
+        self.model.currentTextChanged.connect(self._fill)
+        self._fill(self.model.currentText())
+
+    def _fill(self, name: str) -> None:
+        self.names.clear()
+        if name:
+            self.names.addItems([*BlockModel.open(self.project, name).attributes, "x", "y", "z"])
+
+    def run(self) -> None:
+        model = BlockModel.open(self.project, self.model.currentText())
+        values = calculate(
+            model,
+            self.target.text().strip(),
+            self.expression.text(),
+            self.unit.text().strip() or None,
+        )
+        finite = values[np.isfinite(values)]
+        stats = (
+            f"en az {finite.min():.4g}, ortalama {finite.mean():.4g}, en çok {finite.max():.4g}"
+            if finite.size
+            else "tüm değerler boş"
+        )
+        self.result_label.setText(
+            f"'{self.target.text().strip()}': {finite.size:,} değer ({stats}); "
+            f"{values.size - finite.size:,} boş."
+        )
+        self._fill(self.model.currentText())

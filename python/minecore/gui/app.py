@@ -285,6 +285,7 @@ class MainWindow(QMainWindow):
         action(bm, "Tenör kestirimi (NN / IDW / Kriging)...", self.estimate)
         action(bm, "Kestirim doğrulama (swath, çapraz doğrulama)...", self.validate_estimate)
         action(bm, "Güven kategorileri (mesafe, örnek sayısı, KV)...", self.categorise)
+        action(bm, "Hesaplayıcı (ifade ile yeni öznitelik)...", self.calculator)
         bm.addSeparator()
         action(bm, "Tenör-tonaj raporu...", self.grade_tonnage)
         action(bm, "Blok modelini CSV olarak dışa aktar...", self.export_block_model)
@@ -654,6 +655,15 @@ class MainWindow(QMainWindow):
             "Tenör kabuğu",
             f"'{name}': {len(solid.triangles):,} üçgen, hacim {solid.volume():,.0f} m³.",
         )
+
+    def calculator(self) -> None:
+        from minecore.gui.resource import CalculatorDialog  # noqa: PLC0415
+
+        project = self._need_project()
+        if not block_models(project):
+            raise RuntimeError("Projede blok modeli yok.")
+        CalculatorDialog(project, self).exec()
+        self.refresh()
 
     def categorise(self) -> None:
         from minecore.gui.resource import ClassificationDialog  # noqa: PLC0415
