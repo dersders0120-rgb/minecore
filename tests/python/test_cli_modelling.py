@@ -343,3 +343,8 @@ def test_project_cash_flow_from_the_cli(tmp_path: Path) -> None:
     assert "sensitivity of the project NPV" in _run(*econ[:-1], "--sensitivity")
     no_plant = [a for a in econ if a not in ("--plant", "5e5", "--json")]
     assert main([*no_plant, "--sensitivity"], io.StringIO()) == 1
+    # NPV-maximising MILP schedule: never below the greedy one.
+    milp = json.loads(_run(*econ, "--schedule", "milp", "--time-limit", "10"))
+    assert milp["npv"] >= milp["milp"]["greedy_npv"] - 1e-6 * abs(milp["milp"]["greedy_npv"])
+    assert milp["milp"]["greedy_npv"] == pytest.approx(plain["npv"])
+    assert main([*no_plant, "--schedule", "milp"], io.StringIO()) == 1

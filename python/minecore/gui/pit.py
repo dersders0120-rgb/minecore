@@ -63,6 +63,7 @@ from minecore.pitopt.cashflow import (
 from minecore.pitopt.cutoff import LaneResult, cutoffs_from_model
 from minecore.pitopt.design import edge_blocks
 from minecore.pitopt.economics import PitOptError, parse_products, parse_routes
+from minecore.pitopt.milp import OptimisedSchedule, schedule_optimised
 from minecore.pitopt.optimise import route_tonnes, store
 from minecore.pitopt.scheduling import (
     ConstrainedSchedule,
@@ -258,6 +259,14 @@ class PitDialog(QDialog):
         pf.addRow("Stok kapasitesi (Mt)", self.stock_caps)
         self.rehandle = _spin(0.0, 0.0, 1e3, 0.1, 2)
         pf.addRow("Stoktan geri yükleme maliyeti ($/t)", self.rehandle)
+        self.method = QComboBox()
+        self.method.addItems(["Kurallı (hızlı)", "NPV optimizasyonu (MILP)"])
+        self.method.setToolTip(
+            "MILP: aynı kurallarla (kapasiteler, gecikme, batma hızı, stok) NPV'yi en büyüten "
+            "çizelge; kurallı çizelgeden kötü olamaz. Büyük modellerde süre sınırına kadar sürer."
+        )
+        self.time_limit = QSpinBox(minimum=5, maximum=3600, value=60)
+        pf.addRow("Çizelge yöntemi / süre sınırı (s)", _row(self.method, self.time_limit))
         pf.addRow("Pushback'ler arası basamak gecikmesi", self.lag)
         pf.addRow("Batma hızı (basamak/yıl)", self.sinking)
         left.addWidget(pb)
@@ -338,7 +347,8 @@ class PitDialog(QDialog):
         self.note = QLabel(
             "Kabuklar Lerchs-Grossmann ile aynı sonucu veren en büyük kapanış (max-flow) ile "
             "bulunur. Çizelge kurallı (greedy) bir sıralamadır: kazı ve tesis kapasitesi, "
-            "basamak gecikmesi, batma hızı ve stok sahasına uyar; MILP optimizasyonu değildir."
+            "basamak gecikmesi, batma hızı ve stok sahasına uyar; aynı kurallarla NPV'yi en "
+            "büyüten MILP çizelgesi de seçilebilir."
         )
         self.note.setWordWrap(True)
         left.addWidget(self.note)
@@ -570,7 +580,15 @@ class PitDialog(QDialog):
                 f"; {fixed.remaining_slivers:,} dar blok kaldı." if fixed.remaining_slivers else "."
             )
         limits = self.limits()
-        self.sched = schedule_constrained(self.pit, self.phase, limits)
+        if self.method.currentIndex() == 1:
+            pit, phase, seconds = self.pit, self.phase, self.time_limit.value()
+            self.sched = _with_progress(
+                self,
+                f"Çizelge MILP ile optimize ediliyor (en çok {seconds} s)...",
+                lambda progress: schedule_optimised(pit, phase, limits, time_limit=seconds),
+            )
+        else:
+            self.sched = schedule_constrained(self.pit, self.phase, limits)
         self.flow = cash_flow(self.sched.rows, self.terms()) if self.sched.rows else None
         self._show_cash_flow()
         rows = self.sched.rows
@@ -622,6 +640,7 @@ class PitDialog(QDialog):
             "Pushback",
             f"{int(self.phase.max())} pushback, {len(rows)} yıllık çizelge. "
             f"Çizelge NPV {self.sched.npv / 1e6:,.1f} M$."
+            + _method_note(self.sched)
             + (_project_summary(self.flow) if self.flow is not None else "")
             + width_note
             + (
@@ -764,6 +783,18 @@ class PitDialog(QDialog):
             for j, value in enumerate(_cash_cells(r)):
                 _cell(self.cash_table, i, j, value if isinstance(value, str) else _m(value))
         self.cash_table.resizeColumnsToContents()
+
+
+def _method_note(sched: ConstrainedSchedule) -> str:
+    if not isinstance(sched, OptimisedSchedule):
+        return ""
+    if sched.method == "milp":
+        gain = sched.npv - sched.greedy_npv
+        return (
+            f"\nMILP çizelgesi: kurallı çizelgeye göre {gain / 1e6:+,.2f} M$ "
+            f"(boşluk %{100 * sched.mip_gap:.2f})."
+        )
+    return f"\nMILP kurallı çizelgeyi geçemedi, kurallı çizelge kullanıldı ({sched.status})."
 
 
 SENSITIVITY_LABELS = {

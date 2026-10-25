@@ -98,9 +98,19 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
   widened. Measured: 123k blocks, 3.2 M arcs, 3.4 s. Ramp access is not
   enforced.
 - Schedule (`pitopt.scheduling`): greedy, rule-based sequence with mining and
-  plant capacity, bench lag, sinking rate and stockpiles. Not an
-  optimised (MILP) schedule; no blending targets, no cut-off optimisation, no
-  equipment or haulage model; periods are years of equal capacity.
+  plant capacity, bench lag, sinking rate and stockpiles; no blending
+  targets, no cut-off optimisation, no equipment or haulage model; periods
+  are years of equal capacity.
+- MILP schedule (`pitopt.milp`, CLI `--schedule milp`, GUI "NPV
+  optimizasyonu"): maximises the NPV under the same rules with HiGHS
+  (scipy). Mining units stay increments (pushback x bench), so it is not a
+  block-level or OES optimisation; the pushbacks are fixed inputs; the
+  horizon is the greedy length plus two periods; the stockpile is selective
+  per increment, route and grade bin (no blending inside a source). Time
+  limit (default 60 s) and MIP gap (0.5 %) apply; when the solver stops
+  without beating the greedy schedule, the greedy one is kept and the
+  reason is reported. Measured on the sample data (2 pushbacks, 23 years):
+  about 40 s. The sensitivity analysis uses the greedy schedule.
 - Stockpiles: one per route and grade bin (`--grade-bins`, GUI "Stok tenör
   sınıfları"), fed highest bin first, fresh before stock within a bin;
   capacity per route (`--stockpile-capacity`) with the overflow sent to waste,

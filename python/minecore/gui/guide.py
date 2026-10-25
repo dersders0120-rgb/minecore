@@ -61,6 +61,8 @@ GUIDE = """
    yüksek marjlı yola gider) desteklenir. Çizelgede stok tenör sınıfları (ör. `1; 2`),
    stok kapasitesi ve geri yükleme maliyeti verilebilir: tesis önce yüksek tenörlü
    cevherle beslenir, düşük tenör stokta bekler, dolu stoktan taşan cevher döküme gider.
+   Çizelge yöntemi olarak "NPV optimizasyonu (MILP)" seçilirse aynı kurallarla NPV'yi en
+   büyüten çizelge bulunur (kurallı çizelgeden kötü olamaz; süre sınırı verilir).
    **Proje nakit akışı** bölümünde yatırım (ör. `0:250; 4:40`, yıl:M$), sabit gider,
    kapanış maliyeti, vergi ve amortisman girilir; "Nakit akışı" sekmesi yıl yıl FAVÖK,
    vergi, nakit akışı ve proje NPV, İVO (IRR) ve geri ödeme süresini verir.
