@@ -43,7 +43,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from minecore import __version__
+from minecore import __version__, surfaces
 from minecore.blockmodel import BlockModel
 from minecore.blockmodel.workflow import load_variograms
 from minecore.drillholes import (
@@ -236,6 +236,10 @@ class MainWindow(QMainWindow):
         bm.addSeparator()
         action(bm, "Tenör-tonaj raporu...", self.grade_tonnage)
         action(bm, "Blok modelini CSV olarak dışa aktar...", self.export_block_model)
+        surf = self.menuBar().addMenu("&Yüzey")
+        action(surf, "Topoğrafya noktalarını içe aktar (x, y, z CSV)...", self.import_surface)
+        action(surf, "Kuyu ağızlarından topoğrafya oluştur", self.surface_from_collars)
+        action(surf, "Blok modelini topoğrafyayla kes (kaya/hava)...", self.flag_blocks)
         pit = self.menuBar().addMenu("&Açık Ocak")
         action(pit, "Ocak optimizasyonu, pushback ve çizelge...", self.optimise_pit)
         help_menu = self.menuBar().addMenu("&Yardım")
@@ -437,6 +441,68 @@ class MainWindow(QMainWindow):
             rows = export_block_model_csv(Path(path), BlockModel.open(project, name))
             self.statusBar().showMessage(f"{rows:,} blok {path} dosyasına yazıldı.")
 
+    def import_surface(self) -> None:
+        project = self._need_project()
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Topoğrafya noktaları", "", "Metin tabloları (*.csv *.txt *.xyz)"
+        )
+        if not path:
+            return
+        surface = surfaces.read_points_csv(Path(path))
+        name, ok = QInputDialog.getText(self, "Yüzey adı", "Ad:", text=Path(path).stem)
+        if ok and name.strip():
+            surfaces.save_surface(project, name.strip(), surface)
+            self.refresh()
+            self.statusBar().showMessage(f"{len(surface.points):,} noktalı yüzey kaydedildi.")
+
+    def surface_from_collars(self) -> None:
+        project = self._need_project()
+        if self.db is None or self.report is None:
+            raise RuntimeError("Önce sondaj verisini içe aktarın.")
+        geometry = hole_geometry(self.db, self.report)
+        points = np.array([g.collar for g in geometry.values()])
+        name = "Topo_kuyu_agizlari"
+        index = 1
+        while name in surfaces.surface_names(project):
+            index += 1
+            name = f"Topo_kuyu_agizlari_{index}"
+        surfaces.save_surface(project, name, surfaces.Surface(points))
+        self.refresh()
+        QMessageBox.information(
+            self,
+            "Yüzey",
+            f"'{name}': {len(points)} kuyu ağzından üçgenlenmiş yüzey oluşturuldu. "
+            "Gerçek topoğrafya varsa onu içe aktarmanız daha doğrudur.",
+        )
+
+    def flag_blocks(self) -> None:
+        project = self._need_project()
+        names = surfaces.surface_names(project)
+        models = block_models(project)
+        if not names or not models:
+            raise RuntimeError("Önce bir yüzey ve bir blok modeli gerekli.")
+        surface, ok = QInputDialog.getItem(self, "Topoğrafya", "Yüzey:", names, 0, False)
+        if not ok:
+            return
+        model_name, ok = QInputDialog.getItem(self, "Topoğrafya", "Blok modeli:", models, 0, False)
+        if not ok:
+            return
+        model = BlockModel.open(project, model_name)
+        rock, outside = surfaces.flag_below(model, surfaces.load_surface(project, surface))
+        self.refresh()
+        QMessageBox.information(
+            self,
+            "Topoğrafya",
+            f"'kaya' özniteliği yazıldı: {rock:,} blok kayada, "
+            f"{model.grid.blocks - rock:,} blok havada."
+            + (
+                f"\n{outside:,} blok sütunu yüzey sınırı dışında; "
+                "en yakın noktanın kotu kullanıldı."
+                if outside
+                else ""
+            ),
+        )
+
     def optimise_pit(self) -> None:
         from minecore.gui.pit import PitDialog  # noqa: PLC0415
 
@@ -490,6 +556,12 @@ class MainWindow(QMainWindow):
             for attr in model.attributes:
                 item.addChild(QTreeWidgetItem([attr, ""]))
             root.addChild(item)
+        surface_list = surfaces.surface_names(self.project)
+        if surface_list:
+            s_item = QTreeWidgetItem(["Yüzeyler", str(len(surface_list))])
+            for s_name in surface_list:
+                s_item.addChild(QTreeWidgetItem([s_name, ""]))
+            root.addChild(s_item)
         variograms = load_variograms(self.project)
         if variograms:
             vg_item = QTreeWidgetItem(["Variogram modelleri", str(len(variograms))])
@@ -604,6 +676,7 @@ class MainWindow(QMainWindow):
             return
         if model is not None:
             self._draw_blocks(model[0], model[1], origin)
+        self._draw_surfaces(origin)
         if not geometry:
             self.view.reset_camera()
             self.view.render()
@@ -629,6 +702,18 @@ class MainWindow(QMainWindow):
             self._draw_intervals(geometry, table_name, field_name, origin)
         self.view.reset_camera()
         self.view.render()
+
+    def _draw_surfaces(self, origin: Any) -> None:
+        import pyvista as pv  # noqa: PLC0415
+
+        if self.project is None:
+            return
+        for name in surfaces.surface_names(self.project):
+            surface = surfaces.load_surface(self.project, name)
+            tri = surface.triangles()
+            faces = np.column_stack([np.full(len(tri), 3), tri]).ravel()
+            mesh = pv.PolyData(surface.points - origin, faces=faces)
+            self.view.add_mesh(mesh, color="#8d6e63", opacity=0.45, show_edges=False)
 
     def _selected_block_model(self) -> tuple[BlockModel, str | None] | None:
         choice = self.block_by.currentText()

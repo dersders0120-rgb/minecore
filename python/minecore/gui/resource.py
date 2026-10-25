@@ -413,6 +413,7 @@ class EstimationDialog(QDialog):
         self.per_hole = QSpinBox(minimum=0, maximum=100, value=4)
         self.disc = QSpinBox(minimum=1, maximum=6, value=2)
         self.output = QLineEdit()
+        self.rock_only = QCheckBox("Yalnız kaya bloklarını kestir ('kaya' özniteliği)")
         form.addRow("Blok modeli", self.model)
         form.addRow("Veri (kompozit önerilir)", self.source)
         form.addRow("Yöntem", self.method)
@@ -424,11 +425,19 @@ class EstimationDialog(QDialog):
         form.addRow("Kuyu başına en çok (0 = sınırsız)", self.per_hole)
         form.addRow("Blok ayrıklaştırma (n x n x n)", self.disc)
         form.addRow("Sonuç özniteliği", self.output)
+        form.addRow(self.rock_only)
+        self.model.currentTextChanged.connect(self._sync_rock)
+        self._sync_rock(self.model.currentText())
         form.addRow(_buttons(self))
         self.method.currentIndexChanged.connect(self._sync)
         self.source.currentTextChanged.connect(self._sync)
         self._sync()
         self._search_from_variogram()
+
+    def _sync_rock(self, name: str) -> None:
+        has = bool(name) and "kaya" in BlockModel.open(self.project, name).attributes
+        self.rock_only.setEnabled(has)
+        self.rock_only.setChecked(has)
 
     def _sync(self) -> None:
         method = Method(self.method.currentData())
@@ -464,6 +473,9 @@ class EstimationDialog(QDialog):
         if not attribute:
             raise RuntimeError("Sonuç özniteliğine bir ad verin.")
         n = self.disc.value()
+        mask = None
+        if self.rock_only.isChecked() and "kaya" in model.attributes:
+            mask = model.values("kaya") > 0.5
         unestimated = _with_progress(
             self.parent(),  # type: ignore[arg-type]
             "Kestirim yapılıyor...",
@@ -476,6 +488,7 @@ class EstimationDialog(QDialog):
                 variogram=variogram,
                 power=self.power.value(),
                 discretisation=(n, n, n),
+                mask=mask,
                 progress=progress,
             ),
         )

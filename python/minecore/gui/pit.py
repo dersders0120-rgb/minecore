@@ -97,6 +97,8 @@ class PitDialog(QDialog):
         form.addRow("Tenör özniteliği", self.grade)
         form.addRow("Yoğunluk özniteliği", self.density_attr)
         form.addRow("Sabit yoğunluk (t/m³)", self.density)
+        self.rock = QComboBox()
+        form.addRow("Kaya/hava özniteliği (topoğrafya)", self.rock)
         left.addWidget(model_box)
 
         econ_box = QGroupBox("Ekonomi")
@@ -217,14 +219,19 @@ class PitDialog(QDialog):
         self.grade.clear()
         self.density_attr.clear()
         self.density_attr.addItem("(sabit)")
+        self.rock.clear()
+        self.rock.addItem("(yok: model üstü yüzeydir)")
         if not name:
             return
         attrs = BlockModel.open(self.project, name).attributes
         grades = [
             a for a in attrs if not a.endswith(("_n", "_dist", "_kv")) and not a.startswith("pit_")
         ]
-        self.grade.addItems(grades)
+        self.grade.addItems([g for g in grades if g != "kaya"])
         self.density_attr.addItems(grades)
+        self.rock.addItems(grades)
+        if "kaya" in grades:
+            self.rock.setCurrentText("kaya")
         unit = attrs.get(grades[0], {}).get("unit") if grades else None
         if unit == "%":
             self.price_unit.setCurrentIndex(list(PriceUnit).index(PriceUnit.TONNE))
@@ -268,6 +275,7 @@ class PitDialog(QDialog):
                 mining_rate=self.rate.value() * 1e6,
                 discount_rate=self.discount.value() / 100.0,
                 max_levels=levels,
+                rock_attribute=None if self.rock.currentIndex() == 0 else self.rock.currentText(),
                 progress=progress,
             ),
         )

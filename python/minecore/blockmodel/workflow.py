@@ -11,7 +11,7 @@ import numpy.typing as npt
 from minecore.blockmodel.model import BlockModel
 from minecore.drillholes import DrillholeDatabase, DrillholeError, FieldType, Flag, validate
 from minecore.drillholes.workflow import hole_geometry
-from minecore.estimation import Method, Search, VariogramModel, estimate
+from minecore.estimation import EstimationResult, Method, Search, VariogramModel, estimate
 from minecore.jobs import Progress
 from minecore.project import Project
 
@@ -79,14 +79,21 @@ def estimate_blocks(  # noqa: PLR0913 - options are keyword-only
     variogram: VariogramModel | None = None,
     power: float = 2.0,
     discretisation: tuple[int, int, int] = (2, 2, 2),
+    mask: npt.NDArray[np.bool_] | None = None,
     progress: Progress | None = None,
 ) -> int:
-    """Estimate ``attribute`` into ``model``; returns the number of unestimated blocks."""
+    """Estimate ``attribute`` into ``model``; returns the number of unestimated blocks.
+
+    ``mask`` limits estimation to selected blocks (e.g. below topography or
+    inside a domain); the others stay empty and are not counted as unestimated.
+    """
     grid = model.grid
-    result = estimate(
+    targets = grid.centroids()
+    selected = np.ones(grid.blocks, bool) if mask is None else np.asarray(mask, bool)
+    sub = estimate(
         samples.xyz,
         samples.values,
-        grid.centroids(),
+        targets[selected],
         search,
         method,
         variogram=variogram,
@@ -96,6 +103,7 @@ def estimate_blocks(  # noqa: PLR0913 - options are keyword-only
         hole_ids=samples.hole_index,
         progress=progress,
     )
+    result = _expand(sub, selected)
     info: dict[str, dict[str, Any]] = {
         attribute: {
             "unit": samples.unit,
@@ -122,7 +130,22 @@ def estimate_blocks(  # noqa: PLR0913 - options are keyword-only
         values[f"{attribute}_kv"] = result.variance
         info[f"{attribute}_kv"] = {"unit": None}
     model.set_attributes(values, info, f"Estimate {attribute!r} by {method.value}")
-    return result.unestimated
+    return sub.unestimated
+
+
+def _expand(sub: EstimationResult, selected: npt.NDArray[np.bool_]) -> EstimationResult:
+    def full(values: Any, fill: Any) -> Any:
+        out = np.full(len(selected), fill, dtype=np.asarray(values).dtype)
+        out[selected] = values
+        return out
+
+    return EstimationResult(
+        full(sub.value, np.nan),
+        full(sub.variance, np.nan),
+        full(sub.samples_used, 0),
+        full(sub.mean_distance, np.nan),
+        sub.unestimated,
+    )
 
 
 VARIOGRAM_KIND = "variogram_model"

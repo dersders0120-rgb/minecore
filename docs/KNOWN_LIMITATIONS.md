@@ -37,11 +37,21 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
   optimum as Lerchs-Grossmann); verified against exhaustive search. Measured:
   256k blocks, 6.8 M arcs, 3 shells in 19 s (release build). Each shell is a
   separate solve; no warm start or pseudoflow yet.
-- No topography/air blocks: the top of the block model is taken as the surface;
-  unestimated blocks are valued as waste rock.
+- Topography: a `kaya` (rock = 1, air = 0) attribute from a DTM removes air
+  blocks from tonnage and cost; without it the model top is the surface.
+  Partial blocks are not prorated (centroid test). Unestimated rock blocks are
+  valued as waste. Mining cost depth increment counts benches from the model
+  top, not from the surface.
 - Single element, single process route; no cut-off optimisation (Lane), no
   stockpiles, no mining dilution/recovery factors on the block model.
 - Pushbacks group whole shells by ore tonnage; minimum mining width and ramp
   access are not enforced.
 - Schedule: fixed total mining rate, phases in order bench by bench, no bench
   lag between phases, no plant capacity, no blending. A first pass, not a plan.
+
+## Surfaces
+
+- 2.5D DTMs only (one z per x, y): Delaunay in plan, linear interpolation;
+  outside the hull the nearest point's elevation is used (counted, reported).
+- Import from x, y, z text files only; no DXF/string files, no breaklines,
+  no 3D solids (wireframes) yet.

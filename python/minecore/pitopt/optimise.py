@@ -79,9 +79,14 @@ def optimise_pit(  # noqa: PLR0913 - options are keyword-only
     mining_rate: float = 10e6,
     discount_rate: float = 0.08,
     max_levels: int | None = None,
+    rock_attribute: str | None = None,
     progress: Progress | None = None,
 ) -> PitResult:
-    """Nested shells for ``revenue_factors`` and their report."""
+    """Nested shells for ``revenue_factors`` and their report.
+
+    ``rock_attribute`` (1 = rock, 0 = air above topography) zeroes the tonnage,
+    cost and value of air blocks.
+    """
     factors = tuple(sorted(float(f) for f in revenue_factors))
     if not factors or factors[0] <= 0:
         raise PitOptError("revenue factors must be > 0")
@@ -99,6 +104,9 @@ def optimise_pit(  # noqa: PLR0913 - options are keyword-only
     else:
         rho = np.full(grid.blocks, float(econ.density))
     tonnes = rho * grid.block_volume
+    if rock_attribute is not None:
+        rock = np.nan_to_num(model.values(rock_attribute), nan=1.0)
+        tonnes = tonnes * np.clip(rock, 0.0, 1.0)
     k = np.arange(grid.blocks) // (nx * ny)
     bench = (nz - 1 - k).astype(np.int64)
     base = block_values(grade, unit, tonnes, bench, econ)
