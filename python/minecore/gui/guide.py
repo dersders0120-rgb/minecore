@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import QDialog, QTextBrowser, QVBoxLayout, QWidget
 
+from minecore.gui.layout import fit_to_screen
+
 GUIDE = """
 # MineCore: adım adım kullanım
 
@@ -84,7 +86,7 @@ class GuideDialog(QDialog):
     def __init__(self, parent: QWidget) -> None:
         super().__init__(parent)
         self.setWindowTitle("MineCore kullanım kılavuzu")
-        self.resize(820, 760)
+        fit_to_screen(self, 820, 760)
         layout = QVBoxLayout(self)
         self.text = QTextBrowser()
         self.text.setMarkdown(GUIDE)

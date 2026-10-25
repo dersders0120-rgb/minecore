@@ -65,6 +65,7 @@ from minecore.drillholes.importer import (
     import_workbook,
 )
 from minecore.drillholes.workflow import composite_table, hole_geometry, save_composites
+from minecore.gui.layout import fit_to_screen
 from minecore.gui.resource import (
     BlockModelDialog,
     EstimationDialog,
@@ -201,7 +202,7 @@ class MainWindow(QMainWindow):
         self.db: DrillholeDatabase | None = None
         self.report: ValidationReport | None = None
         self.setWindowTitle(f"MineCore {__version__}")
-        self.resize(1400, 900)
+        fit_to_screen(self, 1400, 900)
 
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(["Proje", "Satır"])
@@ -348,7 +349,11 @@ class MainWindow(QMainWindow):
         try:
             slot()
         except Exception as exc:
-            QMessageBox.critical(self, "MineCore", f"{exc}\n\n{traceback.format_exc(limit=3)}")
+            if type(exc) is RuntimeError:  # a message raised for the user: no traceback
+                QMessageBox.warning(self, "MineCore", str(exc))
+            else:
+                trace = traceback.format_exc(limit=3)
+                QMessageBox.critical(self, "MineCore", f"{exc}\n\n{trace}")
 
     @contextlib.contextmanager
     def _busy(self, message: str) -> Iterator[None]:

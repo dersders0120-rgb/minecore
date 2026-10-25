@@ -87,3 +87,47 @@ def test_application_icon_is_shipped_and_loads(qapp: QApplication) -> None:
     assert ICON_PATH.is_file()
     assert ICON_PATH.with_suffix(".ico").is_file()
     assert not QIcon(str(ICON_PATH)).isNull()
+
+
+def test_tall_dialog_panel_scrolls_and_fits_the_screen(qapp: QApplication) -> None:
+    from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget  # noqa: PLC0415
+
+    from minecore.gui.layout import fit_to_screen, scroll_panel  # noqa: PLC0415
+
+    dialog = QWidget()
+    outer = QHBoxLayout(dialog)
+    panel = QVBoxLayout()
+    for i in range(80):
+        panel.addWidget(QLabel(f"satır {i} uzun bir form etiketi"))
+    area = scroll_panel(outer, panel)
+    fit_to_screen(dialog, 5000, 5000)
+    screen = dialog.screen().availableGeometry()
+    assert dialog.width() <= screen.width()
+    assert dialog.height() <= screen.height()
+    dialog.show()
+    qapp.processEvents()
+    assert area.verticalScrollBar().maximum() > 0  # the rest of the form is reachable
+    assert area.width() >= panel.sizeHint().width()
+
+
+def test_user_messages_show_without_traceback(
+    qapp: QApplication, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from PySide6.QtWidgets import QMessageBox  # noqa: PLC0415
+
+    shown: list[tuple[str, str]] = []
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: shown.append(("w", a[2])))
+    monkeypatch.setattr(QMessageBox, "critical", lambda *a, **k: shown.append(("c", a[2])))
+    window = MainWindow()
+
+    def user_error() -> None:
+        raise RuntimeError("Önce bir model kaydedin.")
+
+    def bug() -> None:
+        raise ValueError("boom")
+
+    window._guard(user_error)
+    window._guard(bug)
+    assert shown[0] == ("w", "Önce bir model kaydedin.")
+    assert shown[1][0] == "c"
+    assert "Traceback" in shown[1][1]
