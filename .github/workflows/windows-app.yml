@@ -43,7 +43,7 @@ jobs:
           --name MineCore --windowed --noconfirm --clean
           --collect-all pyvista --collect-all pyvistaqt --collect-submodules vtkmodules
           --collect-data pyproj --collect-binaries pyproj --collect-all pyarrow
-          --collect-submodules minecore
+          --collect-submodules minecore --collect-data minecore
 
       - name: Smoke test the packaged core
         shell: bash

@@ -56,6 +56,7 @@ from minecore.drillholes.importer import ImportOptions, import_folder, import_ta
 from minecore.drillholes.workflow import composite_table, hole_geometry, save_composites
 from minecore.project import Project
 
+SAMPLE_DIR = Path(__file__).resolve().parent / "sample"
 ROLE_TR = {
     Role.COLLAR: "Kuyu ağzı",
     Role.SURVEY: "Sapma",
@@ -207,6 +208,7 @@ class MainWindow(QMainWindow):
         action(drill, "Kompozit oluştur...", self.composite)
         action(drill, "Tabloyu CSV olarak dışa aktar...", self.export_table)
         help_menu = self.menuBar().addMenu("&Yardım")
+        action(help_menu, "Örnek sondaj projesini aç", self.open_sample)
         action(help_menu, "Hakkında", self.about)
 
     def _guard(self, slot: Any) -> None:
@@ -347,6 +349,21 @@ class MainWindow(QMainWindow):
             for i in range(table.num_rows):
                 writer.writerow(["" if _blank(data[c][i]) else _fmt(data[c][i]) for c in cols])
         self.statusBar().showMessage(f"{path} yazıldı.")
+
+    def open_sample(self) -> None:
+        """Create a project from the bundled 30-hole sample (with deliberate errors)."""
+        folder = QFileDialog.getExistingDirectory(self, "Örnek projenin kaydedileceği klasör")
+        if not folder:
+            return
+        target = Path(folder) / "Ornek.mcproj"
+        index = 1
+        while target.exists():
+            index += 1
+            target = Path(folder) / f"Ornek{index}.mcproj"
+        self._set_project(Project.create(target, "Örnek"))
+        import_folder(self._need_db(), SAMPLE_DIR)
+        self.refresh()
+        self.statusBar().showMessage(f"Örnek proje oluşturuldu: {target}")
 
     def about(self) -> None:
         QMessageBox.about(
