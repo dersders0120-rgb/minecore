@@ -45,7 +45,8 @@ from minecore.drillholes.importer import import_folder
 from minecore.drillholes.workflow import composite_table, hole_geometry, save_composites
 from minecore.estimation import Ellipsoid, Method, Search, experimental, fit_spherical
 from minecore.geology.implicit import interval_contacts, model_domain
-from minecore.io.dxf import write_dxf
+from minecore.gradecontrol import GradeControlError, grade_control, read_holes_csv
+from minecore.io.dxf import Polyline, write_dxf
 from minecore.pitopt import Economics, PriceUnit, SlopeProfile, optimise_pit, pushbacks, schedule
 from minecore.pitopt.benchdesign import (
     BenchGeometry,
@@ -282,6 +283,19 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     ug.add_argument("--rock")
     ug.add_argument("--dxf")
 
+    gcp = commands.add_parser("gc", help="grade control: blasthole grades to dig lines")
+    gcp.add_argument("project")
+    gcp.add_argument("outline", help="string set with the closed blast outline (z = bench toe)")
+    gcp.add_argument("holes", help="CSV with x, y and the grade column")
+    gcp.add_argument("--grade", required=True, help="grade column in the CSV")
+    gcp.add_argument("--cutoff", type=float, action="append", required=True, help="repeat")
+    gcp.add_argument("--bench-height", type=float, default=10.0)
+    gcp.add_argument("--density", type=float, default=2.7)
+    gcp.add_argument("--cell", type=float, default=1.0)
+    gcp.add_argument("--radius", type=float, default=15.0)
+    gcp.add_argument("--smu", type=float, default=5.0, help="minimum mining width, m")
+    gcp.add_argument("--save", help="store the dig lines as this string set")
+    gcp.add_argument("--dxf")
     dec = commands.add_parser("decline", help="underground decline, level crosscuts and ore drives")
     dec.add_argument("project")
     dec.add_argument("model")
@@ -650,6 +664,43 @@ def plot_command(args: argparse.Namespace, out: TextIO) -> int:
             f"{args.out}: {r.blocks} blocks, {r.holes} holes, {r.samples} samples, "
             f"surfaces {r.surface_lines}, solids {r.solid_segments}\n"
         )
+    return 0
+
+
+def gc_command(args: argparse.Namespace, out: TextIO) -> int:
+    with Project.open(args.project) as project:
+        rings = [s.points for s in strings.load_strings(project, args.outline) if s.closed]
+        if not rings:
+            raise GradeControlError(f"{args.outline!r} holds no closed outline")
+        gc = grade_control(
+            rings[0],
+            read_holes_csv(Path(args.holes), args.grade),
+            tuple(sorted(args.cutoff)),
+            bench_height=args.bench_height,
+            density=args.density,
+            cell=args.cell,
+            radius=args.radius,
+            smu=args.smu,
+        )
+        lines = [Polyline(f"GC_CLASS_{c}", p, True) for c, p in gc.lines]
+        if args.save:
+            found = [strings.String(p.points, True, p.layer) for p in lines]
+            strings.save_strings(project, args.save, found)
+        if args.dxf:
+            write_dxf(Path(args.dxf), lines)
+    out.write(
+        f"{'class':>5} {'area m2':>10} {'tonnes':>12} {'grade':>8} {'ideal t':>12} {'polys':>5}\n"
+    )
+    for r in gc.rows:
+        grade = f"{r.grade:8.3f}" if math.isfinite(r.grade) else f"{'-':>8}"
+        out.write(
+            f"{r.cls:5d} {r.area:10,.0f} {r.tonnes:12,.0f} {grade} {r.ideal_tonnes:12,.0f} "
+            f"{r.polygons:5d}\n"
+        )
+    out.write(
+        f"ore loss {gc.ore_loss_t:,.0f} t, dilution {gc.dilution_t:,.0f} t, "
+        f"misrouted ore {gc.misrouted_t:,.0f} t\n"
+    )
     return 0
 
 
@@ -1455,4 +1506,5 @@ HANDLERS = {
     "geo": geo_command,
     "plot": plot_command,
     "decline": decline_command,
+    "gc": gc_command,
 }

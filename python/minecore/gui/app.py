@@ -368,6 +368,7 @@ class MainWindow(QMainWindow):
         action(pit, "Delme-patlatma tasarımı (dilim, aralık, şarj, delik planı)...", self.blast)
         action(pit, "Döküm sahası tasarımı (kat, şev, berm, kapasite)...", self.dump)
         action(pit, "Taban çizgisinden pit tasarımı (elle, rampalı)...", self.toe_design)
+        action(pit, "Tenör kontrolü (patlatma deliklerinden kazı hatları)...", self.grade_control)
         action(pit, "Tasarım rezervi (basamak basamak) ve yüzeyler arası hacim...", self.reserves)
         ug = self.menuBar().addMenu("Yer&altı")
         action(ug, "Pano zarfı (floating stope) ve pano seçimi...", self.stopes)
@@ -1093,6 +1094,12 @@ class MainWindow(QMainWindow):
         from minecore.gui.toedesign import ToeDesignDialog  # noqa: PLC0415
 
         ToeDesignDialog(self._need_project(), self).exec()
+        self.refresh()
+
+    def grade_control(self) -> None:
+        from minecore.gui.gradecontrol import GradeControlDialog  # noqa: PLC0415
+
+        GradeControlDialog(self._need_project(), self).exec()
         self.refresh()
 
     def reserves(self) -> None:

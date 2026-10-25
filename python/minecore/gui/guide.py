@@ -86,6 +86,10 @@ GUIDE = """
    **Açık Ocak → Taban çizgisinden pit tasarımı** kapalı taban çizgilerinden (kotu taban
    kotudur) şev, basamak ve bermle yukarı doğru pit açar, rampa ekler, yüzeyi ve
    toe/crest çizgilerini kaydeder.
+   **Açık Ocak → Tenör kontrolü** patlatma deliği tenörlerinden (CSV: x, y, tenör) atım
+   sınırı içinde ince bir harita kestirir, cut-off'lara göre pasa/cevher sınıflar, en dar
+   kazı genişliğine göre düzeltir ve kazı hatlarını çizgi seti (ve DXF) olarak kaydeder;
+   cevher kaybı ve seyrelme tonajını verir.
    **Açık Ocak → Tasarım rezervi** iki yüzey (ör. topoğrafya ile pit tasarımı) arasındaki
    cevher ve pasayı basamak basamak verir; sınır bloklar kesilen yükseklik oranında
    sayılır, istenirse kaya tipi veya kategoriye göre ayrılır. Aynı pencerede iki yüzey

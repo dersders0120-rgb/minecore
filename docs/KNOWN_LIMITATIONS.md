@@ -352,3 +352,13 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
   resolution); a toe's floor is the mean z of its points; the ramp starts
   at the deepest floor. No interactive bench-by-bench editing of crests.
   Smoke-tested only.
+
+## Grade control
+
+- `gradecontrol` (GUI "Tenör kontrolü", CLI `gc`): blasthole grades from a
+  CSV interpolated by inverse distance in plan (no kriging, no conditional
+  simulation, no economic dig-line optimisation by profit), classes from
+  grade cut-offs, majority-filter smoothing to a minimum mining width,
+  raster dig lines (staircase edges at the cell size, no simplification).
+  One blast outline per run; no blast movement correction; no monthly
+  shot sequencing (short-term scheduling is not implemented yet).

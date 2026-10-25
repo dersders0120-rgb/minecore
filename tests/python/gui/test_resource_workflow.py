@@ -923,3 +923,28 @@ def test_string_editor_and_toe_design(qapp: QApplication, tmp_path: Path) -> Non
     assert dialog.pit.ramp_length > 0
     assert load_strings(project, "tasarim_taban_cizgiler")
     project.close()
+
+
+def test_grade_control_dialog(qapp: QApplication, tmp_path: Path) -> None:
+    from minecore.gui.gradecontrol import GradeControlDialog  # noqa: PLC0415
+    from minecore.strings import String, load_strings, save_strings  # noqa: PLC0415
+
+    project = Project.create(tmp_path / "g.mcproj", "g")
+    square = np.array([[0, 0, 100], [60, 0, 100], [60, 40, 100], [0, 40, 100]], float)
+    save_strings(project, "atim", [String(square, True)])
+    csv_path = tmp_path / "delik.csv"
+    lines = ["x,y,au"]
+    for x in np.arange(2.5, 60, 5.0):
+        for y in np.arange(2.5, 40, 5.0):
+            lines.append(f"{x},{y},{2.0 if x > 30 else 0.2}")
+    csv_path.write_text("\n".join(lines))
+    parent = QWidget()
+    dialog = GradeControlDialog(project, parent)
+    dialog.outline.setCurrentText("atim")
+    dialog.path.setText(str(csv_path))
+    dialog.cutoffs.setText("0.5; 1.5")
+    dialog.run()
+    assert dialog.result is not None
+    assert dialog.table.rowCount() == 3
+    assert load_strings(project, "kazi_hatlari")
+    project.close()
