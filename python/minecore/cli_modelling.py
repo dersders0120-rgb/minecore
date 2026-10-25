@@ -18,13 +18,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Any, TextIO
 
 import numpy as np
 
 from minecore import surfaces
-from minecore.blockmodel import BlockModel, Grid
+from minecore.blockmodel import BlockModel, BlockModelError, Grid
+from minecore.blockmodel.calc import calculate
+from minecore.blockmodel.classify import Criteria, classify
 from minecore.blockmodel.workflow import (
     estimate_blocks,
     interval_samples,
@@ -36,8 +39,12 @@ from minecore.drillholes.importer import import_folder
 from minecore.drillholes.workflow import composite_table, hole_geometry, save_composites
 from minecore.estimation import Ellipsoid, Method, Search, experimental, fit_spherical
 from minecore.pitopt import Economics, PriceUnit, SlopeProfile, optimise_pit, pushbacks, schedule
+from minecore.pitopt.benchdesign import BenchGeometry, design_from_model
+from minecore.pitopt.design import edge_blocks, export_pit
+from minecore.pitopt.economics import PitOptError
 from minecore.pitopt.optimise import Schedule, store
 from minecore.pitopt.scheduling import ConstrainedSchedule, Limits, schedule_constrained
+from minecore.pitopt.width import apply_mining_width
 from minecore.project import Project
 
 METHODS = {"nn": Method.NEAREST, "idw": Method.INVERSE_DISTANCE, "ok": Method.ORDINARY_KRIGING}
@@ -108,6 +115,22 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     rep.add_argument("--cutoffs", type=float, nargs="+", required=True)
     rep.add_argument("--density", default="2.7", help="t/m3 or a density attribute")
     rep.add_argument("--json", action="store_true")
+    rep.add_argument("--filter", nargs=3, metavar=("ATTR", "MIN", "MAX"), help="report subset")
+    calc = bm_cmds.add_parser("calc", help="new attribute from an expression")
+    calc.add_argument("project")
+    calc.add_argument("model")
+    calc.add_argument("attribute")
+    calc.add_argument("expression")
+    calc.add_argument("--unit")
+    cls = bm_cmds.add_parser(
+        "classify", help="confidence categories (not a JORC/NI 43-101 classification)"
+    )
+    cls.add_argument("project")
+    cls.add_argument("model")
+    cls.add_argument("attribute")
+    cls.add_argument("--distance", type=float, nargs="+", required=True, help="per category")
+    cls.add_argument("--samples", type=int, nargs="+", required=True, help="per category")
+    cls.add_argument("--kv", type=float, nargs="+", help="max KV / sill per category (0 = none)")
 
     pit = commands.add_parser("pit", help="open-pit optimisation")
     pit_cmds = pit.add_subparsers(dest="pit_command", metavar="ACTION", required=True)
@@ -115,14 +138,17 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     opt.add_argument("project")
     opt.add_argument("model")
     opt.add_argument("grade")
-    opt.add_argument("--price", type=float, required=True)
-    opt.add_argument("--price-unit", choices=[u.value for u in PriceUnit], required=True)
-    opt.add_argument("--recovery", type=float, required=True, help="fraction, e.g. 0.9")
+    opt.add_argument("--price", type=float)
+    opt.add_argument("--price-unit", choices=[u.value for u in PriceUnit])
+    opt.add_argument("--recovery", type=float, help="fraction, e.g. 0.9")
+    opt.add_argument("--nsr", action="store_true", help="GRADE is an NSR value per tonne")
     opt.add_argument("--mining-cost", type=float, required=True)
     opt.add_argument("--processing-cost", type=float, required=True)
     opt.add_argument("--selling-cost", type=float, default=0.0)
     opt.add_argument("--bench-cost", type=float, default=0.0)
     opt.add_argument("--density", default="2.7")
+    opt.add_argument("--mining-recovery", type=float, default=1.0, help="fraction of ore mined")
+    opt.add_argument("--dilution", type=float, default=0.0, help="zero-grade dilution fraction")
     opt.add_argument("--slope", type=float, default=45.0)
     opt.add_argument("--revenue-factors", type=float, nargs="+", default=[0.5, 0.75, 1.0, 1.25])
     opt.add_argument("--final-rf", type=float, default=1.0)
@@ -133,6 +159,26 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     opt.add_argument("--plant", type=float, help="plant capacity, ore t/year (enables limits)")
     opt.add_argument("--lag", type=int, default=2, help="bench lag between pushbacks")
     opt.add_argument("--sinking", type=int, default=6, help="max benches per pushback per year")
+    opt.add_argument("--min-width", type=float, default=0.0, help="minimum mining width, m")
+    des = pit_cmds.add_parser("design", help="bench design around the optimised pit")
+    des.add_argument("project")
+    des.add_argument("model")
+    des.add_argument("--face", type=float, required=True, help="bench face angle, degrees")
+    des.add_argument("--height", type=float, required=True, help="bench height, m")
+    des.add_argument("--berm", type=float, required=True, help="berm width, m")
+    des.add_argument("--shell", type=int, help="last shell of the pit (default: all)")
+    des.add_argument("--topography")
+    des.add_argument("--save-surface")
+    des.add_argument("--flag", help="attribute for blocks inside the design")
+    des.add_argument("--dxf")
+    exp = pit_cmds.add_parser("export", help="pit outlines, surface and solid to DXF")
+    exp.add_argument("project")
+    exp.add_argument("model")
+    exp.add_argument("dxf")
+    exp.add_argument("--shell", type=int, help="last shell of the pit (default: all shells)")
+    exp.add_argument("--phases", action="store_true", help="one layer set per pushback")
+    exp.add_argument("--topography", help="surface to complete the mined-out surface")
+    exp.add_argument("--save-surface", help="store the mined-out surface under this name")
     opt.add_argument("--json", action="store_true")
 
 
@@ -203,6 +249,29 @@ def surface_command(args: argparse.Namespace, out: TextIO) -> int:
     return 0
 
 
+def _bm_derive(model: BlockModel, args: argparse.Namespace, out: TextIO) -> int:
+    if args.bm_command == "calc":
+        values = calculate(model, args.attribute, args.expression, args.unit)
+        known = int(np.isfinite(values).sum())
+        out.write(f"{args.attribute}: {known} values, {values.size - known} missing\n")
+        return 0
+    if args.bm_command == "classify":
+        n = len(args.distance)
+        kv = args.kv or [0.0] * n
+        if len(args.samples) != n or len(kv) != n:
+            raise BlockModelError("give one --distance, --samples (and --kv) per category")
+        criteria = [
+            Criteria(d, k, v if v > 0 else None)
+            for d, k, v in zip(args.distance, args.samples, kv, strict=True)
+        ]
+        counts = classify(model, args.attribute, criteria)
+        for cat, count in counts.items():
+            out.write(f"category {cat}: {count} blocks\n")
+        out.write("note: not a JORC/NI 43-101 classification; needs a Competent Person\n")
+        return 0
+    raise AssertionError(args.bm_command)
+
+
 def bm_command(args: argparse.Namespace, out: TextIO) -> int:
     with Project.open(args.project) as project:
         if args.bm_command == "create":
@@ -247,8 +316,14 @@ def bm_command(args: argparse.Namespace, out: TextIO) -> int:
             )
             out.write(f"{args.attribute}: estimated; {missed} blocks without enough samples\n")
             return 0
+        if args.bm_command in ("calc", "classify"):
+            return _bm_derive(model, args, out)
         density: float | str = _density(args.density)
-        gt = model.grade_tonnage(args.attribute, args.cutoffs, density=density)
+        mask = None
+        if args.filter:
+            f = model.values(args.filter[0])
+            mask = np.isfinite(f) & (f >= float(args.filter[1])) & (f <= float(args.filter[2]))
+        gt = model.grade_tonnage(args.attribute, args.cutoffs, density=density, mask=mask)
         if args.json:
             json.dump([r.__dict__ for r in gt.rows], out, indent=2)
             out.write("\n")
@@ -271,18 +346,69 @@ def _density(text: str) -> float | str:
         return text
 
 
+def pit_export(project: Project, args: argparse.Namespace, out: TextIO) -> int:
+    e = export_pit(
+        project,
+        BlockModel.open(project, args.model),
+        Path(args.dxf),
+        last_shell=args.shell,
+        phases=args.phases,
+        topography=args.topography,
+        save_surface=args.save_surface,
+    )
+    out.write(
+        f"pit to shell {e.last_shell}: {e.blocks} blocks, solid {e.volume:,.0f} m3, "
+        f"{e.outlines} outlines -> {args.dxf}\n"
+    )
+    return 0
+
+
+def pit_design(project: Project, args: argparse.Namespace, out: TextIO) -> int:
+    geometry = BenchGeometry(args.face, args.height, args.berm)
+    r = design_from_model(
+        project,
+        BlockModel.open(project, args.model),
+        geometry,
+        last_shell=args.shell,
+        topography=args.topography,
+        save_surface=args.save_surface,
+        flag_attribute=args.flag,
+        dxf=Path(args.dxf) if args.dxf else None,
+    )
+    out.write(
+        f"overall slope {geometry.overall_angle:.1f} deg; volume {r.pit.volume():,.0f} m3; "
+        f"blocks {r.shell_blocks} in shell, {r.design_blocks} in design; "
+        f"value {r.shell_value:,.0f} -> {r.design_value:,.0f}\n"
+    )
+    outside = r.pit.volume(outside_model_only=True)
+    if outside > 0:
+        out.write(f"warning: {outside:,.0f} m3 of the design lies outside the block model\n")
+    if r.pit.reaches_edge:
+        out.write("warning: the design reaches the edge of the model area\n")
+    return 0
+
+
 def pit_command(args: argparse.Namespace, out: TextIO) -> int:
     with Project.open(args.project) as project:
+        if args.pit_command == "export":
+            return pit_export(project, args, out)
+        if args.pit_command == "design":
+            return pit_design(project, args, out)
         model = BlockModel.open(project, args.model)
+        if not args.nsr and None in (args.price, args.price_unit, args.recovery):
+            raise PitOptError("--price, --price-unit and --recovery are required without --nsr")
         econ = Economics(
-            args.price,
-            PriceUnit(args.price_unit),
-            args.recovery,
+            args.price or 1.0,
+            PriceUnit(args.price_unit or "t"),
+            args.recovery or 1.0,
             args.mining_cost,
             args.processing_cost,
             args.selling_cost,
             args.bench_cost,
             _density(args.density),
+            args.mining_recovery,
+            args.dilution,
+            args.nsr,
         )
         slope = SlopeProfile(args.slope)
         factors = sorted(set(args.revenue_factors) | {args.final_rf})
@@ -299,6 +425,8 @@ def pit_command(args: argparse.Namespace, out: TextIO) -> int:
         final = factors.index(args.final_rf) + 1
         phase_ore = args.phase_ore or max(result.rows[final - 1].ore_t / 3, 1.0)
         phase = pushbacks(result, final, phase_ore)
+        if args.min_width > 0:
+            phase = apply_mining_width(model.grid, phase, slope, args.min_width).phase
         sched: Schedule | ConstrainedSchedule
         if args.plant:
             limits = Limits(args.rate, args.plant, args.lag, args.sinking, args.discount)
@@ -306,6 +434,12 @@ def pit_command(args: argparse.Namespace, out: TextIO) -> int:
         else:
             sched = schedule(result, phase, args.rate, args.discount)
         store(model, result, econ, slope, phase, sched)
+        edge = edge_blocks(model.grid, result.shell > 0)
+        if edge:
+            sys.stderr.write(
+                f"warning: the largest shell touches the model side with {edge} blocks; "
+                "it may be truncated (create the model with padding)\n"
+            )
         if args.json:
             json.dump(
                 {

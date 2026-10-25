@@ -12,6 +12,7 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QFileDialog,
@@ -30,6 +31,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from minecore import surfaces
 from minecore.blockmodel import BlockModel
 from minecore.gui.resource import _row, _spin, _with_progress, block_models
 from minecore.pitopt import (
@@ -40,8 +42,17 @@ from minecore.pitopt import (
     optimise_pit,
     pushbacks,
 )
+from minecore.pitopt.benchdesign import BenchGeometry, DesignReport, design_from_model
+from minecore.pitopt.design import edge_blocks
 from minecore.pitopt.optimise import store
-from minecore.pitopt.scheduling import ConstrainedSchedule, Limits, schedule_constrained
+from minecore.pitopt.scheduling import (
+    ConstrainedSchedule,
+    InventoryRow,
+    Limits,
+    bench_inventory,
+    schedule_constrained,
+)
+from minecore.pitopt.width import apply_mining_width
 from minecore.project import Project
 
 PRICE_TR = {
@@ -111,12 +122,19 @@ class PitDialog(QDialog):
         self.mining = _spin(2.5, 0.0, 1e4, 0.1)
         self.bench_cost = _spin(0.0, 0.0, 100.0, 0.01, 3)
         self.processing = _spin(20.0, 0.0, 1e5, 0.5)
+        self.mine_recovery = _spin(100.0, 1.0, 100.0, 1, 1)
+        self.dilution = _spin(0.0, 0.0, 100.0, 1, 1)
+        self.nsr = QCheckBox("Öznitelik NSR değeridir ($/t; fiyat ve kazanım kullanılmaz)")
+        self.nsr.toggled.connect(self._sync_nsr)
+        ef.addRow(self.nsr)
         ef.addRow("Metal fiyatı", _row(self.price, self.price_unit))
         ef.addRow("Satış maliyeti (fiyat biriminde)", self.selling)
         ef.addRow("Kazanım %", self.recovery)
         ef.addRow("Madencilik maliyeti $/t", self.mining)
         ef.addRow("Basamak başına ek maliyet $/t", self.bench_cost)
         ef.addRow("Zenginleştirme maliyeti $/t cevher", self.processing)
+        ef.addRow("Madencilik kazanımı % (cevher kaybı)", self.mine_recovery)
+        ef.addRow("Seyrelme % (sıfır tenörlü pasa)", self.dilution)
         left.addWidget(econ_box)
 
         geo = QGroupBox("Şev ve kabuklar")
@@ -154,6 +172,9 @@ class PitDialog(QDialog):
         export.clicked.connect(self._guard(self.export))
         pf.addRow("Nihai ocak kabuğu", self.final)
         pf.addRow("Pushback başına en az cevher (Mt)", self.min_ore)
+        self.min_width = _spin(0.0, 0.0, 1000.0, 5.0, 1)
+        self.min_width.setToolTip("Her basamaktaki pushback dilimi için en az genişlik; 0 = yok")
+        pf.addRow("Minimum kazı genişliği (m)", self.min_width)
         self.plant = _spin(2.0, 0.001, 1e4, 0.5, 3)
         self.lag = QSpinBox(minimum=0, maximum=50, value=2)
         self.sinking = QSpinBox(minimum=1, maximum=50, value=6)
@@ -206,6 +227,10 @@ class PitDialog(QDialog):
             ]
         )
         right.addTab(self.sched_table, "Üretim çizelgesi")
+        self.inv_table = QTableWidget(0, len(INVENTORY_HEADERS))
+        self.inv_table.setHorizontalHeaderLabels(INVENTORY_HEADERS)
+        right.addTab(self.inv_table, "Pushback-basamak envanteri")
+        self.inventory: list[InventoryRow] = []
         self.tabs = right
         self.note = QLabel(
             "Kabuklar Lerchs-Grossmann ile aynı sonucu veren en büyük kapanış (max-flow) ile "
@@ -255,6 +280,10 @@ class PitDialog(QDialog):
             self.price_unit.setCurrentIndex(list(PriceUnit).index(PriceUnit.TROY_OUNCE))
             self.price.setValue(2000.0)
 
+    def _sync_nsr(self, on: bool) -> None:
+        for w in (self.price, self.price_unit, self.recovery, self.selling):
+            w.setEnabled(not on)
+
     def economics(self) -> Economics:
         d = self.density_attr.currentText()
         return Economics(
@@ -264,8 +293,11 @@ class PitDialog(QDialog):
             mining_cost=self.mining.value(),
             processing_cost=self.processing.value(),
             selling_cost=self.selling.value(),
+            nsr=self.nsr.isChecked(),
             mining_cost_per_bench=self.bench_cost.value(),
             density=self.density.value() if d == "(sabit)" else d,
+            mining_recovery=self.mine_recovery.value() / 100.0,
+            dilution=self.dilution.value() / 100.0,
         )
 
     def slope_profile(self) -> SlopeProfile:
@@ -296,6 +328,14 @@ class PitDialog(QDialog):
         )
         self.phase, self.sched = None, None
         self._show_shells()
+        edge = edge_blocks(model.grid, self.pit.shell > 0)
+        if edge:
+            self.inform(
+                "Ocak",
+                f"Uyarı: en büyük kabuk {edge:,} blokla modelin yan sınırına değiyor. "
+                "Model dışındaki şev kısıtları görülemez; kabuk kesik olabilir. "
+                "Blok modelini daha geniş (dolgu payı ile) oluşturun.",
+            )
 
     def _show_shells(self) -> None:
         r = self.pit
@@ -358,6 +398,16 @@ class PitDialog(QDialog):
             raise RuntimeError("Önce kabukları hesaplayın.")
         final = int(self.final.currentData())
         self.phase = pushbacks(self.pit, final, self.min_ore.value() * 1e6)
+        width_note = ""
+        if self.min_width.value() > 0:
+            grid = BlockModel.open(self.project, self.model.currentText()).grid
+            fixed = apply_mining_width(
+                grid, self.phase, self.slope_profile(), self.min_width.value()
+            )
+            self.phase = fixed.phase
+            width_note = f"\nMinimum genişlik: {fixed.moved:,} blok başka pushback'e alındı" + (
+                f"; {fixed.remaining_slivers:,} dar blok kaldı." if fixed.remaining_slivers else "."
+            )
         limits = Limits(
             mining_capacity=self.rate.value() * 1e6,
             plant_capacity=self.plant.value() * 1e6,
@@ -391,11 +441,22 @@ class PitDialog(QDialog):
         _cell(self.sched_table, total, 7, _m(sum(p.cash for p in rows)))
         _cell(self.sched_table, total, 8, _m(self.sched.npv))
         self.sched_table.resizeColumnsToContents()
+        grid = BlockModel.open(self.project, self.model.currentText()).grid
+        self.inventory = bench_inventory(
+            self.pit, self.phase, grid.origin[2], grid.size[2], grid.count[2]
+        )
+        self.inv_table.setRowCount(len(self.inventory))
+        for i, row in enumerate(self.inventory):
+            for j, value in enumerate(_inventory_cells(row)):
+                text = "" if value is None else value if isinstance(value, str) else f"{value:,.4g}"
+                _cell(self.inv_table, i, j, text)
+        self.inv_table.resizeColumnsToContents()
         self.tabs.setCurrentIndex(1)
         self.inform(
             "Pushback",
             f"{int(self.phase.max())} pushback, {len(rows)} yıllık çizelge. "
             f"NPV {self.sched.npv / 1e6:,.1f} M$."
+            + width_note
             + (
                 f"\nUyarı: {self.sched.unmined_t / 1e6:,.2f} Mt {limits.max_periods} yılda "
                 "kazılamadı."
@@ -428,11 +489,32 @@ class PitDialog(QDialog):
             write_pit_reports(Path(path), self.pit, self.sched)
         else:
             target = Path(path if path.lower().endswith(".xlsx") else path + ".xlsx")
-            write_pit_reports_xlsx(target, self.pit, self.sched)
+            write_pit_reports_xlsx(target, self.pit, self.sched, self.inventory)
+
+
+INVENTORY_HEADERS = [
+    "Pushback",
+    "Basamak tabanı (m)",
+    "Cevher t",
+    "Tenör",
+    "Metal",
+    "Pasa t",
+    "Dekapaj",
+    "Değer",
+]
+
+
+def _inventory_cells(r: InventoryRow) -> list[Any]:
+    strip = r.waste_t / r.ore_t if r.ore_t > 0 else None
+    grade = None if math.isnan(r.grade) else r.grade
+    return [r.phase, r.bench_toe, r.ore_t, grade, r.metal, r.waste_t, strip, r.value]
 
 
 def write_pit_reports_xlsx(
-    path: Path, result: PitResult, sched: ConstrainedSchedule | None
+    path: Path,
+    result: PitResult,
+    sched: ConstrainedSchedule | None,
+    inventory: list[InventoryRow] | None = None,
 ) -> None:
     from minecore.io.excel import write_workbook  # noqa: PLC0415
 
@@ -497,6 +579,8 @@ def write_pit_reports_xlsx(
                 for p in sched.rows
             ],
         )
+    if inventory:
+        sheets["Envanter"] = (INVENTORY_HEADERS, [_inventory_cells(r) for r in inventory])
     write_workbook(path, sheets)
 
 
@@ -563,3 +647,109 @@ def write_pit_reports(path: Path, result: PitResult, sched: ConstrainedSchedule 
                         f"{p.discounted:.0f}",
                     ]
                 )
+
+
+class BenchDesignDialog(QDialog):
+    """Bench design (face angle, bench height, berm) around the optimised pit."""
+
+    def __init__(self, project: Project, parent: QWidget) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Basamak tasarımı")
+        self.project = project
+        self.report: DesignReport | None = None
+        form = QFormLayout(self)
+        self.model = QComboBox()
+        self.model.addItems(
+            [
+                m
+                for m in block_models(project)
+                if "pit_shell" in BlockModel.open(project, m).attributes
+            ]
+        )
+        self.shell = QSpinBox(minimum=1, maximum=1000, value=1)
+        self.face = _spin(65.0, 10.0, 89.0, 1.0, 1)
+        self.bench_h = _spin(10.0, 0.5, 100.0, 1.0, 1)
+        self.berm = _spin(6.0, 0.0, 100.0, 0.5, 1)
+        self.topography = QComboBox()
+        self.topography.addItem("(blok modelindeki kaya üstü)")
+        self.topography.addItems(surfaces.surface_names(project))
+        self.overall = QLabel()
+        for w in (self.face, self.bench_h, self.berm):
+            w.valueChanged.connect(self._overall)
+        form.addRow("Blok modeli", self.model)
+        form.addRow("Son kabuk (nihai ocak)", self.shell)
+        form.addRow("Basamak şev açısı °", self.face)
+        form.addRow("Basamak yüksekliği (m)", self.bench_h)
+        form.addRow("Berm genişliği (m)", self.berm)
+        form.addRow("Arazi yüzeyi", self.topography)
+        form.addRow("Genel şev açısı", self.overall)
+        run = QPushButton("Tasarla, yüzeyi kaydet, blokları işaretle")
+        run.clicked.connect(self._guard(self.run))
+        export = QPushButton("Tasarımı DXF olarak dışa aktar...")
+        export.clicked.connect(self._guard(self.export))
+        form.addRow(_row(run, export))
+        self.result_label = QLabel()
+        self.result_label.setWordWrap(True)
+        form.addRow(self.result_label)
+        self.model.currentTextChanged.connect(self._fill)
+        self._fill(self.model.currentText())
+        self._overall()
+
+    def _guard(self, slot: Any) -> Any:
+        def run() -> None:
+            try:
+                slot()
+            except Exception as exc:
+                QMessageBox.critical(self, "Basamak tasarımı", str(exc))
+
+        return run
+
+    def _fill(self, name: str) -> None:
+        if name:
+            top = int(np.nanmax(BlockModel.open(self.project, name).values("pit_shell")))
+            self.shell.setMaximum(max(top, 1))
+            self.shell.setValue(max(top, 1))
+
+    def geometry_value(self) -> BenchGeometry:
+        return BenchGeometry(self.face.value(), self.bench_h.value(), self.berm.value())
+
+    def _overall(self) -> None:
+        try:
+            self.overall.setText(f"{self.geometry_value().overall_angle:.1f}°")
+        except Exception as exc:
+            self.overall.setText(str(exc))
+
+    def _design(self, dxf: Path | None) -> DesignReport:
+        topo = self.topography.currentText()
+        return design_from_model(
+            self.project,
+            BlockModel.open(self.project, self.model.currentText()),
+            self.geometry_value(),
+            last_shell=self.shell.value(),
+            topography=None if topo.startswith("(") else topo,
+            save_surface=f"tasarim_{self.shell.value()}",
+            flag_attribute="pit_tasarim",
+            dxf=dxf,
+        )
+
+    def run(self) -> None:
+        self.report = r = self._design(None)
+        outside = r.pit.volume(outside_model_only=True)
+        self.result_label.setText(
+            f"Kazı hacmi {r.pit.volume() / 1e6:,.2f} Mm³; kabukta {r.shell_blocks:,} blok, "
+            f"tasarımda {r.design_blocks:,} blok. Değer {r.shell_value / 1e6:,.1f} → "
+            f"{r.design_value / 1e6:,.1f} M$. Yüzey 'tasarim_{self.shell.value()}', "
+            "bloklar 'pit_tasarim' olarak kaydedildi."
+            + (
+                f"\nUyarı: tasarımın {outside / 1e6:,.2f} Mm³'ü blok modeli alanının dışında; "
+                "modeli daha geniş (dolgu payı ile) oluşturun."
+                if outside > 0
+                else ""
+            )
+        )
+
+    def export(self) -> None:
+        path, _ = QFileDialog.getSaveFileName(self, "DXF kaydet", "tasarim.dxf", "DXF (*.dxf)")
+        if path:
+            self.report = self._design(Path(path))
+            self.result_label.setText(f"Tasarım yazıldı: {path}")

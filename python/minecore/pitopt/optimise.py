@@ -64,6 +64,8 @@ class PitResult:
     rows: tuple[ShellRow, ...]
     arcs: int
     mining: Floats  # mining cost per block at revenue factor 1
+    feed: Floats  # plant feed tonnes of ore blocks (after mining recovery, dilution)
+    feed_grade: Floats  # diluted feed grade
 
 
 def _discounted(order: Ints, tonnes: Floats, value: Floats, rate: float, discount: float) -> float:
@@ -131,9 +133,9 @@ def optimise_pit(  # noqa: PLR0913 - options are keyword-only
     for n, rf in enumerate(factors, start=1):
         inside = (shell > 0) & (shell <= n)
         ore = inside & base.ore
-        ore_t = float(tonnes[ore].sum())
-        waste_t = float(tonnes[inside & ~base.ore].sum())
-        total = ore_t + waste_t
+        ore_t = float(base.feed[ore].sum())
+        total = float(tonnes[inside].sum())
+        waste_t = total - ore_t
         best = _discounted(
             best_order[: int(inside.sum())], tonnes, base.value, mining_rate, discount_rate
         )
@@ -147,7 +149,9 @@ def optimise_pit(  # noqa: PLR0913 - options are keyword-only
                 ore_t,
                 waste_t,
                 waste_t / ore_t if ore_t > 0 else math.inf,
-                float((tonnes[ore] * clean_grade[ore]).sum() / ore_t) if ore_t > 0 else math.nan,
+                float((base.feed[ore] * base.feed_grade[ore]).sum() / ore_t)
+                if ore_t > 0
+                else math.nan,
                 float(base.metal[ore].sum()),
                 float(base.value[inside].sum()),
                 best,
@@ -169,6 +173,8 @@ def optimise_pit(  # noqa: PLR0913 - options are keyword-only
         tuple(rows),
         len(arcs),
         base.mining,
+        base.feed,
+        base.feed_grade,
     )
 
 
@@ -238,14 +244,14 @@ def schedule(result: PitResult, phase: Ints, mining_rate: float, discount_rate: 
     for p in range(1, int(per.max(initial=0)) + 1):
         sel = period == p
         ore = sel & result.ore
-        ore_t = float(result.tonnes[ore].sum())
+        ore_t = float(result.feed[ore].sum())
         cash = float(result.value[sel].sum())
         rows.append(
             SchedulePeriod(
                 p,
                 ore_t,
-                float(result.tonnes[sel & ~result.ore].sum()),
-                float((result.tonnes[ore] * result.grade[ore]).sum() / ore_t)
+                float(result.tonnes[sel].sum()) - ore_t,
+                float((result.feed[ore] * result.feed_grade[ore]).sum() / ore_t)
                 if ore_t > 0
                 else math.nan,
                 float(result.metal[ore].sum()),

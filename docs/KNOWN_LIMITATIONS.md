@@ -35,6 +35,15 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
   validation are GUI and Python API only.
 - Grade-tonnage is a report, not a resource classification (rule 8).
 
+## Confidence categories
+
+- `blockmodel.classify` assigns categories from user thresholds on mean
+  sample distance, sample count and kriging variance / total sill. It is a
+  screening aid, not a JORC/NI 43-101/PERC classification (rule 8); no
+  drill-spacing, slope-of-regression or smoothing of isolated blocks yet.
+- Grade-tonnage reports can be restricted to an attribute range (domain,
+  category, pit shell).
+
 ## Open-pit optimisation (M7 alpha)
 
 - Ultimate pit by maximum closure (Dinic max-flow in `mc-core::pitopt`, same
@@ -46,14 +55,40 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
   Partial blocks are not prorated (centroid test). Unestimated rock blocks are
   valued as waste. Mining cost depth increment counts benches from the model
   top, not from the surface.
-- Single element, single process route; no cut-off optimisation (Lane), no
-  stockpiles, no mining dilution/recovery factors on the block model.
-- Pushbacks group whole shells by ore tonnage; minimum mining width and ramp
-  access are not enforced.
+- One value attribute per run: a grade (single element) or an NSR value per
+  tonne (several elements combined with the block calculator); single process
+  route; no cut-off optimisation (Lane).
+  Mining recovery and dilution are global factors applied to ore blocks
+  (dilution at zero grade); no edge-dilution or regularisation model.
+- Pushbacks group whole shells by ore tonnage. Minimum mining width
+  (`pitopt.width`) reworks pushbacks so each bench increment is at least the
+  given width (morphological opening; thin parts join the previous pushback,
+  slope precedence is restored by propagation). The final pit itself is not
+  changed, so a pit bottom narrower than the width stays narrow (the number of
+  remaining narrow blocks is reported). Thin pushbacks are absorbed rather than
+  widened. Measured: 123k blocks, 3.2 M arcs, 3.4 s. Ramp access is not
+  enforced.
 - Schedule (`pitopt.scheduling`): greedy, rule-based sequence with mining and
   plant capacity, bench lag, sinking rate and one blended stockpile. Not an
   optimised (MILP) schedule; no blending targets, no cut-off optimisation, no
   equipment or haulage model; periods are years of equal capacity.
+
+## Pit design outputs
+
+- `pitopt.design`: bench crest/toe loops of the block pit (block edges, no
+  smoothing), a closed pit solid (marching cubes of the mined indicator, so
+  corners are chamfered; volume slightly below the block volume), and the
+  mined-out surface at block-column centres (staircase interpolated linearly).
+- Bench design (`pitopt.benchdesign`): face angle, bench height and berm
+  around the optimised pit by a distance-transform envelope on a raster
+  (rounded corners, raster resolution half a block by default). Toe/crest
+  strings are contours of that surface. No ramps or haul roads, no
+  geotechnical sectors in the design (one geometry for the whole pit), no
+  string editing. Because the optimiser treats the block model edge as
+  unconstrained, a design can need ground outside the model; the volume
+  outside is reported (create the model with padding).
+- DXF export writes R12 ASCII `POLYLINE` (3D) and `3DFACE` entities only, no
+  header/table sections, no blocks or text.
 
 ## Surfaces
 

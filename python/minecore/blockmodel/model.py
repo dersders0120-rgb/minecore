@@ -194,11 +194,13 @@ class BlockModel:
         cutoffs: list[float],
         *,
         density: float | str,
+        mask: npt.NDArray[np.bool_] | None = None,
     ) -> GradeTonnage:
         """Tonnes, mean grade and contained metal above each cut-off (grade >= cut-off).
 
         ``density`` is a constant in t/m3 or the name of a density attribute
-        (t/m3). Blocks without an estimate are excluded and counted.
+        (t/m3). Blocks without an estimate are excluded and counted. ``mask``
+        restricts the report to selected blocks (domain, category, pit).
         """
         grid = self.grid
         grade = self.values(attribute)
@@ -210,6 +212,11 @@ class BlockModel:
             rho = np.full(grid.blocks, float(density))
         unit = self.attributes[attribute].get("unit")
         known = np.isfinite(grade) & np.isfinite(rho)
+        if mask is not None:
+            selected = np.asarray(mask, bool)
+            known &= selected
+        else:
+            selected = np.ones(grid.blocks, bool)
         # Contained metal: tonnes * grade converted to a mass fraction.
         if unit is None:
             fraction, metal_unit = 1.0, "t x grade"
@@ -230,5 +237,10 @@ class BlockModel:
                 )
             )
         return GradeTonnage(
-            attribute, unit, density, metal_unit, tuple(rows), int(np.count_nonzero(~known))
+            attribute,
+            unit,
+            density,
+            metal_unit,
+            tuple(rows),
+            int(np.count_nonzero(selected & ~known)),
         )

@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
     QInputDialog,
     QLabel,
     QLineEdit,
+    QListWidget,
     QMessageBox,
     QProgressDialog,
     QPushButton,
@@ -40,6 +41,8 @@ from PySide6.QtWidgets import (
 )
 
 from minecore.blockmodel import BlockModel, GradeTonnage, Grid
+from minecore.blockmodel.calc import calculate
+from minecore.blockmodel.classify import Criteria, classify
 from minecore.blockmodel.model import KIND as BLOCK_MODEL_KIND
 from minecore.blockmodel.workflow import (
     SampleSet,
@@ -563,6 +566,11 @@ class GradeTonnageDialog(QDialog):
         form.addRow("Yoğunluk özniteliği", self.density_attr)
         form.addRow("Sabit yoğunluk (t/m³)", self.density)
         form.addRow("Sınır tenör: başlangıç / bitiş / adım", _row(self.c0, self.c1, self.step))
+        self.filter_attr = QComboBox()
+        self.f0 = _spin(1.0, -1e9, 1e9, 1.0, 3)
+        self.f1 = _spin(1.0, -1e9, 1e9, 1.0, 3)
+        form.addRow("Filtre özniteliği (domen, kategori, ocak)", self.filter_attr)
+        form.addRow("Filtre aralığı: en az / en çok", _row(self.f0, self.f1))
         run = QPushButton("Hesapla")
         run.clicked.connect(self.compute)
         export = QPushButton("CSV olarak dışa aktar...")
@@ -586,12 +594,15 @@ class GradeTonnageDialog(QDialog):
         self.attribute.clear()
         self.density_attr.clear()
         self.density_attr.addItem("(sabit)")
+        self.filter_attr.clear()
+        self.filter_attr.addItem("(yok)")
         if not name:
             return
         attrs = BlockModel.open(self.project, name).attributes
         grades = [a for a in attrs if not a.endswith(("_n", "_dist", "_kv"))]
         self.attribute.addItems(grades)
         self.density_attr.addItems(grades)
+        self.filter_attr.addItems(list(attrs))
         if grades:
             values = BlockModel.open(self.project, name).values(grades[0])
             finite = values[np.isfinite(values)]
@@ -607,8 +618,13 @@ class GradeTonnageDialog(QDialog):
         )
         dattr = self.density_attr.currentText()
         density: float | str = self.density.value() if dattr == "(sabit)" else dattr
+        mask = None
+        fattr = self.filter_attr.currentText()
+        if fattr and fattr != "(yok)":
+            f = model.values(fattr)
+            mask = np.isfinite(f) & (f >= self.f0.value()) & (f <= self.f1.value())
         self.report = model.grade_tonnage(
-            self.attribute.currentText(), [float(c) for c in cutoffs], density=density
+            self.attribute.currentText(), [float(c) for c in cutoffs], density=density, mask=mask
         )
         r = self.report
         unit = r.grade_unit or "-"
@@ -638,7 +654,12 @@ class GradeTonnageDialog(QDialog):
                 self.table.setItem(i, j, item)
         self.table.resizeColumnsToContents()
         self.note.setText(
-            f"Kestirilmemiş {r.unestimated_blocks:,} blok rapora dahil edilmedi. "
+            (
+                f"Filtre: {self.f0.value():g} ≤ {fattr} ≤ {self.f1.value():g}. "
+                if mask is not None
+                else ""
+            )
+            + f"Kestirilmemiş {r.unestimated_blocks:,} blok rapora dahil edilmedi. "
             "Bu tablo bir kaynak sınıflandırması değildir; JORC/NI 43-101 uyumu yetkin kişi "
             "değerlendirmesi gerektirir."
         )
@@ -915,3 +936,143 @@ class ValidationDialog(QDialog):
             f"Korelasyon {cv.correlation:.3f}, regresyon eğimi {cv.slope:.3f} "
             "(1'e yakın = koşullu yansız)"
         )
+
+
+class ClassificationDialog(QDialog):
+    """Confidence categories from estimation statistics (not a code classification)."""
+
+    def __init__(self, project: Project, parent: QWidget) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Güven kategorileri")
+        self.project = project
+        self.counts: dict[int, int] | None = None
+        form = QFormLayout(self)
+        self.model = QComboBox()
+        self.model.addItems(block_models(project))
+        self.attribute = QComboBox()
+        form.addRow("Blok modeli", self.model)
+        form.addRow("Kestirilmiş öznitelik", self.attribute)
+        self.rows: list[tuple[Any, Any, Any]] = []
+        for n, (d, k, v) in enumerate(((25.0, 8, 0.4), (50.0, 4, 0.7), (100.0, 1, 0.0)), 1):
+            dist = _spin(d, 0.1, 1e5, 5.0, 1)
+            samples = QSpinBox(minimum=1, maximum=500, value=k)
+            kv = _spin(v, 0.0, 10.0, 0.05, 2)
+            kv.setSpecialValueText("yok")
+            self.rows.append((dist, samples, kv))
+            form.addRow(
+                f"Kategori {n}: en çok ort. mesafe (m) / en az örnek / en çok KV/eşik",
+                _row(dist, samples, kv),
+            )
+        note = QLabel(
+            "Kategoriler yalnızca geometrik/istatistiksel bir yardımcıdır; JORC, NI 43-101 "
+            "veya benzeri kodlara göre kaynak sınıflandırması değildir. Bu sınıflandırma "
+            "yetkin kişi gerektirir."
+        )
+        note.setWordWrap(True)
+        form.addRow(note)
+        run = QPushButton("Kategorileri hesapla ve kaydet")
+        run.clicked.connect(self.run)
+        form.addRow(run)
+        self.result_label = QLabel()
+        form.addRow(self.result_label)
+        self.model.currentTextChanged.connect(self._fill)
+        self.attribute.currentTextChanged.connect(self._sync_kv)
+        self._fill(self.model.currentText())
+
+    def _fill(self, name: str) -> None:
+        self.attribute.clear()
+        if name:
+            attrs = BlockModel.open(self.project, name).attributes
+            self.attribute.addItems([a for a in attrs if f"{a}_dist" in attrs])
+
+    def _sync_kv(self, attr: str) -> None:
+        """Kriging variance criteria only for ordinary kriging estimates."""
+        name = self.model.currentText()
+        has_kv = bool(name and attr) and (
+            f"{attr}_kv" in BlockModel.open(self.project, name).attributes
+        )
+        for _, _, kv in self.rows:
+            if not has_kv:
+                kv.setValue(0.0)
+            kv.setEnabled(has_kv)
+
+    def criteria(self) -> list[Criteria]:
+        return [
+            Criteria(d.value(), s.value(), k.value() if k.value() > 0 else None)
+            for d, s, k in self.rows
+        ]
+
+    def run(self) -> None:
+        model = BlockModel.open(self.project, self.model.currentText())
+        attr = self.attribute.currentText()
+        if not attr:
+            raise RuntimeError("Kestirim istatistikleri olan bir öznitelik yok.")
+        self.counts = classify(model, attr, self.criteria())
+        parts = [f"Kategori {n}: {c:,} blok" for n, c in self.counts.items() if n > 0]
+        self.result_label.setText(
+            f"'kat_{attr}' kaydedildi. " + "; ".join(parts) + f"; kategorisiz: {self.counts[0]:,}."
+        )
+
+
+class CalculatorDialog(QDialog):
+    """New block attribute from an expression over existing attributes."""
+
+    def __init__(self, project: Project, parent: QWidget) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Blok modeli hesaplayıcı")
+        self.resize(640, 420)
+        self.project = project
+        form = QFormLayout(self)
+        self.model = QComboBox()
+        self.model.addItems(block_models(project))
+        self.target = QLineEdit("yeni")
+        self.expression = QLineEdit()
+        self.expression.setPlaceholderText("örn. where(lito == 2, 2.65, 2.50) veya cu + au * 0.62")
+        self.unit = QLineEdit()
+        self.unit.setPlaceholderText("boş, %, g/t, ppm, t/m3 ...")
+        self.names = QListWidget()
+        self.names.itemDoubleClicked.connect(lambda item: self.expression.insert(item.text()))
+        form.addRow("Blok modeli", self.model)
+        form.addRow("Yeni öznitelik adı", self.target)
+        form.addRow("İfade", self.expression)
+        form.addRow("Birim", self.unit)
+        form.addRow("Öznitelikler (çift tık: ekle)", self.names)
+        help_text = QLabel(
+            "İşlemler: + - * / ** %, karşılaştırma, and/or/not, 'a if koşul else b'. "
+            "Fonksiyonlar: abs sqrt exp log log10 min max clip where isnan round floor ceil. "
+            "x, y, z blok merkezleridir."
+        )
+        help_text.setWordWrap(True)
+        form.addRow(help_text)
+        run = QPushButton("Hesapla ve kaydet")
+        run.clicked.connect(self.run)
+        form.addRow(run)
+        self.result_label = QLabel()
+        form.addRow(self.result_label)
+        self.model.currentTextChanged.connect(self._fill)
+        self._fill(self.model.currentText())
+
+    def _fill(self, name: str) -> None:
+        self.names.clear()
+        if name:
+            self.names.addItems([*BlockModel.open(self.project, name).attributes, "x", "y", "z"])
+
+    def run(self) -> None:
+        model = BlockModel.open(self.project, self.model.currentText())
+        values = calculate(
+            model,
+            self.target.text().strip(),
+            self.expression.text(),
+            self.unit.text().strip() or None,
+        )
+        finite = values[np.isfinite(values)]
+        stats = (
+            f"en az {finite.min():.4g}, ortalama {finite.mean():.4g}, en çok {finite.max():.4g}"
+            if finite.size
+            else "tüm değerler boş"
+        )
+        self.result_label.setText(
+            f"'{self.target.text().strip()}': {finite.size:,} değer ({stats}); "
+            f"{values.size - finite.size:,} boş."
+        )
+        self._fill(self.model.currentText())

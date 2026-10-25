@@ -6,11 +6,21 @@ For a block of ``t`` tonnes at grade ``g``:
   fraction factor (``%`` = 0.01, ``g/t`` = ``ppm`` = 1e-6);
 * recovered payable metal in price units = metal mass * recovery / unit mass;
 * revenue = payable metal * (price * revenue_factor - selling cost);
+* mining recovery ``MR`` and dilution ``D`` (fractions) apply to ore: the
+  plant receives ``feed = t * MR * (1 + D)`` tonnes at grade ``g / (1 + D)``
+  (dilution is zero-grade rock from the surrounding waste, which is mined and
+  paid for anyway), and recovered metal is ``MR`` times the in-situ metal;
 * the block is *ore* when revenue exceeds the processing cost
-  ``t * processing_cost``; then value = revenue - processing - mining,
+  ``feed * processing_cost``; then value = revenue - processing - mining,
   otherwise value = -mining (waste);
 * mining cost per tonne grows by ``mining_cost_per_bench`` for each bench
   below the top of the model (haulage depth increment).
+
+NSR mode (``nsr=True``): the attribute is a net smelter return per tonne of
+in-situ rock (currency/t, after metallurgical recovery, payables and selling
+costs, e.g. computed for several elements with the block calculator). Then
+revenue = ``t * MR * nsr * revenue_factor``; price, price unit, recovery and
+selling cost are not used, and "metal" is the recovered value at factor 1.
 
 Currency is whatever the user enters (e.g. USD); all values are in that unit.
 """
@@ -57,6 +67,9 @@ class Economics:
     selling_cost: float = 0.0
     mining_cost_per_bench: float = 0.0
     density: float | str = 2.7
+    mining_recovery: float = 1.0
+    dilution: float = 0.0
+    nsr: bool = False
 
     def __post_init__(self) -> None:
         if not (self.price > 0 and math.isfinite(self.price)):
@@ -66,6 +79,10 @@ class Economics:
         for name in ("mining_cost", "processing_cost", "selling_cost", "mining_cost_per_bench"):
             if getattr(self, name) < 0:
                 raise PitOptError(f"{name} must be >= 0")
+        if not 0 < self.mining_recovery <= 1:
+            raise PitOptError("mining recovery must be in (0, 1]")
+        if not 0 <= self.dilution <= 1:
+            raise PitOptError("dilution must be in [0, 1]")
         if self.selling_cost >= self.price:
             raise PitOptError("selling cost must be below the metal price")
 
@@ -86,6 +103,8 @@ class BlockEconomics:
     value: Floats  # at the requested revenue factor
     ore: npt.NDArray[np.bool_]
     mining: Floats  # mining cost of each block (always paid)
+    feed: Floats  # plant feed tonnes if the block is ore (0 for waste)
+    feed_grade: Floats  # diluted grade of the feed
 
 
 def block_values(  # noqa: PLR0913, PLR0917 - one value per input array
@@ -97,14 +116,28 @@ def block_values(  # noqa: PLR0913, PLR0917 - one value per input array
     revenue_factor: float = 1.0,
 ) -> BlockEconomics:
     """Economic value of each block (missing grade counts as waste rock)."""
-    if grade_unit is None:
-        raise PitOptError("the grade attribute has no unit; set % or g/t to value metal")
-    fraction = Unit(grade_unit).si_factor
     g = np.where(np.isfinite(grade), np.maximum(grade, 0.0), 0.0)
-    metal = tonnes * 1000.0 * g * fraction * econ.recovery / econ.price_unit.kilograms
-    revenue = metal * (econ.price * revenue_factor - econ.selling_cost)
+    mr, dil = econ.mining_recovery, econ.dilution
+    if econ.nsr:
+        metal = tonnes * mr * g
+        revenue = metal * revenue_factor
+    else:
+        if grade_unit is None:
+            raise PitOptError("the grade attribute has no unit; set % or g/t to value metal")
+        fraction = Unit(grade_unit).si_factor
+        metal = tonnes * 1000.0 * g * fraction * mr * econ.recovery / econ.price_unit.kilograms
+        revenue = metal * (econ.price * revenue_factor - econ.selling_cost)
     mining = tonnes * (econ.mining_cost + econ.mining_cost_per_bench * bench_from_top)
-    processing = tonnes * econ.processing_cost
+    feed = tonnes * mr * (1.0 + dil)
+    processing = feed * econ.processing_cost
     ore = revenue > processing
     value = np.where(ore, revenue - processing - mining, -mining)
-    return BlockEconomics(tonnes, metal, value.astype(np.float64), ore, mining)
+    return BlockEconomics(
+        tonnes,
+        metal,
+        value.astype(np.float64),
+        ore,
+        mining,
+        np.where(ore, feed, 0.0),
+        g / (1.0 + dil),
+    )

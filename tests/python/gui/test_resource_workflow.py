@@ -145,20 +145,48 @@ def test_pit_dialog_shells_pushbacks_and_save(qapp: QApplication, tmp_path: Path
     assert dialog.pit is not None
     assert dialog.shells.rowCount() == len(dialog.pit.rows)
     dialog.min_ore.setValue(0.05)
+    dialog.min_width.setValue(30.0)
     dialog.make_phases()
     assert dialog.sched is not None
     assert dialog.sched_table.rowCount() == len(dialog.sched.rows) + 1
+    assert dialog.inv_table.rowCount() == len(dialog.inventory) > 0
     dialog.save()
-    assert len(notes) == 2
+    assert len([n for n in notes if not n.startswith("Uyarı")]) == 2
     assert "pit_period" in BlockModel.open(project, "BM").attributes
     out = tmp_path / "pit.csv"
     write_pit_reports(out, dialog.pit, dialog.sched)
     assert out.read_text(encoding="utf-8-sig").startswith("shell;")
     from minecore.gui.pit import write_pit_reports_xlsx  # noqa: PLC0415
 
-    write_pit_reports_xlsx(tmp_path / "pit.xlsx", dialog.pit, dialog.sched)
+    write_pit_reports_xlsx(tmp_path / "pit.xlsx", dialog.pit, dialog.sched, dialog.inventory)
     assert (tmp_path / "pit.xlsx").stat().st_size > 0
     project.close()
+    _export_pit_from_main_window(tmp_path / "pit.mcproj", tmp_path / "ocak.dxf")
+
+
+def _export_pit_from_main_window(path: Path, dxf: Path) -> None:
+    from PySide6.QtWidgets import QFileDialog, QInputDialog, QMessageBox  # noqa: PLC0415
+
+    from minecore.gui.app import MainWindow  # noqa: PLC0415
+    from minecore.surfaces import surface_names  # noqa: PLC0415
+
+    patch = pytest.MonkeyPatch()
+    notes: list[str] = []
+    patch.setattr(QInputDialog, "getItem", lambda *a, **k: (a[3][0], True))
+    patch.setattr(QInputDialog, "getInt", lambda *a, **k: (a[3], True))
+    patch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: (str(dxf), ""))
+    patch.setattr(QMessageBox, "information", lambda *a, **k: notes.append(a[2]))
+    try:
+        window = MainWindow()
+        window._set_project(Project.open(path))
+        window.export_pit()
+        assert notes, "the export reported nothing"
+        assert "PIT_SOLID" in dxf.read_text()
+        assert window.project is not None
+        assert any(n.startswith("ocak_") for n in surface_names(window.project))
+        window.project.close()
+    finally:
+        patch.undo()
 
 
 def test_validation_dialog(qapp: QApplication, tmp_path: Path) -> None:
@@ -241,3 +269,87 @@ def test_excel_reports(tmp_path: Path) -> None:
     rows = list(sheet.iter_rows(values_only=True))
     assert rows[1] == (0.0, 10, 1000.0, 2700.0, 1.5, 4050.0)
     assert rows[2][4] is None
+
+
+def test_section_slab_and_controls(qapp: QApplication) -> None:
+    from minecore.gui.app import MainWindow, in_slab  # noqa: PLC0415
+
+    pts = np.array([[0.0, 10.0, 0.0], [0.0, 14.9, 0.0], [0.0, 15.1, 0.0]])
+    assert in_slab(pts, 1, 10.0, 10.0).tolist() == [True, True, False]
+    window = MainWindow()
+    assert window.section() is None
+    window.section_axis.setCurrentIndex(3)  # plan
+    window.section_at.setValue(100.0)
+    assert window.section() == (2, 100.0, window.section_width.value())
+    window._step_section(1)
+    assert window.section_at.value() == 100.0 + window.section_width.value()
+    window.close()
+
+
+def test_classification_dialog_and_filtered_report(qapp: QApplication, tmp_path: Path) -> None:
+    from minecore.blockmodel import Grid  # noqa: PLC0415
+
+    project = Project.create(tmp_path / "k.mcproj", "k")
+    model = BlockModel.create(project, "BM", Grid((0.0, 0.0, 0.0), (10.0, 10.0, 10.0), (2, 2, 1)))
+    model.set_attributes(
+        {
+            "au": np.array([1.0, 2.0, 3.0, 4.0]),
+            "au_n": np.array([10.0, 5.0, 2.0, 1.0]),
+            "au_dist": np.array([10.0, 40.0, 80.0, 500.0]),
+        },
+        {"au": {"unit": "g/t"}},
+        "estimate",
+    )
+    parent = QWidget()
+    dialog = resource.ClassificationDialog(project, parent)
+    assert dialog.attribute.currentText() == "au"
+    dialog.run()
+    assert dialog.counts == {0: 1, 1: 1, 2: 1, 3: 1}
+    gt = resource.GradeTonnageDialog(project, parent)
+    gt.filter_attr.setCurrentText("kat_au")
+    gt.f0.setValue(1.0)
+    gt.f1.setValue(2.0)
+    gt.c0.setValue(0.0)
+    gt.compute()
+    assert gt.report is not None
+    assert gt.report.rows[0].blocks == 2
+    project.close()
+
+
+def test_calculator_dialog(qapp: QApplication, tmp_path: Path) -> None:
+    from minecore.blockmodel import Grid  # noqa: PLC0415
+
+    project = Project.create(tmp_path / "h.mcproj", "h")
+    model = BlockModel.create(project, "BM", Grid((0.0, 0.0, 0.0), (10.0, 10.0, 10.0), (2, 1, 1)))
+    model.set_attributes({"cu": np.array([1.0, 2.0])}, {"cu": {"unit": "%"}}, "cu")
+    parent = QWidget()
+    dialog = resource.CalculatorDialog(project, parent)
+    dialog.target.setText("cu2")
+    dialog.expression.setText("cu * 2 + x")
+    dialog.unit.setText("%")
+    dialog.run()
+    assert BlockModel.open(project, "BM").values("cu2").tolist() == [7.0, 19.0]
+    assert "cu2" in [dialog.names.item(i).text() for i in range(dialog.names.count())]
+    project.close()
+
+
+def test_bench_design_dialog(qapp: QApplication, tmp_path: Path) -> None:
+    from minecore.blockmodel import Grid  # noqa: PLC0415
+    from minecore.gui.pit import BenchDesignDialog  # noqa: PLC0415
+    from minecore.surfaces import surface_names  # noqa: PLC0415
+
+    project = Project.create(tmp_path / "d.mcproj", "d")
+    grid = Grid((0.0, 0.0, 0.0), (10.0, 10.0, 10.0), (12, 12, 5))
+    model = BlockModel.create(project, "BM", grid)
+    shell = np.zeros((5, 12, 12))
+    shell[3:, 4:8, 4:8] = 1.0
+    model.set_attributes({"pit_shell": shell.ravel(), "pit_value": np.ones(grid.blocks)}, {}, "pit")
+    parent = QWidget()
+    dialog = BenchDesignDialog(project, parent)
+    assert dialog.model.currentText() == "BM"
+    dialog.run()
+    assert dialog.report is not None
+    assert dialog.report.design_blocks >= 32
+    assert "tasarim_1" in surface_names(project)
+    assert "pit_tasarim" in BlockModel.open(project, "BM").attributes
+    project.close()
