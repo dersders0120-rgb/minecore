@@ -69,6 +69,12 @@ GUIDE = """
    **Proje nakit akışı** bölümünde yatırım (ör. `0:250; 4:40`, yıl:M$), sabit gider,
    kapanış maliyeti, vergi ve amortisman girilir; "Nakit akışı" sekmesi yıl yıl FAVÖK,
    vergi, nakit akışı ve proje NPV, İVO (IRR) ve geri ödeme süresini verir.
+   "Ekipman" sekmesi çizelgenin her yılı için ortalama nakliye çevrimini (ocak içi,
+   rampa ve yüzey mesafesi, dolu/boş hızlar), gereken kamyon ve yükleyici sayısını ve
+   nakliye-yükleme maliyetini ($/t) verir.
+   "Senaryolar" sekmesi çalışmayı adıyla kaydeder (tüm girdiler ve ana sonuçlar
+   projede saklanır), senaryoları yan yana tablo ve NPV grafiği ile karşılaştırır,
+   bir senaryonun girdilerini forma geri yükler ve karşılaştırmayı CSV'ye yazar.
    "Duyarlılık" sekmesi fiyat, madencilik ve zenginleştirme maliyeti, kazanım, iskonto
    ve yatırımın ±% değişiminde proje NPV'sini tablo ve örümcek grafiği olarak verir
    (sabit ocak tasarımı veya her durumda yeniden optimize edilen ocak).
@@ -83,9 +89,23 @@ GUIDE = """
 4. **Ocağı DXF olarak dışa aktar**: basamak üst/alt çizgileri, ocak katısı, kazı sonrası yüzey.
 5. **Dönem sonu yüzeyleri**: çizelgedeki her yılın sonundaki kazı yüzeyi ve DXF çizgileri.
 
+Delme-patlatma: **Açık Ocak > Delme-patlatma tasarımı** delik çapından dilim, aralık,
+taban delgisi ve sıkılamayı, delik başına şarjı, özgül şarjı (kg/m³, kg/t), maliyeti ve
+yıllık delik/patlayıcı ihtiyacını verir; kapalı bir sınır çizgisi içinde şaşırtmalı
+delik planı oluşturup DXF'e yazar.
+
+Döküm sahası: **Açık Ocak > Döküm sahası tasarımı** kapalı bir sınır içinde kat
+yüksekliği, şev açısı ve bermle döküm yüzeyini oluşturur (zemin yüzeyi seçilebilir);
+gevşek hacim, kabarma ve yoğunlukla yerinde ton kapasitesi, kat kat hacim ve
+gereken pasa için yeterlilik verir.
+
 ## 5. Yeraltı
 - **Yeraltı > Pano zarfı**: sabit boyutlu pano ile yüzen pano zarfı ve çakışmasız pano
   seçimi; DXF.
+- **Pano ekonomisi**: aynı pencerede fiyat, kazanım, yeraltı madencilik ve
+  zenginleştirme maliyeti, seyrelme ve kazı kazanımıyla her panonun değeri; pozitif
+  değerli panolar kapasiteye göre seviye seviye (alttan veya üstten) yıllara dağıtılır;
+  yatırım, sabit gider ve vergiyle proje nakit akışı, NPV ve İVO verilir.
 - **Yeraltı > Dekline ve kat galerileri**: ağızdan spiral dekline (eğim, dönüş yarıçapı,
   cevherden uzaklık), her kata yatay galeri ve cevher doğrultusunda kat galerisi
   (ore drive); metraj, hacim, tonaj; DXF.

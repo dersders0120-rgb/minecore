@@ -682,6 +682,14 @@ def test_stope_dialog(qapp: QApplication, tmp_path: Path) -> None:
     assert len(dialog.stopes.stopes) == 4
     assert dialog.table.rowCount() == 4
     assert "ug_pano" in BlockModel.open(project, "BM").attributes
+    dialog.capacity.setValue(0.005)  # 5 000 t/y: the four 2 970 t stopes take three years
+    dialog.capex.setText("0:0.5")
+    dialog.plan()
+    assert dialog.sched is not None
+    assert len(dialog.sched.rows) == 3
+    assert sum(r.mined_t for r in dialog.sched.rows) == pytest.approx(4 * 2700 * 0.9 * 1.1)
+    assert dialog.flow is not None
+    assert "proje NPV" in dialog.plan_summary.text()
     from minecore.gui.underground import DeclineDialog  # noqa: PLC0415
     from minecore.strings import string_names  # noqa: PLC0415
 
@@ -767,4 +775,80 @@ def test_rotated_block_model_dialog_and_3d_cells(qapp: QApplication, tmp_path: P
     # Cell k of the mesh is block k of the model, rotated with it.
     centres = np.asarray(mesh.cell_centers().points) + origin
     np.testing.assert_allclose(centres, grid.centroids(), atol=1e-6)
+    project.close()
+
+
+def test_pit_dialog_scenarios(qapp: QApplication, tmp_path: Path) -> None:
+    from minecore.pitopt.scenarios import list_scenarios  # noqa: PLC0415
+
+    project, dialog, _parent = _gold_silver_dialog(tmp_path, [])
+    dialog.price.setValue(1800.0)
+    dialog.run()
+    dialog.plant.setValue(0.02)
+    dialog.min_ore.setValue(0.02)
+    dialog.make_phases()
+    dialog.run_fleet()
+    assert dialog.fleet
+    assert dialog.fleet_table.rowCount() == len(dialog.sched.rows)  # type: ignore[union-attr]
+    assert all(r.trucks >= 1 for r in dialog.fleet)
+    dialog.ask_name = lambda default: "baz"  # type: ignore[method-assign]
+    dialog.save_scenario()
+    dialog.price.setValue(2200.0)
+    dialog.run()
+    dialog.make_phases()
+    dialog.ask_name = lambda default: "yüksek fiyat"  # type: ignore[method-assign]
+    dialog.save_scenario()
+    assert [s.name for s in list_scenarios(project)] == ["baz", "yüksek fiyat"]
+    assert dialog.scenario_table.columnCount() == 3
+    dialog.scenario_pick.setCurrentText("baz")
+    dialog.load_scenario()
+    assert dialog.price.value() == 1800.0
+    dialog.delete_scenario()
+    assert [s.name for s in list_scenarios(project)] == ["yüksek fiyat"]
+    project.close()
+
+
+def test_blast_dialog(qapp: QApplication, tmp_path: Path) -> None:
+    from minecore.gui.blast import BlastDialog  # noqa: PLC0415
+    from minecore.strings import String, load_strings, save_strings  # noqa: PLC0415
+
+    project = Project.create(tmp_path / "b.mcproj", "b")
+    square = np.array([[0, 0, 100], [60, 0, 100], [60, 40, 100], [0, 40, 100]], float)
+    save_strings(project, "sinir", [String(square, True)])
+    parent = QWidget()
+    dialog = BlastDialog(project, parent)
+    d = dialog.design()
+    assert d.b == pytest.approx(4.95)  # 30 x 165 mm
+    assert "Özgül şarj" in dialog.summary.text()
+    dialog.ask_path = lambda: str(tmp_path / "d.dxf")  # type: ignore[method-assign]
+    dialog.make_layout()
+    assert dialog.holes is not None
+    n = len(dialog.holes[0])
+    assert 60 * 40 / (d.b * d.s) * 0.6 < n <= 60 * 40 / (d.b * d.s) * 1.1
+    assert len(load_strings(project, "sinir_delikler")) == n
+    assert "BLAST_HOLES" in (tmp_path / "d.dxf").read_text()
+    project.close()
+
+
+def test_dump_dialog(qapp: QApplication, tmp_path: Path) -> None:
+    from minecore.gui.dump import DumpDialog  # noqa: PLC0415
+    from minecore.strings import String, save_strings  # noqa: PLC0415
+
+    project = Project.create(tmp_path / "w.mcproj", "w")
+    square = np.array([[0, 0, 0], [400, 0, 0], [400, 400, 0], [0, 400, 0]], float)
+    save_strings(project, "saha", [String(square, True)])
+    parent = QWidget()
+    dialog = DumpDialog(project, parent)
+    dialog.face.setValue(45.0)
+    dialog.berm.setValue(10.0)
+    dialog.max_h.setValue(30.0)
+    dialog.run()
+    d = dialog.dump
+    assert d is not None
+    assert d.top == pytest.approx(30.0)
+    # Stair 10 m lift: 10 m face + 10 m berm per lift -> crest square shrinks by 2 x 50 m
+    # (two full lifts + the last face). Prismoid bounds: below the 400 m box, above the crest.
+    assert 300.0**2 * 30 < d.volume() < 400.0**2 * 30
+    assert dialog.table.rowCount() == 3
+    assert "Kapasite" in dialog.summary.text()
     project.close()

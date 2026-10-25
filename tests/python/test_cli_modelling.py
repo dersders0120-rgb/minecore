@@ -245,8 +245,11 @@ def test_rotated_model_chain(tmp_path: Path) -> None:
         "--price", "2000", "--price-unit", "ozt", "--recovery", "0.9",
         "--mining-cost", "2.5", "--processing-cost", "15", "--rock", "kaya", "--json",
     ]  # fmt: skip
-    opt = json.loads(_run("pit", "optimise", p, "BMR", "au", *econ))
+    opt = json.loads(_run("pit", "optimise", p, "BMR", "au", *econ, "--save-scenario", "baz"))
     assert opt["shells"][-1]["ore_t"] > 0
+    listing = _run("pit", "scenarios", p, "--csv", str(tmp_path / "s.csv"))
+    assert "baz" in listing
+    assert "Cevher (Mt)" in (tmp_path / "s.csv").read_text(encoding="utf-8-sig")
     des = _run("pit", "design", p, "BMR", "--face", "65", "--height", "10", "--berm", "5")
     assert "overall slope" in des
     from minecore.blockmodel import BlockModel  # noqa: PLC0415

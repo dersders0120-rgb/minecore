@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import math
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -16,10 +17,12 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
+    QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QMessageBox,
@@ -65,9 +68,19 @@ from minecore.pitopt.cashflow import (
 from minecore.pitopt.cutoff import LaneResult, cutoffs_from_model
 from minecore.pitopt.design import edge_blocks
 from minecore.pitopt.economics import PitOptError, parse_products, parse_routes
+from minecore.pitopt.fleet import Fleet, FleetRow, fleet_by_period, period_lifts
 from minecore.pitopt.milp import OptimisedSchedule, schedule_optimised
 from minecore.pitopt.optimise import route_tonnes, store
 from minecore.pitopt.phases import best_pushbacks
+from minecore.pitopt.scenarios import (
+    Scenario,
+    comparison,
+    delete_scenario,
+    list_scenarios,
+    results_of,
+    save_scenario,
+    write_comparison,
+)
 from minecore.pitopt.scheduling import (
     ConstrainedSchedule,
     InventoryRow,
@@ -353,6 +366,8 @@ class PitDialog(QDialog):
         self.cash_table.setHorizontalHeaderLabels(CASH_HEADERS)
         right.addTab(self.cash_table, "Nakit akışı")
         right.addTab(self._sensitivity_page(), "Duyarlılık")
+        right.addTab(self._fleet_page(), "Ekipman")
+        right.addTab(self._scenario_page(), "Senaryolar")
         self.flow: CashFlow | None = None
         self.inventory: list[InventoryRow] = []
         self.tabs = right
@@ -709,7 +724,250 @@ class PitDialog(QDialog):
             write_pit_reports(Path(path), self.pit, self.sched)
         else:
             target = Path(path if path.lower().endswith(".xlsx") else path + ".xlsx")
-            write_pit_reports_xlsx(target, self.pit, self.sched, self.inventory, self.flow)
+            write_pit_reports_xlsx(
+                target,
+                self.pit,
+                self.sched,
+                self.inventory,
+                self.flow,
+                self.fleet,
+                list_scenarios(self.project),
+            )
+
+    def _fleet_page(self) -> QWidget:
+        page = QWidget()
+        v = QVBoxLayout(page)
+        form = QFormLayout()
+        self.fl_payload = _spin(90.0, 1.0, 500.0, 5.0, 1)
+        self.fl_grad = _spin(10.0, 1.0, 25.0, 0.5, 1)
+        self.fl_inpit = _spin(300.0, 0.0, 1e5, 50.0, 0)
+        self.fl_surface = _spin(1500.0, 0.0, 1e5, 100.0, 0)
+        self.fl_lramp = _spin(11.0, 1.0, 80.0, 1.0, 1)
+        self.fl_eramp = _spin(25.0, 1.0, 80.0, 1.0, 1)
+        self.fl_lflat = _spin(30.0, 1.0, 80.0, 1.0, 1)
+        self.fl_eflat = _spin(40.0, 1.0, 80.0, 1.0, 1)
+        self.fl_load = _spin(3.5, 0.1, 60.0, 0.5, 1)
+        self.fl_dump = _spin(1.5, 0.1, 60.0, 0.5, 1)
+        self.fl_avail = _spin(85.0, 1.0, 100.0, 1.0, 0)
+        self.fl_util = _spin(80.0, 1.0, 100.0, 1.0, 0)
+        self.fl_tcost = _spin(180.0, 0.0, 1e5, 10.0, 0)
+        self.fl_lrate = _spin(1800.0, 10.0, 1e5, 100.0, 0)
+        self.fl_lcost = _spin(400.0, 0.0, 1e5, 10.0, 0)
+        form.addRow("Kamyon kapasitesi (t) / rampa eğimi %", _row(self.fl_payload, self.fl_grad))
+        form.addRow("Ocak içi / yüzey mesafesi (m, tek yön)", _row(self.fl_inpit, self.fl_surface))
+        form.addRow("Rampa hızı dolu / boş (km/sa)", _row(self.fl_lramp, self.fl_eramp))
+        form.addRow("Düz yol hızı dolu / boş (km/sa)", _row(self.fl_lflat, self.fl_eflat))
+        form.addRow("Yanaşma+yükleme / boşaltma (dk)", _row(self.fl_load, self.fl_dump))
+        form.addRow("Mekanik hazırlık % / kullanım %", _row(self.fl_avail, self.fl_util))
+        form.addRow("Kamyon maliyeti ($/sa)", self.fl_tcost)
+        form.addRow(
+            "Yükleyici kapasitesi (t/sa) / maliyeti ($/sa)", _row(self.fl_lrate, self.fl_lcost)
+        )
+        run = QPushButton("Kamyon ve yükleyici filosunu hesapla")
+        run.clicked.connect(self._guard(self.run_fleet))
+        form.addRow(run)
+        v.addLayout(form)
+        self.fleet_table = QTableWidget(0, len(FLEET_HEADERS))
+        self.fleet_table.setHorizontalHeaderLabels(FLEET_HEADERS)
+        v.addWidget(self.fleet_table, 1)
+        self.fleet_note = QLabel()
+        self.fleet_note.setWordWrap(True)
+        v.addWidget(self.fleet_note)
+        self.fleet: list[FleetRow] = []
+        return page
+
+    def fleet_inputs(self) -> Fleet:
+        return Fleet(
+            payload_t=self.fl_payload.value(),
+            ramp_gradient=self.fl_grad.value() / 100.0,
+            in_pit_m=self.fl_inpit.value(),
+            surface_m=self.fl_surface.value(),
+            loaded_ramp_kmh=self.fl_lramp.value(),
+            empty_ramp_kmh=self.fl_eramp.value(),
+            loaded_flat_kmh=self.fl_lflat.value(),
+            empty_flat_kmh=self.fl_eflat.value(),
+            spot_load_min=self.fl_load.value(),
+            dump_min=self.fl_dump.value(),
+            availability=self.fl_avail.value() / 100.0,
+            utilisation=self.fl_util.value() / 100.0,
+            truck_cost_h=self.fl_tcost.value(),
+            loader_tph=self.fl_lrate.value(),
+            loader_cost_h=self.fl_lcost.value(),
+        )
+
+    def run_fleet(self) -> None:
+        if self.pit is None or not isinstance(self.sched, ConstrainedSchedule):
+            raise RuntimeError("Önce kabukları hesaplayıp kısıtlı üretim çizelgesi oluşturun.")
+        grid = BlockModel.open(self.project, self.model.currentText()).grid
+        lifts = period_lifts(self.pit, self.sched, grid.size[2])
+        self.fleet = rows = fleet_by_period(self.sched, lifts, self.fleet_inputs())
+        self.fleet_table.setRowCount(len(rows))
+        for n, r in enumerate(rows):
+            cells = [
+                str(r.period),
+                f"{r.mined_t / 1e6:,.2f}",
+                f"{r.lift_m:,.0f}",
+                f"{r.haul_m:,.0f}",
+                f"{r.cycle_min:,.1f}",
+                str(r.trucks),
+                str(r.loaders),
+                f"{r.truck_hours:,.0f}",
+                f"{r.cost / 1e6:,.2f}",
+                f"{r.cost_per_t:,.2f}",
+            ]
+            for c, text in enumerate(cells):
+                _cell(self.fleet_table, n, c, text)
+        peak = max((r.trucks for r in rows), default=0)
+        total = sum(r.cost for r in rows)
+        tonnes = sum(r.mined_t for r in rows)
+        self.fleet_note.setText(
+            f"En çok {peak} kamyon, {max((r.loaders for r in rows), default=0)} yükleyici. "
+            f"Nakliye+yükleme ortalama {total / tonnes if tonnes else 0:,.2f} $/t. "
+            "Ortalama çevrim tahminidir (kuyruk/eşleşme benzetimi yok); maliyet çizelge "
+            "nakit akışına eklenmez, madencilik maliyetiyle karşılaştırmak içindir."
+        )
+
+    def _scenario_page(self) -> QWidget:
+        page = QWidget()
+        v = QVBoxLayout(page)
+        save = QPushButton("Mevcut çalışmayı senaryo olarak kaydet...")
+        save.clicked.connect(self._guard(self.save_scenario))
+        self.scenario_pick = QComboBox()
+        load = QPushButton("Girdileri yükle")
+        load.setToolTip("Seçili senaryonun tüm girdilerini forma geri yükler.")
+        load.clicked.connect(self._guard(self.load_scenario))
+        delete = QPushButton("Sil")
+        delete.clicked.connect(self._guard(self.delete_scenario))
+        export = QPushButton("Karşılaştırmayı CSV olarak kaydet...")
+        export.clicked.connect(self._guard(self.export_scenarios))
+        v.addLayout(_row(save, export))
+        v.addLayout(_row(QLabel("Senaryo"), self.scenario_pick, load, delete))
+        self.scenario_table = QTableWidget(0, 0)
+        v.addWidget(self.scenario_table, 1)
+        self.scenario_figure = Figure(figsize=(6, 3))
+        self.scenario_canvas = FigureCanvasQTAgg(self.scenario_figure)  # type: ignore[no-untyped-call]
+        v.addWidget(self.scenario_canvas, 1)
+        self._show_scenarios()
+        return page
+
+    def form_values(self) -> dict[str, Any]:
+        """Every input widget of the form by attribute name (a scenario's inputs)."""
+        out: dict[str, Any] = {}
+        for name, w in vars(self).items():
+            if name.startswith("scenario_"):
+                continue
+            if isinstance(w, QDoubleSpinBox | QSpinBox):
+                out[name] = w.value()
+            elif isinstance(w, QCheckBox):
+                out[name] = w.isChecked()
+            elif isinstance(w, QLineEdit):
+                out[name] = w.text()
+            elif isinstance(w, QComboBox):
+                out[name] = w.currentText()
+        return out
+
+    def set_form_values(self, values: dict[str, Any]) -> None:
+        if "model" in values:
+            self.model.setCurrentText(str(values["model"]))  # refills the attribute lists
+        for name, value in values.items():
+            w = getattr(self, name, None)
+            if name == "model" or w is None:
+                continue
+            if isinstance(w, QDoubleSpinBox):
+                w.setValue(float(value))
+            elif isinstance(w, QSpinBox):
+                w.setValue(int(value))
+            elif isinstance(w, QCheckBox):
+                w.setChecked(bool(value))
+            elif isinstance(w, QLineEdit):
+                w.setText(str(value))
+            elif isinstance(w, QComboBox):
+                w.setCurrentText(str(value))
+
+    def ask_name(self, default: str) -> str | None:
+        """Scenario name from the user (tests replace it)."""
+        name, ok = QInputDialog.getText(self, "Senaryo kaydet", "Senaryo adı:", text=default)
+        return name.strip() if ok and name.strip() else None
+
+    def save_scenario(self) -> None:
+        if self.pit is None:
+            raise RuntimeError("Önce kabukları hesaplayın.")
+        name = self.ask_name(f"Senaryo {len(list_scenarios(self.project)) + 1}")
+        if name is None:
+            return
+        final = int(self.final.currentData())
+        phases = int(self.phase.max()) if self.phase is not None else 0
+        save_scenario(
+            self.project,
+            Scenario(
+                name,
+                datetime.now(UTC).isoformat(timespec="seconds"),
+                self.model.currentText(),
+                self.form_values(),
+                results_of(self.pit, final, phases, self.sched, self.flow),
+            ),
+        )
+        self._show_scenarios()
+        self.scenario_pick.setCurrentText(name)
+
+    def _picked(self) -> Scenario:
+        name = self.scenario_pick.currentText()
+        for sc in list_scenarios(self.project):
+            if sc.name == name:
+                return sc
+        raise RuntimeError("Önce bir senaryo kaydedin ve seçin.")
+
+    def load_scenario(self) -> None:
+        picked = self._picked()
+        self.set_form_values(picked.inputs)
+        self.inform(
+            "Senaryo",
+            f"'{picked.name}' girdileri yüklendi. Sonuçlar için kabukları yeniden "
+            "hesaplayıp çizelge oluşturun.",
+        )
+
+    def delete_scenario(self) -> None:
+        delete_scenario(self.project, self._picked().name)
+        self._show_scenarios()
+
+    def export_scenarios(self) -> None:
+        scenarios = list_scenarios(self.project)
+        if not scenarios:
+            raise RuntimeError("Kayıtlı senaryo yok.")
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Karşılaştırmayı kaydet", "senaryolar.csv", "CSV (*.csv)"
+        )
+        if path:
+            write_comparison(Path(path), scenarios)
+
+    def _show_scenarios(self) -> None:
+        scenarios = list_scenarios(self.project)
+        current = self.scenario_pick.currentText()
+        self.scenario_pick.clear()
+        self.scenario_pick.addItems([s.name for s in scenarios])
+        if current:
+            self.scenario_pick.setCurrentText(current)
+        table = comparison(scenarios)
+        self.scenario_table.setColumnCount(len(table[0]))
+        self.scenario_table.setRowCount(len(table) - 1)
+        self.scenario_table.setHorizontalHeaderLabels(["Gösterge", *table[0][1:]])
+        for r, row in enumerate(table[1:]):
+            for c, text in enumerate(row):
+                _cell(self.scenario_table, r, c, text)
+        self.scenario_figure.clear()
+        if scenarios:
+            ax = self.scenario_figure.add_subplot(111)
+            names = [s.name for s in scenarios]
+            bars = ((-0.2, "schedule_npv", "Çizelge NPV"), (0.2, "project_npv", "Proje NPV"))
+            for offset, key, label in bars:
+                values = [(s.results.get(key) or 0.0) / 1e6 for s in scenarios]
+                ax.bar([i + offset for i in range(len(names))], values, width=0.4, label=label)
+            ax.set_xticks(range(len(names)), names)
+            ax.set_ylabel("M$")
+            ax.axhline(0.0, color="0.6", linewidth=0.8)
+            ax.legend()
+            self.scenario_figure.tight_layout()
+        self.scenario_canvas.draw_idle()  # type: ignore[no-untyped-call]
 
     def _sensitivity_page(self) -> QWidget:
         page = QWidget()
@@ -902,12 +1160,14 @@ def _inventory_cells(r: InventoryRow) -> list[Any]:
     return [r.phase, r.bench_toe, r.ore_t, grade, r.metal, r.waste_t, strip, r.value]
 
 
-def write_pit_reports_xlsx(
+def write_pit_reports_xlsx(  # noqa: PLR0913, PLR0917 - one sheet per argument
     path: Path,
     result: PitResult,
     sched: ConstrainedSchedule | None,
     inventory: list[InventoryRow] | None = None,
     flow: CashFlow | None = None,
+    fleet: list[FleetRow] | None = None,
+    scenarios: list[Scenario] | None = None,
 ) -> None:
     from minecore.io.excel import write_workbook  # noqa: PLC0415
 
@@ -981,6 +1241,28 @@ def write_pit_reports_xlsx(
     if flow is not None:
         headers = [h.replace(" M$", "") for h in CASH_HEADERS]
         sheets["Nakit akışı"] = (headers, [[r.period, *_cash_cells(r)[1:]] for r in flow.rows])
+    if fleet:
+        sheets["Ekipman"] = (
+            FLEET_HEADERS,
+            [
+                [
+                    r.period,
+                    r.mined_t / 1e6,
+                    r.lift_m,
+                    r.haul_m,
+                    r.cycle_min,
+                    r.trucks,
+                    r.loaders,
+                    r.truck_hours,
+                    r.cost / 1e6,
+                    r.cost_per_t,
+                ]
+                for r in fleet
+            ],
+        )
+    if scenarios:
+        table = comparison(scenarios)
+        sheets["Senaryolar"] = (["Gösterge", *table[0][1:]], table[1:])
     write_workbook(path, sheets)
 
 
@@ -1224,6 +1506,19 @@ def _length(road: npt.NDArray[np.float64]) -> float:
 LANE_HEADERS = (
     "Yıl", "Cut-off", "Malzeme t", "Cevher t", "Tenör", "Metal", "Nakit akışı", "Kısıt",
 )  # fmt: skip
+FLEET_HEADERS = [
+    "Yıl",
+    "Kazı Mt",
+    "Ort. kot farkı (m)",
+    "Nakliye mesafesi (m)",
+    "Çevrim (dk)",
+    "Kamyon",
+    "Yükleyici",
+    "Kamyon saati",
+    "Maliyet M$",
+    "$/t",
+]
+
 LIMIT_NAMES = {"mine": "maden", "mill": "tesis", "market": "pazar"}
 
 

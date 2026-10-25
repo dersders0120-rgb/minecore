@@ -152,6 +152,42 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
   NSR) with selling costs unchanged; recovery is capped at 100 %. Scenarios
   are not stored in the project; each run is recomputed.
 
+## Truck and loader fleet
+
+- `pitopt.fleet` (GUI "Ekipman"): average-cycle fleet sizing per schedule
+  period. The lift is the tonnage-weighted depth of the increments that start
+  in the period, below the model top (pit exit at the model top); one
+  destination per period; no queueing, match factor, rimpull/retarder curves
+  or fuel model; the cost is reported, not added to the schedule cash flow.
+  Smoke-tested only.
+
+## Drill and blast
+
+- `drillblast` (GUI "Delme-patlatma tasarımı"): rule-of-thumb bench blast
+  (burden from the diameter, spacing/subdrill/stemming ratios), fully coupled
+  bulk explosive, flat collar elevation, holes on a regular staggered/square
+  grid clipped to a closed outline. No fragmentation (Kuz-Ram), vibration,
+  air-blast or flyrock prediction, no timing design, no decking, no free-face
+  or crest-burden checks. Smoke-tested only.
+
+## Waste dumps
+
+- `pitopt.dump` (GUI "Döküm sahası tasarımı"): stair surface from the toe
+  on the footprint edge (ground at the nearest edge point), capped at a
+  maximum height above the lowest toe. One footprint per run (the first
+  closed string); no ramps, no stability or foundation checks, no dump
+  scheduling or haul-distance link; footprint edges are rasterised.
+  Smoke-tested only.
+
+## Pit scenarios
+
+- `pitopt.scenarios` (GUI "Senaryolar", CLI `pit optimise --save-scenario`,
+  `pit scenarios`): a scenario keeps the form inputs and headline numbers in
+  the project settings. Results are a snapshot: they are not recomputed when
+  the model changes, and reloading inputs does not rerun the study. No
+  block-level results (shells, schedules) are kept per scenario; comparison
+  covers headline metrics only. Lightly tested (save, list, load, delete).
+
 ## Cut-off grade optimisation (Lane)
 
 - `pitopt.cutoff`: Lane's method with mine, mill and market capacities, fixed
@@ -254,6 +290,12 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
   non-overlapping stope selection by metal. Not a Mineable Shape Optimiser:
   no variable stope shapes, dip/strike following, pillars, dilution skins,
   development or scheduling. Stopes are aligned with the block grid.
+- `underground.economics` (GUI "Panoları değerle, çizelgele"): stope value
+  with global dilution (zero grade) and mining recovery, a fixed development
+  cost per stope, and a rule-based schedule: level by level (bottom-up or
+  top-down), richest stope first, at one tonnage capacity. No development
+  lead times, no stope-to-stope dependencies or pillars, no fill, no
+  ramp-up, not optimised; negative stopes are skipped. Smoke-tested only.
 - `underground.development`: concept access layout only: one straight portal
   leg plus a circular spiral decline at constant gradient beside the orebody
   (standoff checked in plan against ore block centroids), and one straight

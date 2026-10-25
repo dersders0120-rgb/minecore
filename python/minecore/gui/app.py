@@ -364,6 +364,8 @@ class MainWindow(QMainWindow):
         action(pit, "Cut-off optimizasyonu (Lane, yıllara göre)...", self.lane_cutoff)
         action(pit, "Ocağı DXF olarak dışa aktar, ocak yüzeyi oluştur...", self.export_pit)
         action(pit, "Dönem sonu yüzeyleri (çizelgeden), DXF...", self.export_periods)
+        action(pit, "Delme-patlatma tasarımı (dilim, aralık, şarj, delik planı)...", self.blast)
+        action(pit, "Döküm sahası tasarımı (kat, şev, berm, kapasite)...", self.dump)
         ug = self.menuBar().addMenu("Yer&altı")
         action(ug, "Pano zarfı (floating stope) ve pano seçimi...", self.stopes)
         action(ug, "Dekline ve kat galerileri...", self.decline)
@@ -1070,6 +1072,18 @@ class MainWindow(QMainWindow):
         if not block_models(project):
             raise RuntimeError("Önce bir blok modeli ve pano seçimi gerekli.")
         DeclineDialog(project, self).exec()
+        self.refresh()
+
+    def dump(self) -> None:
+        from minecore.gui.dump import DumpDialog  # noqa: PLC0415
+
+        DumpDialog(self._need_project(), self).exec()
+        self.refresh()
+
+    def blast(self) -> None:
+        from minecore.gui.blast import BlastDialog  # noqa: PLC0415
+
+        BlastDialog(self._need_project(), self).exec()
         self.refresh()
 
     def bench_design(self) -> None:
