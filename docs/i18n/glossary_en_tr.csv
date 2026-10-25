@@ -1,0 +1,215 @@
+term_en,term_tr,preferred,alt_tr,category,note
+collar,sondaj ağzı,tr,kolar,drillhole,Sondaj kuyusunun yüzeydeki başlangıç noktası
+survey,sapma ölçümü,tr,yönelim ölçümü,drillhole,Kuyu doğrultu ve eğim ölçümü
+downhole survey,kuyu içi sapma ölçümü,tr,kuyu içi yönelim ölçümü,drillhole,
+azimuth,azimut,tr,doğrultu açısı,drillhole,Kuzeyden saat yönünde ölçülen açı
+dip,eğim,tr,dalım,drillhole,Yatay düzleme göre açı; jeolojide dalım da kullanılır
+interval,aralık,tr,numune aralığı,drillhole,Numune veya ölçüm aralığı
+from,başlangıç derinliği,tr,üst sınır,drillhole,Aralığın üst derinliği
+to,bitiş derinliği,tr,alt sınır,drillhole,Aralığın alt derinliği
+assay,tenör analizi,tr,laboratuvar analizi,drillhole,Laboratuvar analiz sonucu
+grade,tenör,tr,içerik,drillhole,Metalin kütlesel yüzdesi veya g/t değeri
+composite,kompozit,tr,bileşik numune,drillhole,Aralıkların uzunluğa göre birleştirilmesi
+lithology,litoloji,tr,kayaç birimi,drillhole,
+recovery,karot verimi,tr,karot kazanma oranı,drillhole,Kazılan karotun teorik uzunluğa oranı
+RQD,karot kalite göstergesi,tr,RQD,drillhole,Kısaltma olarak RQD yaygın kullanılır
+core,karot,tr,karot numunesi,drillhole,
+chip sample,talaş numunesi,tr,kırıntı numunesi,drillhole,Delik talaşından alınan numune
+channel sample,kanal numunesi,tr,kanal örneği,drillhole,Yüzeyde açılan kanaldan alınan numune
+duplicate,çift numune,tr,kopya numune,QA/QC,Aynı numunenin ikinci analizi
+blank,boş numune,tr,kör numune,QA/QC,Tenörsüz malzeme; kör numune de kullanılır
+standard,standart numune,tr,referans numune,QA/QC,Bilinen tenörlü sertifikalı malzeme
+CRM,sertifikalı referans malzeme,tr,SRM,QA/QC,Certified Reference Material; SRM kısaltması kullanılır
+QA/QC,kalite güvence ve kalite kontrol,tr,KG/KK,QA/QC,Kısaltma olarak QA/QC yaygın
+precision,tekrarlanabilirlik,tr,kesinlik,QA/QC,Aynı numunenin tekrar ölçümleri arasındaki tutarlılık
+accuracy,doğruluk,tr,isabet,QA/QC,Ölçüm değerinin gerçek değere yakınlığı
+bias,sistematik sapma,tr,yanlılık,QA/QC,Ölçümlerde tek yönlü hata
+contamination,kontaminasyon,tr,bulaşma,QA/QC,Numuneye yabancı malzeme karışması
+sample preparation,numune hazırlama,tr,örnek hazırlama,QA/QC,
+sample ID,numune kimliği,tr,numune kodu,QA/QC,
+sample weight,numune ağırlığı,tr,numune kütlesi,QA/QC,
+trace,iz,tr,sondaj izi,geometry,Sondaj kuyusunun üç boyutlu yolu
+minimum curvature,minimum eğrilik yöntemi,tr,minimum kıvrım yöntemi,geometry,Kuyu yolunu hesaplama yöntemi
+desurvey,sapma düzeltmesi,tr,yönelim düzeltmesi,geometry,Sapma verisine göre kuyu koordinatlarını hesaplama
+section,kesit,tr,enine kesit,geometry,Dik düzlemdeki görünüm
+plan,plan,tr,plan görünüşü,geometry,Yatay düzlemdeki görünüm
+wireframe,tel kafes model,tr,kontur modeli,geometry,Jeolojik sınırların üçgen veya çizgi ağı ile modellenmesi
+solid,katı model,tr,hacim modeli,geometry,Kapalı üç boyutlu hacim
+surface,yüzey,tr,topografik yüzey,geometry,
+triangulation,üçgenleme,tr,üçgen ağ oluşturma,geometry,
+triangle,üçgen,tr,,geometry,
+vertex,köşe noktası,tr,tepe noktası,geometry,
+edge,kenar,tr,,geometry,
+boundary,sınır,tr,sınır yüzeyi,geometry,
+domain,alan,tr,jeolojik alan,geometry,Benzer özellikli kütlelerin birleşimi
+fault,fay,tr,kırık,geometry,
+vein,damar,tr,filon,geometry,Mineralizasyonlu çatlak dolgusu
+CRS,koordinat referans sistemi,tr,KRS,coordinates,Coordinate Reference System
+datum,datum,tr,referans elipsoidi,coordinates,Yer modelini tanımlayan referans
+projection,izdüşüm,tr,projeksiyon,coordinates,Yeryüzünün düzleme aktarılması
+UTM,UTM,tr,evrensel enine Mercator,coordinates,Kısaltma olarak UTM kullanılır
+local mine grid,yerel maden koordinat sistemi,tr,yerel grid,coordinates,
+easting,doğu koordinatı,tr,X koordinatı,coordinates,Yerel koordinat sisteminde X
+northing,kuzey koordinatı,tr,Y koordinatı,coordinates,Yerel koordinat sisteminde Y
+elevation,kot,tr,yükseklik,coordinates,Deniz seviyesine göre yükseklik
+RL,kot,tr,rakım,coordinates,Reduced Level; Türkçede kot kullanılır
+control point,kontrol noktası,tr,jeodezik nokta,coordinates,
+benchmark,sabit nokta,tr,kıyas noktası,coordinates,
+residual,artık,tr,kalıntı,coordinates,Ölçüm ile hesap arasındaki fark
+transformation,dönüşüm,tr,koordinat dönüşümü,coordinates,
+scale factor,ölçek faktörü,tr,ölçek katsayısı,coordinates,
+rotation,döndürme,tr,rotasyon,coordinates,
+block,blok,tr,blok model hücresi,blockmodel,Model içindeki hacim birimi
+sub-block,alt blok,tr,alt hücre,blockmodel,Ana bloğun bölünmüş parçası
+parent cell,ana hücre,tr,üst blok,blockmodel,
+SMU,seçici madencilik birimi,tr,SMU,blockmodel,Selective Mining Unit
+regularisation,düzenlileştirme,tr,regularizasyon,blockmodel,Destek değişimi
+attribute,nitelik,tr,özellik,blockmodel,Bloğa ait değişken
+domain code,alan kodu,tr,domain kodu,blockmodel,
+density,yoğunluk,tr,özgül ağırlık,blockmodel,Ton/m3 cinsinden
+bulk density,hacim yoğunluğu,tr,kuru yoğunluk,blockmodel,
+block model,blok model,tr,blok modeli,blockmodel,
+grid,ağ,tr,grid,blockmodel,
+cell size,hücre boyutu,tr,blok boyutu,blockmodel,
+rotation angle,dönme açısı,tr,rotasyon açısı,blockmodel,
+variogram,varyogram,tr,değişim fonksiyonu,estimation,Yakınlık-benzerlik ilişkisini gösteren grafik
+nugget,nugget,tr,nugget etkisi,estimation,Sıfır uzaklıktaki rastgele varyans
+sill,eşik değeri,tr,sill,estimation,Varyogramın yatay kısmındaki değer
+range,menzil,tr,etki mesafesi,estimation,Otokorelasyonun sıfırlandığı mesafe
+kriging,kriging,tr,kriging tahmini,estimation,Jeoistatistiksel tahmin yöntemi
+ordinary kriging,ortalama bilinmeyen kriging,tr,OK,estimation,
+simple kriging,ortalama bilinen kriging,tr,SK,estimation,
+indicator kriging,gösterge kriging,tr,IK,estimation,
+search ellipsoid,arama elipsoidi,tr,arama elipsi,estimation,
+inverse distance,ters uzaklık,tr,ters uzaklık ağırlıklandırma,estimation,IDW olarak da bilinir
+declustering,kümelenme giderme,tr,kümelenme düzeltmesi,estimation,
+top cut,üst kesme,tr,kapatma,estimation,Aşırı yüksek değerlerin sınırlanması
+capping,kapatma,tr,üst sınırlama,estimation,Top cut ile eş anlamlı
+swath plot,şerit grafiği,tr,swath analizi,estimation,
+estimation,tahmin,tr,kestirim,estimation,
+interpolation,enterpolasyon,tr,ara değer hesabı,estimation,
+nearest neighbour,en yakın komşu,tr,NN,estimation,
+cross validation,çapraz doğrulama,tr,çapraz geçerlilik,estimation,
+bias correction,sapma düzeltmesi,tr,yanlılık düzeltmesi,estimation,
+cut-off grade,kesim tenörü,tr,kesme tenörü,resources,Çoğu Türk mühendisi kesim tenörü diyor; cut-off da kullanılır
+grade-tonnage curve,tenör-tonaj eğrisi,tr,tenör tonaj grafiği,resources,
+tonnage,tonaj,tr,tonaj miktarı,resources,
+contained metal,içerilen metal,tr,metal miktarı,resources,
+recoverable metal,geri kazanılabilir metal,tr,kazanılabilir metal,resources,
+resource,kaynak,tr,mineral kaynağı,resources,
+reserve,rezerv,tr,mineral rezervi,resources,Ekonomik olarak çıkarılabilir kısım
+measured,ölçülmüş,tr,ölçülen,resources,Measured Resource
+indicated,belirlenmiş,tr,gösterilen,resources,Indicated Resource
+inferred,çıkarsanmış,tr,tahmin edilen,resources,Inferred Resource
+classification,sınıflandırma,tr,kaynak sınıflandırması,resources,
+Probable reserve,olası rezerv,tr,muhtemel rezerv,resources,
+Proven reserve,kanıtlanmış rezerv,tr,kesinleşmiş rezerv,resources,
+JORC,JORC,tr,JORC kodu,resources,Avustralya standardı; Türkçede JORC kullanılır
+NI 43-101,NI 43-101,tr,NI 43-101 standardı,resources,Kanada standardı
+MAPEG,MAPEG,tr,MTA MAPEG,resources,Türkiye maden raporlama standardı; MAPEG kullanılır
+mineral resource estimate,mineral kaynak tahmini,tr,kaynak tahmini,resources,
+economic model,ekonomik model,tr,maliyet modeli,resources,
+NSR,net smelter return,en,NSR,resources,Net smelter return; Türkçede NSR kullanılır
+pit shell,ocak kabuğu,tr,pit kabuğu,openpit,Optimizasyon sonucunda elde edilen ocak sınırı
+optimisation,optimizasyon,tr,optimizasyon,openpit,Türkçede optimizasyon yazımı yaygın
+Lerchs-Grossmann,Lerchs-Grossmann,tr,LG algoritması,openpit,Ocak optimizasyon algoritması
+bench,basamak,tr,kademe,openpit,Açık ocakta yükseklik kademesi
+bench height,basamak yüksekliği,tr,kademe yüksekliği,openpit,
+bench width,basamak genişliği,tr,kademe genişliği,openpit,
+berm,berm,tr,yan yol,openpit,Güvenlik ve düşme engeli
+ramp,rampa,tr,yol,openpit,Ocak içi taşıma yolu
+slope angle,şev açısı,tr,yamaç açısı,openpit,
+slope,şev,tr,yamaç,openpit,
+stripping ratio,sıyırma oranı,tr,sıyırma katsayısı,openpit,Birim cevher başına sıyırma miktarı
+strip ratio,sıyırma oranı,tr,sıyırma katsayısı,openpit,
+phase,faz,tr,aşama,openpit,
+pushback,geri itme,tr,pushback,openpit,Sonraki fazın şev genişletmesi
+schedule,üretim planı,tr,çizelge,openpit,
+production schedule,üretim çizelgesi,tr,üretim planı,openpit,
+waste,atık,tr,steril,openpit,Ekonomik olmayan kayaç
+ore,cevher,tr,maden,openpit,Ekonomik olarak işlenebilen kayaç
+overburden,örtü tabakası,tr,örtü kayacı,openpit,Cevher üstündeki kayaç
+haul road,nakliye yolu,tr,taşıma yolu,openpit,
+stockpile,stok sahası,tr,yığın,openpit,
+dump,döküm sahası,tr,dökü sahası,openpit,
+pit,açık ocak,tr,ocak,openpit,
+wall,duvar,tr,şev duvarı,openpit,
+crest,şev tepesi,tr,şev üstü,openpit,
+toe,şev ayağı,tr,şev dibi,openpit,
+blast hole,patlatma deliği,tr,patlatma kuyusu,openpit,
+drill and blast,delme ve patlatma,tr,delme patlatma,openpit,
+loading,yükleme,tr,dolum,openpit,
+hauling,nakliye,tr,taşıma,openpit,
+stope,üretim panosu,tr,stop,underground,Yeraltında cevher çıkarılan boşluk
+drive,galeri,tr,yatay galeri,underground,Yeraltı yatay açılış
+crosscut,kesit galerisi,tr,çapraz galeri,underground,Damarı kesen galeri
+decline,rampa galerisi,tr,eğimli galeri,underground,Yeraltı eğimli giriş
+level,kat,tr,seviye,underground,Yeraltı katı
+sill pillar,tavan koruma pilyesi,tr,tavan kolonu,underground,
+pillar,kolon,tr,pilye,underground,
+shaft,kuyu,tr,şaft,underground,
+raise,yükselti,tr,yukarı galeri,underground,
+winze,aşağı kuyu,tr,alçak kuyu,underground,
+footwall,taban,tr,alt duvar,underground,
+hangingwall,tavan,tr,üst duvar,underground,
+ventilation,havalandırma,tr,vantilasyon,underground,
+mucking,yükleme,tr,dökme,underground,
+backfill,dolgu,tr,geri dolgu,underground,
+cut and fill,kesme ve dolgu,tr,kesme dolgu,underground,
+room and pillar,oda ve kolon,tr,oda kolon,underground,
+shrinkage stoping,büzülme üretimi,tr,büzülme stoplama,underground,
+sublevel stoping,alt kat üretimi,tr,alt kat stoplama,underground,
+rock bolt,kaya civatası,tr,kaya bulonu,underground,
+shotcrete,püskürtme beton,tr,shotcrete,underground,
+support,destek,tr,destekleme,underground,
+mine planning,maden planlaması,tr,madencilik planlaması,underground,
+mine design,maden tasarımı,tr,madencilik tasarımı,underground,
+project,proje,tr,çalışma,ui,
+import,içe aktar,tr,import,ui,
+export,dışa aktar,tr,export,ui,
+undo,geri al,tr,geri alma,ui,
+redo,yinele,tr,yeniden yap,ui,
+validation report,doğrulama raporu,tr,geçerlilik raporu,ui,
+warning,uyarı,tr,ikaz,ui,
+error,hata,tr,hata mesajı,ui,
+settings,ayarlar,tr,tercihler,ui,
+save,kaydet,tr,kayıt,ui,
+open,aç,tr,açma,ui,
+close,kapat,tr,kapama,ui,
+delete,sil,tr,silme,ui,
+copy,kopyala,tr,çoğalt,ui,
+paste,yapıştır,tr,yerleştir,ui,
+select,seç,tr,seçim,ui,
+filter,filtre,tr,süzgeç,ui,
+report,rapor,tr,raporlama,ui,
+database,veritabanı,tr,veri tabanı,ui,
+dataset,veri seti,tr,veri kümesi,ui,
+drillhole database,sondaj veritabanı,tr,sondaj veri tabanı,ui,
+layer,katman,tr,tabaka,ui,
+viewport,görüntü penceresi,tr,görünüm alanı,ui,
+display,görüntüle,tr,gösterim,ui,
+legend,lejant,tr,açıklama,ui,
+color scale,renk skalası,tr,renk ölçeği,ui,
+palette,renk paleti,tr,palet,ui,
+scale,ölçek,tr,skala,ui,
+user,kullanıcı,tr,kullanıcı hesabı,ui,
+license,lisans,tr,lisans anahtarı,ui,
+help,yardım,tr,yardım menüsü,ui,
+version,sürüm,tr,versiyon,ui,
+backup,yedek,tr,yedekleme,ui,
+restore,geri yükle,tr,geri yükleme,ui,
+progress,ilerleme,tr,ilerleme çubuğu,ui,
+loading data,veri yükleniyor,tr,veri yükleme,ui,
+cancel,iptal,tr,vazgeç,ui,
+confirm,onayla,tr,onay,ui,
+apply,uygula,tr,uygulama,ui,
+reset,sıfırla,tr,sıfırlama,ui,
+search,ara,tr,arama,ui,
+sort,sırala,tr,sıralama,ui,
+group,grupla,tr,gruplama,ui,
+merge,birleştir,tr,birleştirme,ui,
+split,böl,tr,ayır,ui,
+zoom in,yakınlaştır,tr,yakın görünüm,ui,
+zoom out,uzaklaştır,tr,uzak görünüm,ui,
+rotate,döndür,tr,çevir,ui,
+pan,kaydır,tr,taşı,ui,

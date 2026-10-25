@@ -162,12 +162,13 @@
       "milestone": "M2",
       "title": "Synthetic drillhole dataset generator",
       "owner": "deepseek",
-      "status": "SUBMITTED",
+      "status": "VERIFIED",
       "depends_on": [
         "T-003",
         "T-005"
       ],
-      "brief": "docs/tasks/T-008.md"
+      "brief": "docs/tasks/T-008.md",
+      "evidence": "Architect fixed a wrong partial-arc desurvey (pos added twice, wrong tangent) and station rounding so truth matches written files; 8 tests incl. T-009 reference cases pass; ruff/mypy clean."
     },
     {
       "id": "T-009",
@@ -184,9 +185,10 @@
       "milestone": "M1",
       "title": "Research: coordinate reference practice for mining in Turkey",
       "owner": "gemini",
-      "status": "SUBMITTED",
+      "status": "VERIFIED",
       "depends_on": [],
-      "brief": "docs/tasks/T-010.md"
+      "brief": "docs/tasks/T-010.md",
+      "evidence": "Committed with review note: CRS codes checked against EPSG/PROJ 9.8.1; fabricated transformation and TUREF UTM codes flagged; MAPEG claims unverified."
     },
     {
       "id": "T-011",
@@ -195,7 +197,8 @@
       "owner": "haiku",
       "status": "SUBMITTED",
       "depends_on": [],
-      "brief": null
+      "brief": null,
+      "evidence": "Draft glossary committed to docs/i18n; awaits owner review."
     }
   ]
 }
