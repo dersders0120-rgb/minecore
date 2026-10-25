@@ -44,7 +44,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from minecore import __version__, solids, surfaces
+from minecore import __version__, solids, strings, surfaces
 from minecore.blockmodel import BlockModel
 from minecore.blockmodel.workflow import load_variograms
 from minecore.drillholes import (
@@ -297,6 +297,8 @@ class MainWindow(QMainWindow):
         action(surf, "Blok modelini topoğrafyayla kes (kaya/hava)...", self.flag_blocks)
         surf.addSeparator()
         action(surf, "Katı model (wireframe) içe aktar: OBJ, STL, DXF...", self.import_solid)
+        action(surf, "Çizgileri içe aktar (DXF polyline, kesit yorumları)...", self.import_strings)
+        action(surf, "Kesit çizgilerini bağlayarak katı oluştur...", self.link_strings)
         action(surf, "Blok modelini katı ile işaretle (domen)...", self.flag_solid)
         action(surf, "Tenör kabuğu katısı oluştur (blok modelinden)...", self.make_grade_shell)
         action(surf, "Katı modeli DXF olarak dışa aktar...", self.export_solid)
@@ -307,6 +309,7 @@ class MainWindow(QMainWindow):
         ug = self.menuBar().addMenu("Yer&altı")
         action(ug, "Pano zarfı (floating stope) ve pano seçimi...", self.stopes)
         help_menu = self.menuBar().addMenu("&Yardım")
+        action(help_menu, "Adım adım kullanım kılavuzu", self.guide, "F1")
         action(help_menu, "Örnek sondaj projesini aç", self.open_sample)
         action(help_menu, "Hakkında", self.about)
 
@@ -613,6 +616,42 @@ class MainWindow(QMainWindow):
             ),
         )
 
+    def import_strings(self) -> None:
+        project = self._need_project()
+        path, _ = QFileDialog.getOpenFileName(self, "Çizgiler", "", "DXF (*.dxf)")
+        if not path:
+            return
+        found = strings.read_dxf_strings(Path(path))
+        name, ok = QInputDialog.getText(self, "Çizgi seti", "Ad:", text=Path(path).stem)
+        if not ok or not name.strip():
+            return
+        strings.save_strings(project, name.strip(), found)
+        self.refresh()
+        closed = sum(1 for s in found if s.closed)
+        QMessageBox.information(
+            self, "Çizgiler", f"'{name.strip()}': {len(found)} çizgi ({closed} kapalı)."
+        )
+
+    def link_strings(self) -> None:
+        project = self._need_project()
+        names = strings.string_names(project)
+        if not names:
+            raise RuntimeError("Önce kesit çizgilerini (DXF) içe aktarın.")
+        name, ok = QInputDialog.getItem(self, "Katı oluştur", "Çizgi seti:", names, 0, False)
+        if not ok:
+            return
+        ordered = strings.section_order(strings.load_strings(project, name))
+        solid = strings.link_sections([s.points for s in ordered])
+        target = f"{name}_kati"
+        solids.save_solid(project, target, solid)
+        self.refresh()
+        QMessageBox.information(
+            self,
+            "Katı oluştur",
+            f"'{target}': {len(ordered)} kesit bağlandı, {len(solid.triangles):,} üçgen, "
+            f"hacim {solid.volume():,.0f} m³, açık kenar {solid.open_edges()}.",
+        )
+
     def flag_solid(self) -> None:
         project = self._need_project()
         names = solids.solid_names(project)
@@ -813,6 +852,11 @@ class MainWindow(QMainWindow):
         import_folder(self._need_db(), SAMPLE_DIR)
         self.refresh()
         self.statusBar().showMessage(f"Örnek proje oluşturuldu: {target}")
+
+    def guide(self) -> None:
+        from minecore.gui.guide import GuideDialog  # noqa: PLC0415
+
+        GuideDialog(self).exec()
 
     def about(self) -> None:
         QMessageBox.about(
@@ -1082,6 +1126,14 @@ class MainWindow(QMainWindow):
             faces = np.column_stack([np.full(len(tri), 3), tri]).ravel()
             mesh = pv.PolyData(surface.points - origin, faces=faces)
             self._add_surface_mesh(mesh, origin, color="#8d6e63", opacity=0.45, show_edges=False)
+        for name in strings.string_names(self.project):
+            for st in strings.load_strings(self.project, name):
+                pts = st.points - origin
+                if st.closed:
+                    pts = np.vstack([pts, pts[:1]])
+                line = self._clip(pv.lines_from_points(pts), origin)
+                if line.n_points:
+                    self.view.add_mesh(line, color="#ffeb3b", line_width=2)
         for name in solids.solid_names(self.project):
             solid = solids.load_solid(self.project, name)
             faces = np.column_stack([np.full(len(solid.triangles), 3), solid.triangles]).ravel()

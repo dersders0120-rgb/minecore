@@ -393,3 +393,11 @@ def test_stope_dialog(qapp: QApplication, tmp_path: Path) -> None:
     assert dialog.table.rowCount() == 4
     assert "ug_pano" in BlockModel.open(project, "BM").attributes
     project.close()
+
+
+def test_guide_dialog(qapp: QApplication) -> None:
+    from minecore.gui.guide import GuideDialog  # noqa: PLC0415
+
+    parent = QWidget()
+    dialog = GuideDialog(parent)
+    assert "Açık ocak" in dialog.text.toPlainText()
