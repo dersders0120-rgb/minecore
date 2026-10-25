@@ -1,1 +1,1 @@
-doc-valid-idents = ["MineCore", "PyO3", ".."]
+doc-valid-idents = ["MineCore", "PyO3", "NumPy", ".."]

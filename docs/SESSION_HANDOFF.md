@@ -1,43 +1,32 @@
 # Session handoff
 
-Updated: 2026-10-24 (session 1, architect)
+Updated: 2026-10-25 (session 1, architect)
 
 ## Current milestone
-M0 done (PR #1, CI green, awaiting merge). M1 in progress.
+M0 done (PR #1). M1 in progress: units (#2) and project package (#3) merged;
+CRS + local grid (T-004) in the `m1-crs` PR.
 
-## Pull requests (merge in this order)
-1. #1 `m0-foundation` — M0 foundation. CI green on Windows + Linux.
-2. #2 `m1-units` (base `m0-foundation`) — T-003 units contract.
-3. #3 `m1-project-package` (base `m1-units`) — T-005 project package, plus the
-   verified T-002 and T-009 deliverables.
-After each merge, retarget the next PR to `main`.
+## Done (with evidence)
+- T-004 (ADR-0005, ADR-0006): `mc-core::coords` local grid + least-squares fit
+  (14 Rust tests incl. proptests and an optimality check); `minecore.coords`
+  PROJ layer with no-ballpark, single-operation, missing-grid-refusal policy;
+  working system stored in the project; CLI `crs info`, `grid fit`,
+  `project set-crs`, `project set-local-grid`. PROJ TM/UTM for all Turkish
+  zones checked against an independent Krüger series (< 1 mm).
+- Local gates on the T-004 commit: ruff, mypy strict, clippy -D warnings,
+  cargo-deny clean; cargo test 44 passed; pytest 188 passed.
 
-## Done this session (with evidence)
-- M0: Rust workspace + Python package + CLI, quality gates, CI, licence policy,
-  verification script, governance docs (ADR-0001, ADR-0002).
-- T-003 units (ADR-0003): exact rational conversions, strict parser, quantity
-  kinds, Python API. 30 Rust tests, 24 Python tests.
-- T-005 project package (ADR-0004): `.mcproj`, versioned SQLite schema,
-  transactional migrations with backup, OS single-writer lock, CLI. 21 tests.
-- T-009 (ChatGPT) desurvey reference cases: independently re-computed by the
-  architect with a different formulation; max deviation 7.8e-7 m (output
-  rounding). Check runs in CI (`tests/python/test_reference_desurvey.py`).
-- T-002 (Gemini) capability matrix reviewed and committed with a review note;
-  findings folded into ROADMAP (M3, M4, M7, later estimation work).
-- Local results on the last commit: ruff, mypy strict, clippy -D warnings,
-  cargo-deny clean; cargo test 30 passed; pytest 136 passed.
-
-## Not yet verified
-- CI for #2 and #3 (runs on push).
-- Gemini's citations (web access is restricted in the dev environment).
+## Submitted, awaiting architect review
+- T-008 (DeepSeek) synthetic drillhole generator.
+- T-010 (Gemini) Turkish CRS practice research.
+- T-011 (Haiku) EN–TR terminology glossary.
 
 ## Next actions
-1. T-004 CRS + local mine grid contract (PROJ via pyproj; licence check first).
-2. T-006 operation log and undo/redo (migration 0002 — first real migration).
-3. T-007 error hierarchy and job/cancellation model.
-4. M2 planning: drillhole import contracts; first DeepSeek/Claude-2 briefs
-   (CSV/XLSX importers with Turkish locale handling, synthetic data generator).
+1. Review and integrate T-008, T-010, T-011.
+2. T-006 operation log and undo/redo (migration 0002).
+3. T-007 error hierarchy and job/cancellation model; then close M1.
+4. M2 drillhole import contracts; delegate importers.
 
 ## Owner owes
-- Merge #1, then #2, then #3.
+- Merge the T-004 PR.
 - An anonymised drillhole sample (collar, survey, assay, lithology) for M2.
