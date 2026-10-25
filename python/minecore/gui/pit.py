@@ -36,13 +36,12 @@ from minecore.pitopt import (
     Economics,
     PitResult,
     PriceUnit,
-    Schedule,
     SlopeProfile,
     optimise_pit,
     pushbacks,
-    schedule,
 )
 from minecore.pitopt.optimise import store
+from minecore.pitopt.scheduling import ConstrainedSchedule, Limits, schedule_constrained
 from minecore.project import Project
 
 PRICE_TR = {
@@ -81,7 +80,7 @@ class PitDialog(QDialog):
         self.project = project
         self.pit: PitResult | None = None
         self.phase: Any = None
-        self.sched: Schedule | None = None
+        self.sched: ConstrainedSchedule | None = None
 
         layout = QHBoxLayout(self)
         left = QVBoxLayout()
@@ -155,6 +154,12 @@ class PitDialog(QDialog):
         export.clicked.connect(self._guard(self.export))
         pf.addRow("Nihai ocak kabuğu", self.final)
         pf.addRow("Pushback başına en az cevher (Mt)", self.min_ore)
+        self.plant = _spin(2.0, 0.001, 1e4, 0.5, 3)
+        self.lag = QSpinBox(minimum=0, maximum=50, value=2)
+        self.sinking = QSpinBox(minimum=1, maximum=50, value=6)
+        pf.addRow("Tesis kapasitesi (Mt cevher/yıl)", self.plant)
+        pf.addRow("Pushback'ler arası basamak gecikmesi", self.lag)
+        pf.addRow("Batma hızı (basamak/yıl)", self.sinking)
         pf.addRow(make)
         pf.addRow(save)
         pf.addRow(export)
@@ -186,16 +191,26 @@ class PitDialog(QDialog):
         )
         gl.addWidget(self.shells, 1)
         right.addTab(graph_page, "Kabuk raporu")
-        self.sched_table = QTableWidget(0, 7)
+        self.sched_table = QTableWidget(0, 9)
         self.sched_table.setHorizontalHeaderLabels(
-            ["Yıl", "Cevher Mt", "Pasa Mt", "Tenör", "Metal", "Nakit M$", "İskontolu M$"]
+            [
+                "Yıl",
+                "Kazı Mt",
+                "Cevher kazı Mt",
+                "Tesise Mt",
+                "Besleme tenörü",
+                "Metal",
+                "Stok Mt",
+                "Nakit M$",
+                "İskontolu M$",
+            ]
         )
         right.addTab(self.sched_table, "Üretim çizelgesi")
         self.tabs = right
         self.note = QLabel(
             "Kabuklar Lerchs-Grossmann ile aynı sonucu veren en büyük kapanış (max-flow) ile "
-            "bulunur. Çizelge ilk geçiş içindir: fazlar arası basamak gecikmesi, tesis kapasitesi "
-            "ve stok sahası henüz yok."
+            "bulunur. Çizelge kurallı (greedy) bir sıralamadır: kazı ve tesis kapasitesi, "
+            "basamak gecikmesi, batma hızı ve stok sahasına uyar; MILP optimizasyonu değildir."
         )
         self.note.setWordWrap(True)
         left.addWidget(self.note)
@@ -343,18 +358,25 @@ class PitDialog(QDialog):
             raise RuntimeError("Önce kabukları hesaplayın.")
         final = int(self.final.currentData())
         self.phase = pushbacks(self.pit, final, self.min_ore.value() * 1e6)
-        self.sched = schedule(
-            self.pit, self.phase, self.rate.value() * 1e6, self.discount.value() / 100.0
+        limits = Limits(
+            mining_capacity=self.rate.value() * 1e6,
+            plant_capacity=self.plant.value() * 1e6,
+            bench_lag=self.lag.value(),
+            sinking_rate=self.sinking.value(),
+            discount_rate=self.discount.value() / 100.0,
         )
+        self.sched = schedule_constrained(self.pit, self.phase, limits)
         rows = self.sched.rows
         self.sched_table.setRowCount(len(rows) + 1)
         for i, p in enumerate(rows):
             cells = [
                 str(p.period),
-                _m(p.ore_t),
-                _m(p.waste_t),
-                "" if math.isnan(p.grade) else f"{p.grade:.3f}",
+                _m(p.mined_t),
+                _m(p.ore_mined_t),
+                _m(p.ore_fed_t),
+                "" if math.isnan(p.feed_grade) else f"{p.feed_grade:.3f}",
                 f"{p.metal:,.0f}",
+                _m(p.stockpile_t),
                 _m(p.cash),
                 _m(p.discounted),
             ]
@@ -362,16 +384,24 @@ class PitDialog(QDialog):
                 _cell(self.sched_table, i, j, text)
         total = len(rows)
         _cell(self.sched_table, total, 0, "Toplam")
-        _cell(self.sched_table, total, 1, _m(sum(p.ore_t for p in rows)))
-        _cell(self.sched_table, total, 2, _m(sum(p.waste_t for p in rows)))
-        _cell(self.sched_table, total, 5, _m(sum(p.cash for p in rows)))
-        _cell(self.sched_table, total, 6, _m(self.sched.npv))
+        _cell(self.sched_table, total, 1, _m(sum(p.mined_t for p in rows)))
+        _cell(self.sched_table, total, 2, _m(sum(p.ore_mined_t for p in rows)))
+        _cell(self.sched_table, total, 3, _m(sum(p.ore_fed_t for p in rows)))
+        _cell(self.sched_table, total, 5, f"{sum(p.metal for p in rows):,.0f}")
+        _cell(self.sched_table, total, 7, _m(sum(p.cash for p in rows)))
+        _cell(self.sched_table, total, 8, _m(self.sched.npv))
         self.sched_table.resizeColumnsToContents()
         self.tabs.setCurrentIndex(1)
         self.inform(
             "Pushback",
             f"{int(self.phase.max())} pushback, {len(rows)} yıllık çizelge. "
-            f"NPV {self.sched.npv / 1e6:,.1f} M$.",
+            f"NPV {self.sched.npv / 1e6:,.1f} M$."
+            + (
+                f"\nUyarı: {self.sched.unmined_t / 1e6:,.2f} Mt {limits.max_periods} yılda "
+                "kazılamadı."
+                if self.sched.unmined_t > 1
+                else ""
+            ),
         )
 
     def save(self) -> None:
@@ -389,12 +419,88 @@ class PitDialog(QDialog):
     def export(self) -> None:
         if self.pit is None:
             raise RuntimeError("Önce kabukları hesaplayın.")
-        path, _ = QFileDialog.getSaveFileName(self, "CSV kaydet", "kabuk_raporu.csv", "CSV (*.csv)")
-        if path:
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Raporları kaydet", "ocak_raporu.xlsx", "Excel (*.xlsx);;CSV (*.csv)"
+        )
+        if not path:
+            return
+        if path.lower().endswith(".csv"):
             write_pit_reports(Path(path), self.pit, self.sched)
+        else:
+            target = Path(path if path.lower().endswith(".xlsx") else path + ".xlsx")
+            write_pit_reports_xlsx(target, self.pit, self.sched)
 
 
-def write_pit_reports(path: Path, result: PitResult, sched: Schedule | None) -> None:
+def write_pit_reports_xlsx(
+    path: Path, result: PitResult, sched: ConstrainedSchedule | None
+) -> None:
+    from minecore.io.excel import write_workbook  # noqa: PLC0415
+
+    sheets: dict[str, Any] = {
+        "Kabuklar": (
+            [
+                "Kabuk",
+                "Gelir çarpanı",
+                "Cevher t",
+                "Pasa t",
+                "Dekapaj",
+                "Tenör",
+                "Metal",
+                "Nakit",
+                "En iyi NPV",
+                "En kötü NPV",
+                "Ömür (yıl)",
+            ],
+            [
+                [
+                    r.shell,
+                    r.revenue_factor,
+                    r.ore_t,
+                    r.waste_t,
+                    r.strip_ratio if math.isfinite(r.strip_ratio) else None,
+                    r.grade,
+                    r.metal,
+                    r.cash,
+                    r.best_npv,
+                    r.worst_npv,
+                    r.years,
+                ]
+                for r in result.rows
+            ],
+        )
+    }
+    if sched is not None:
+        sheets["Çizelge"] = (
+            [
+                "Yıl",
+                "Kazı t",
+                "Cevher kazı t",
+                "Tesise t",
+                "Besleme tenörü",
+                "Metal",
+                "Stok t",
+                "Nakit",
+                "İskontolu nakit",
+            ],
+            [
+                [
+                    p.period,
+                    p.mined_t,
+                    p.ore_mined_t,
+                    p.ore_fed_t,
+                    p.feed_grade,
+                    p.metal,
+                    p.stockpile_t,
+                    p.cash,
+                    p.discounted,
+                ]
+                for p in sched.rows
+            ],
+        )
+    write_workbook(path, sheets)
+
+
+def write_pit_reports(path: Path, result: PitResult, sched: ConstrainedSchedule | None) -> None:
     with path.open("w", newline="", encoding="utf-8-sig") as fh:
         w = csv.writer(fh, delimiter=";")
         w.writerow(
@@ -430,15 +536,29 @@ def write_pit_reports(path: Path, result: PitResult, sched: Schedule | None) -> 
             )
         if sched is not None:
             w.writerow([])
-            w.writerow(["period", "ore_t", "waste_t", "grade", "metal", "cash", "discounted"])
+            w.writerow(
+                [
+                    "period",
+                    "mined_t",
+                    "ore_mined_t",
+                    "ore_fed_t",
+                    "feed_grade",
+                    "metal",
+                    "stockpile_t",
+                    "cash",
+                    "discounted",
+                ]
+            )
             for p in sched.rows:
                 w.writerow(
                     [
                         p.period,
-                        f"{p.ore_t:.0f}",
-                        f"{p.waste_t:.0f}",
-                        f"{p.grade:.5g}",
+                        f"{p.mined_t:.0f}",
+                        f"{p.ore_mined_t:.0f}",
+                        f"{p.ore_fed_t:.0f}",
+                        f"{p.feed_grade:.5g}",
                         f"{p.metal:.3f}",
+                        f"{p.stockpile_t:.0f}",
                         f"{p.cash:.0f}",
                         f"{p.discounted:.0f}",
                     ]

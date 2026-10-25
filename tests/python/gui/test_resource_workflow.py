@@ -154,6 +154,10 @@ def test_pit_dialog_shells_pushbacks_and_save(qapp: QApplication, tmp_path: Path
     out = tmp_path / "pit.csv"
     write_pit_reports(out, dialog.pit, dialog.sched)
     assert out.read_text(encoding="utf-8-sig").startswith("shell;")
+    from minecore.gui.pit import write_pit_reports_xlsx  # noqa: PLC0415
+
+    write_pit_reports_xlsx(tmp_path / "pit.xlsx", dialog.pit, dialog.sched)
+    assert (tmp_path / "pit.xlsx").stat().st_size > 0
     project.close()
 
 
@@ -213,3 +217,27 @@ def test_estimation_restricted_to_a_solid(qapp: QApplication, tmp_path: Path) ->
     assert np.isnan(values[~inside]).all()
     assert np.isfinite(values[inside]).any()
     project.close()
+
+
+def test_excel_reports(tmp_path: Path) -> None:
+    from openpyxl import load_workbook  # noqa: PLC0415
+
+    from minecore.blockmodel import GradeTonnage, GradeTonnageRow  # noqa: PLC0415
+
+    report = GradeTonnage(
+        "au",
+        "g/t",
+        2.7,
+        "g",
+        (
+            GradeTonnageRow(0.0, 10, 1000.0, 2700.0, 1.5, 4050.0),
+            GradeTonnageRow(5.0, 0, 0.0, 0.0, float("nan"), 0.0),
+        ),
+        3,
+    )
+    path = tmp_path / "gt.xlsx"
+    resource.write_grade_tonnage_xlsx(path, report)
+    sheet = load_workbook(path)["Tenor-tonaj"]
+    rows = list(sheet.iter_rows(values_only=True))
+    assert rows[1] == (0.0, 10, 1000.0, 2700.0, 1.5, 4050.0)
+    assert rows[2][4] is None

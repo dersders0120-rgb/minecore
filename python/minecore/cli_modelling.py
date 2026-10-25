@@ -36,7 +36,8 @@ from minecore.drillholes.importer import import_folder
 from minecore.drillholes.workflow import composite_table, hole_geometry, save_composites
 from minecore.estimation import Ellipsoid, Method, Search, experimental, fit_spherical
 from minecore.pitopt import Economics, PriceUnit, SlopeProfile, optimise_pit, pushbacks, schedule
-from minecore.pitopt.optimise import store
+from minecore.pitopt.optimise import Schedule, store
+from minecore.pitopt.scheduling import ConstrainedSchedule, Limits, schedule_constrained
 from minecore.project import Project
 
 METHODS = {"nn": Method.NEAREST, "idw": Method.INVERSE_DISTANCE, "ok": Method.ORDINARY_KRIGING}
@@ -129,6 +130,9 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     opt.add_argument("--discount", type=float, default=0.08)
     opt.add_argument("--phase-ore", type=float, help="minimum ore tonnes per pushback")
     opt.add_argument("--rock", help="rock/air attribute (kaya)")
+    opt.add_argument("--plant", type=float, help="plant capacity, ore t/year (enables limits)")
+    opt.add_argument("--lag", type=int, default=2, help="bench lag between pushbacks")
+    opt.add_argument("--sinking", type=int, default=6, help="max benches per pushback per year")
     opt.add_argument("--json", action="store_true")
 
 
@@ -295,7 +299,12 @@ def pit_command(args: argparse.Namespace, out: TextIO) -> int:
         final = factors.index(args.final_rf) + 1
         phase_ore = args.phase_ore or max(result.rows[final - 1].ore_t / 3, 1.0)
         phase = pushbacks(result, final, phase_ore)
-        sched = schedule(result, phase, args.rate, args.discount)
+        sched: Schedule | ConstrainedSchedule
+        if args.plant:
+            limits = Limits(args.rate, args.plant, args.lag, args.sinking, args.discount)
+            sched = schedule_constrained(result, phase, limits)
+        else:
+            sched = schedule(result, phase, args.rate, args.discount)
         store(model, result, econ, slope, phase, sched)
         if args.json:
             json.dump(

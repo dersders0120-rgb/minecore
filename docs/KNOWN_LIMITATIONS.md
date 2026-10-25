@@ -50,8 +50,10 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
   stockpiles, no mining dilution/recovery factors on the block model.
 - Pushbacks group whole shells by ore tonnage; minimum mining width and ramp
   access are not enforced.
-- Schedule: fixed total mining rate, phases in order bench by bench, no bench
-  lag between phases, no plant capacity, no blending. A first pass, not a plan.
+- Schedule (`pitopt.scheduling`): greedy, rule-based sequence with mining and
+  plant capacity, bench lag, sinking rate and one blended stockpile. Not an
+  optimised (MILP) schedule; no blending targets, no cut-off optimisation, no
+  equipment or haulage model; periods are years of equal capacity.
 
 ## Surfaces
 

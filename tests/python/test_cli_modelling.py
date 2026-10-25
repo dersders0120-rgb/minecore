@@ -66,8 +66,11 @@ def test_csv_to_pit_schedule(tmp_path: Path) -> None:
             "kaya",
             "--rate",
             "1000000",
+            "--plant",
+            "300000",
             "--json",
         )
     )
     assert len(result["shells"]) == 4
     assert "npv" in result
+    assert all(p["ore_fed_t"] <= 300000 * (1 + 1e-9) for p in result["schedule"])

@@ -18,7 +18,7 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import numpy.typing as npt
@@ -28,6 +28,9 @@ from minecore.blockmodel import BlockModel
 from minecore.jobs import Progress
 from minecore.pitopt.economics import Economics, PitOptError, block_values
 from minecore.pitopt.precedence import SlopeProfile, precedence_arcs
+
+if TYPE_CHECKING:
+    from minecore.pitopt.scheduling import ConstrainedSchedule
 
 Floats = npt.NDArray[np.float64]
 Ints = npt.NDArray[np.int64]
@@ -60,6 +63,7 @@ class PitResult:
     revenue_factors: tuple[float, ...]
     rows: tuple[ShellRow, ...]
     arcs: int
+    mining: Floats  # mining cost per block at revenue factor 1
 
 
 def _discounted(order: Ints, tonnes: Floats, value: Floats, rate: float, discount: float) -> float:
@@ -164,6 +168,7 @@ def optimise_pit(  # noqa: PLR0913 - options are keyword-only
         factors,
         tuple(rows),
         len(arcs),
+        base.mining,
     )
 
 
@@ -257,7 +262,7 @@ def store(  # noqa: PLR0913, PLR0917 - optional result parts
     econ: Economics,
     slope: SlopeProfile,
     phase: Ints | None = None,
-    sched: Schedule | None = None,
+    sched: Schedule | ConstrainedSchedule | None = None,
 ) -> None:
     """Write pit attributes to the block model in one undoable operation."""
     params: dict[str, Any] = {
