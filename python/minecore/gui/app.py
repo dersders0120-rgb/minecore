@@ -356,6 +356,7 @@ class MainWindow(QMainWindow):
         action(surf, "Çizgi düzenleyici (çiz, taşı, sil, kot ver)...", self.edit_strings)
         action(surf, "Kesit çizgilerini bağlayarak katı oluştur...", self.link_strings)
         action(surf, "Blok modelini katı ile işaretle (domen)...", self.flag_solid)
+        action(surf, "Katı model araçları (doğrula, onar, birleştir, kes)...", self.solid_tools)
         action(surf, "Tenör kabuğu katısı oluştur (blok modelinden)...", self.make_grade_shell)
         action(surf, "Örtük (implicit) domen modeli (sondajlardan)...", self.implicit_domain)
         action(surf, "Katı modeli DXF olarak dışa aktar...", self.export_solid)
@@ -1082,6 +1083,12 @@ class MainWindow(QMainWindow):
         from minecore.gui.dump import DumpDialog  # noqa: PLC0415
 
         DumpDialog(self._need_project(), self).exec()
+        self.refresh()
+
+    def solid_tools(self) -> None:
+        from minecore.gui.solidtools import SolidToolsDialog  # noqa: PLC0415
+
+        SolidToolsDialog(self._need_project(), self).exec()
         self.refresh()
 
     def edit_strings(self) -> None:

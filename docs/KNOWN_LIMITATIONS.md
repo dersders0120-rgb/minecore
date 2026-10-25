@@ -370,3 +370,12 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
   given per dump (no road network or shortest-path routing, no lift-by-lift
   dump elevation, no rehandle). Waste beyond the total capacity is reported
   and costed at the farthest dump. Smoke-tested only.
+
+## Solid tools
+
+- `solidtools` (GUI "Katı model araçları", CLI `solid verify|boolean|cut`):
+  verification and repair (vertex merge, degenerate/duplicate removal,
+  consistent outward orientation; holes are reported, not filled; no
+  self-intersection test). Booleans and surface cuts are voxel-based: the
+  result is closed but rounded at the voxel size, and slow for fine voxels
+  on large solids (pure-Python inside test). Lightly tested.

@@ -93,6 +93,7 @@ from minecore.plots import SectionSpec, section_plot
 from minecore.project import Project
 from minecore.reserves import bench_reserves, between_fraction, volume_between
 from minecore.solids import flag_blocks, load_solid, read_solid, save_solid
+from minecore.solidtools import Boolean, boolean, cut_by_surface, repair, verify
 from minecore.underground.development import DeclineDesign, development_from_model
 from minecore.underground.stopes import stopes_from_model
 
@@ -151,6 +152,24 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     so_imp.add_argument("project")
     so_imp.add_argument("name")
     so_imp.add_argument("file")
+    so_ver = sol_cmds.add_parser("verify", help="check a solid; --repair stores a fixed copy")
+    so_ver.add_argument("project")
+    so_ver.add_argument("solid")
+    so_ver.add_argument("--repair", metavar="NAME", help="store the repaired solid as NAME")
+    so_bool = sol_cmds.add_parser("boolean", help="union, intersection or difference (voxel)")
+    so_bool.add_argument("project")
+    so_bool.add_argument("a")
+    so_bool.add_argument("op", choices=[b.value for b in Boolean])
+    so_bool.add_argument("b")
+    so_bool.add_argument("name", help="result solid name")
+    so_bool.add_argument("--voxel", type=float, default=1.0, help="voxel size, m")
+    so_cut = sol_cmds.add_parser("cut", help="part of a solid below/above a surface (voxel)")
+    so_cut.add_argument("project")
+    so_cut.add_argument("solid")
+    so_cut.add_argument("surface")
+    so_cut.add_argument("name", help="result solid name")
+    so_cut.add_argument("--above", action="store_true", help="keep the part above")
+    so_cut.add_argument("--voxel", type=float, default=1.0, help="voxel size, m")
     so_flag = sol_cmds.add_parser("flag", help="dom_<solid> (and _pct fractions) in a model")
     so_flag.add_argument("project")
     so_flag.add_argument("solid")
@@ -611,6 +630,8 @@ def solid_command(args: argparse.Namespace, out: TextIO) -> int:
                 f"{solid.volume():,.0f} m3, open edges {solid.open_edges()}\n"
             )
             return 0
+        if args.solid_command in ("verify", "boolean", "cut"):
+            return _solid_tools(project, args, out)
         model = BlockModel.open(project, args.model)
         attribute = f"dom_{args.solid}"
         n = flag_blocks(model, load_solid(project, args.solid), attribute, args.subdivisions)
@@ -618,6 +639,40 @@ def solid_command(args: argparse.Namespace, out: TextIO) -> int:
         if args.subdivisions > 1:
             pct = model.values(f"{attribute}_pct")
             out.write(f"{attribute}_pct: volume {pct.sum() * model.grid.block_volume:,.0f} m3\n")
+    return 0
+
+
+def _solid_tools(project: Project, args: argparse.Namespace, out: TextIO) -> int:
+    if args.solid_command == "verify":
+        r = verify(load_solid(project, args.solid))
+        out.write(
+            f"{args.solid}: {r.triangles:,} triangles, {r.shells} shells, "
+            f"volume {r.volume:,.0f} m3, "
+            f"open edges {r.open_edges}, non-manifold {r.non_manifold_edges}, degenerate "
+            f"{r.degenerate}, duplicates {r.duplicates}, flipped {r.flipped_edges}: "
+            + ("valid\n" if r.valid else "needs repair\n")
+        )
+        if args.repair:
+            fixed = repair(load_solid(project, args.solid))
+            save_solid(project, args.repair, fixed)
+            f = verify(fixed)
+            out.write(f"{args.repair}: volume {f.volume:,.0f} m3, open edges {f.open_edges}\n")
+        return 0
+    if args.solid_command == "boolean":
+        result = boolean(
+            load_solid(project, args.a), load_solid(project, args.b), Boolean(args.op), args.voxel
+        )
+    else:
+        result = cut_by_surface(
+            load_solid(project, args.solid),
+            surfaces.load_surface(project, args.surface),
+            not args.above,
+            args.voxel,
+        )
+    save_solid(project, args.name, result)
+    out.write(
+        f"{args.name}: {len(result.triangles):,} triangles, volume {result.volume():,.0f} m3\n"
+    )
     return 0
 
 

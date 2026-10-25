@@ -956,3 +956,30 @@ def test_grade_control_dialog(qapp: QApplication, tmp_path: Path) -> None:
     assert dialog.table.rowCount() == 3
     assert load_strings(project, "kazi_hatlari")
     project.close()
+
+
+def test_solid_tools_dialog(qapp: QApplication, tmp_path: Path) -> None:
+    from minecore.gui.solidtools import SolidToolsDialog  # noqa: PLC0415
+    from minecore.solids import Solid, load_solid, save_solid  # noqa: PLC0415
+
+    faces = np.array(
+        [[0, 2, 1], [0, 3, 2], [4, 5, 6], [4, 6, 7], [0, 1, 5], [0, 5, 4],
+         [1, 2, 6], [1, 6, 5], [2, 3, 7], [2, 7, 6], [3, 0, 4], [3, 4, 7]]
+    )  # fmt: skip
+    unit = np.array(
+        [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0], [0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1]],
+        float,
+    )
+    project = Project.create(tmp_path / "k.mcproj", "k")
+    save_solid(project, "a", Solid(unit * 10, faces))
+    save_solid(project, "b", Solid(unit * 10 + [5, 0, 0], faces))
+    parent = QWidget()
+    dialog = SolidToolsDialog(project, parent)
+    dialog.a.setCurrentText("a")
+    dialog.b.setCurrentText("b")
+    dialog.check()
+    assert "Geçerli" in dialog.summary.text()
+    dialog.voxel.setValue(0.5)
+    dialog.run_boolean()
+    assert load_solid(project, "sonuc_kati").volume() == pytest.approx(1500, rel=0.08)
+    project.close()
