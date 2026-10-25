@@ -194,6 +194,9 @@ def route_tonnes(result: PitResult, econ: Economics, shell: int) -> list[tuple[s
 def pushbacks(result: PitResult, final_shell: int, min_ore_t: float) -> Ints:
     """Group shells ``1..final_shell`` into phases of at least ``min_ore_t`` ore.
 
+    Ore is counted as plant feed (after mining recovery and dilution), the
+    same quantity as ``ShellRow.ore_t``.
+
     Returns the phase of each block (0 = outside the final pit). A small
     remainder (less than half the target) joins the last phase.
     """
@@ -203,7 +206,7 @@ def pushbacks(result: PitResult, final_shell: int, min_ore_t: float) -> Ints:
     phase, acc = 1, 0.0
     for n in range(1, final_shell + 1):
         sel = (result.shell == n) & result.ore
-        acc += float(result.tonnes[sel].sum())
+        acc += float(result.feed[sel].sum())  # plant feed, as in the shell report
         phase_of_shell[n] = phase
         if acc >= min_ore_t and n < final_shell:
             phase, acc = phase + 1, 0.0
