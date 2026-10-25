@@ -55,7 +55,9 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
   Partial blocks are not prorated (centroid test). Unestimated rock blocks are
   valued as waste. Mining cost depth increment counts benches from the model
   top, not from the surface.
-- Single element, single process route; no cut-off optimisation (Lane).
+- One value attribute per run: a grade (single element) or an NSR value per
+  tonne (several elements combined with the block calculator); single process
+  route; no cut-off optimisation (Lane).
   Mining recovery and dilution are global factors applied to ore blocks
   (dilution at zero grade); no edge-dilution or regularisation model.
 - Pushbacks group whole shells by ore tonnage. Minimum mining width

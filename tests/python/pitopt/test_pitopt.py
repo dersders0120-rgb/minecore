@@ -71,6 +71,19 @@ def test_mining_recovery_and_dilution_by_hand() -> None:
         Economics(10.0, PriceUnit.GRAM, 0.9, 1, 1, dilution=-0.1)
 
 
+def test_nsr_mode_by_hand() -> None:
+    econ = Economics(1.0, PriceUnit.GRAM, 1.0, 2.0, 15.0, mining_recovery=0.9, nsr=True)
+    out = block_values(
+        np.array([40.0, 10.0]), None, np.array([100.0, 100.0]), np.zeros(2, int), econ, 1.5
+    )
+    # 40 $/t * 90 t * 1.5 = 5400 revenue; processing 90 t * 15 = 1350; mining 200.
+    assert out.value[0] == pytest.approx(5400 - 1350 - 200)
+    assert out.metal[0] == pytest.approx(3600.0)
+    # 10 $/t * 1.5 * 90 t = 1350 only equals processing: waste.
+    assert out.ore.tolist() == [True, False]
+    assert out.value[1] == pytest.approx(-200)
+
+
 def test_invalid_economics() -> None:
     with pytest.raises(PitOptError):
         Economics(0.0, PriceUnit.GRAM, 0.9, 1, 1)

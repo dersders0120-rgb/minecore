@@ -16,6 +16,12 @@ For a block of ``t`` tonnes at grade ``g``:
 * mining cost per tonne grows by ``mining_cost_per_bench`` for each bench
   below the top of the model (haulage depth increment).
 
+NSR mode (``nsr=True``): the attribute is a net smelter return per tonne of
+in-situ rock (currency/t, after metallurgical recovery, payables and selling
+costs, e.g. computed for several elements with the block calculator). Then
+revenue = ``t * MR * nsr * revenue_factor``; price, price unit, recovery and
+selling cost are not used, and "metal" is the recovered value at factor 1.
+
 Currency is whatever the user enters (e.g. USD); all values are in that unit.
 """
 
@@ -63,6 +69,7 @@ class Economics:
     density: float | str = 2.7
     mining_recovery: float = 1.0
     dilution: float = 0.0
+    nsr: bool = False
 
     def __post_init__(self) -> None:
         if not (self.price > 0 and math.isfinite(self.price)):
@@ -109,13 +116,17 @@ def block_values(  # noqa: PLR0913, PLR0917 - one value per input array
     revenue_factor: float = 1.0,
 ) -> BlockEconomics:
     """Economic value of each block (missing grade counts as waste rock)."""
-    if grade_unit is None:
-        raise PitOptError("the grade attribute has no unit; set % or g/t to value metal")
-    fraction = Unit(grade_unit).si_factor
     g = np.where(np.isfinite(grade), np.maximum(grade, 0.0), 0.0)
     mr, dil = econ.mining_recovery, econ.dilution
-    metal = tonnes * 1000.0 * g * fraction * mr * econ.recovery / econ.price_unit.kilograms
-    revenue = metal * (econ.price * revenue_factor - econ.selling_cost)
+    if econ.nsr:
+        metal = tonnes * mr * g
+        revenue = metal * revenue_factor
+    else:
+        if grade_unit is None:
+            raise PitOptError("the grade attribute has no unit; set % or g/t to value metal")
+        fraction = Unit(grade_unit).si_factor
+        metal = tonnes * 1000.0 * g * fraction * mr * econ.recovery / econ.price_unit.kilograms
+        revenue = metal * (econ.price * revenue_factor - econ.selling_cost)
     mining = tonnes * (econ.mining_cost + econ.mining_cost_per_bench * bench_from_top)
     feed = tonnes * mr * (1.0 + dil)
     processing = feed * econ.processing_cost

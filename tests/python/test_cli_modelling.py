@@ -106,3 +106,7 @@ def test_csv_to_pit_schedule(tmp_path: Path) -> None:
     assert "outlines" in text
     assert dxf.read_text().rstrip().endswith("EOF")
     assert "PB1_CREST" in dxf.read_text()
+    _run("bm", "calc", p, "BM", "nsr", "au_ok * 55")
+    common = ["--mining-cost", "2.5", "--processing-cost", "15", "--rock", "kaya", "--json"]
+    nsr = json.loads(_run("pit", "optimise", p, "BM", "nsr", "--nsr", *common))
+    assert nsr["shells"][-1]["ore_t"] > 0

@@ -39,6 +39,7 @@ from minecore.drillholes.workflow import composite_table, hole_geometry, save_co
 from minecore.estimation import Ellipsoid, Method, Search, experimental, fit_spherical
 from minecore.pitopt import Economics, PriceUnit, SlopeProfile, optimise_pit, pushbacks, schedule
 from minecore.pitopt.design import export_pit
+from minecore.pitopt.economics import PitOptError
 from minecore.pitopt.optimise import Schedule, store
 from minecore.pitopt.scheduling import ConstrainedSchedule, Limits, schedule_constrained
 from minecore.pitopt.width import apply_mining_width
@@ -135,9 +136,10 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     opt.add_argument("project")
     opt.add_argument("model")
     opt.add_argument("grade")
-    opt.add_argument("--price", type=float, required=True)
-    opt.add_argument("--price-unit", choices=[u.value for u in PriceUnit], required=True)
-    opt.add_argument("--recovery", type=float, required=True, help="fraction, e.g. 0.9")
+    opt.add_argument("--price", type=float)
+    opt.add_argument("--price-unit", choices=[u.value for u in PriceUnit])
+    opt.add_argument("--recovery", type=float, help="fraction, e.g. 0.9")
+    opt.add_argument("--nsr", action="store_true", help="GRADE is an NSR value per tonne")
     opt.add_argument("--mining-cost", type=float, required=True)
     opt.add_argument("--processing-cost", type=float, required=True)
     opt.add_argument("--selling-cost", type=float, default=0.0)
@@ -353,10 +355,12 @@ def pit_command(args: argparse.Namespace, out: TextIO) -> int:
         if args.pit_command == "export":
             return pit_export(project, args, out)
         model = BlockModel.open(project, args.model)
+        if not args.nsr and None in (args.price, args.price_unit, args.recovery):
+            raise PitOptError("--price, --price-unit and --recovery are required without --nsr")
         econ = Economics(
-            args.price,
-            PriceUnit(args.price_unit),
-            args.recovery,
+            args.price or 1.0,
+            PriceUnit(args.price_unit or "t"),
+            args.recovery or 1.0,
             args.mining_cost,
             args.processing_cost,
             args.selling_cost,
@@ -364,6 +368,7 @@ def pit_command(args: argparse.Namespace, out: TextIO) -> int:
             _density(args.density),
             args.mining_recovery,
             args.dilution,
+            args.nsr,
         )
         slope = SlopeProfile(args.slope)
         factors = sorted(set(args.revenue_factors) | {args.final_rf})

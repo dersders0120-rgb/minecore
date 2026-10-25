@@ -12,6 +12,7 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QFileDialog,
@@ -114,6 +115,9 @@ class PitDialog(QDialog):
         self.processing = _spin(20.0, 0.0, 1e5, 0.5)
         self.mine_recovery = _spin(100.0, 1.0, 100.0, 1, 1)
         self.dilution = _spin(0.0, 0.0, 100.0, 1, 1)
+        self.nsr = QCheckBox("Öznitelik NSR değeridir ($/t; fiyat ve kazanım kullanılmaz)")
+        self.nsr.toggled.connect(self._sync_nsr)
+        ef.addRow(self.nsr)
         ef.addRow("Metal fiyatı", _row(self.price, self.price_unit))
         ef.addRow("Satış maliyeti (fiyat biriminde)", self.selling)
         ef.addRow("Kazanım %", self.recovery)
@@ -263,6 +267,10 @@ class PitDialog(QDialog):
             self.price_unit.setCurrentIndex(list(PriceUnit).index(PriceUnit.TROY_OUNCE))
             self.price.setValue(2000.0)
 
+    def _sync_nsr(self, on: bool) -> None:
+        for w in (self.price, self.price_unit, self.recovery, self.selling):
+            w.setEnabled(not on)
+
     def economics(self) -> Economics:
         d = self.density_attr.currentText()
         return Economics(
@@ -272,6 +280,7 @@ class PitDialog(QDialog):
             mining_cost=self.mining.value(),
             processing_cost=self.processing.value(),
             selling_cost=self.selling.value(),
+            nsr=self.nsr.isChecked(),
             mining_cost_per_bench=self.bench_cost.value(),
             density=self.density.value() if d == "(sabit)" else d,
             mining_recovery=self.mine_recovery.value() / 100.0,
