@@ -16,16 +16,24 @@ CRS + local grid (T-004) in the `m1-crs` PR.
 - Local gates on the T-004 commit: ruff, mypy strict, clippy -D warnings,
   cargo-deny clean; cargo test 44 passed; pytest 188 passed.
 
-## Submitted, awaiting architect review
+## Also done
+- T-006/T-007 (ADR-0007): operation log with trigger-based generic undo/redo
+  (migration 0002, the first real migration), jobs/progress/cancellation,
+  error hierarchy, CLI `project history|undo|redo`. PR `m1-oplog`.
+
+## Assigned to other models (prompts in project files)
+- T-012 ChatGPT compositing reference cases; T-013 DeepSeek CSV dialect
+  detector; T-014 Gemini QA/QC research.
+
+## Reviewed (PR #5)
 - T-008 (DeepSeek) synthetic drillhole generator.
 - T-010 (Gemini) Turkish CRS practice research.
 - T-011 (Haiku) EN–TR terminology glossary.
 
 ## Next actions
-1. Review and integrate T-008, T-010, T-011.
-2. T-006 operation log and undo/redo (migration 0002).
-3. T-007 error hierarchy and job/cancellation model; then close M1.
-4. M2 drillhole import contracts; delegate importers.
+1. Merge #4, #5, m1-oplog PR; close M1.
+2. M2 drillhole data contract (schema, validation issue model, bulk writer).
+3. Review T-012/T-013/T-014 when delivered.
 
 ## Owner owes
 - Merge the T-004 PR.

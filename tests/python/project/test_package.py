@@ -48,7 +48,7 @@ def test_create_builds_a_valid_package(pkg: Path) -> None:
         assert raw.execute("PRAGMA application_id").fetchone()[0] == APPLICATION_ID
         assert raw.execute("PRAGMA journal_mode").fetchone()[0] == "delete"
         history = raw.execute("SELECT version, name FROM schema_migrations").fetchall()
-    assert history == [(1, "initial")]
+    assert history == [(1, "initial"), (2, "operation_log")]
 
 
 def test_reopen_returns_saved_state(pkg: Path) -> None:
@@ -189,25 +189,27 @@ def test_newer_format_is_refused_without_modification(pkg: Path) -> None:
     assert sha256(pkg / "project.sqlite") == before
 
 
-V2 = Migration(
-    2,
-    "object_tags",
-    "ALTER TABLE objects ADD COLUMN tags_json TEXT NOT NULL DEFAULT '[]';",
-)
+V1 = load_migrations()[:1]
 
 
-def test_migration_upgrades_and_keeps_a_backup(pkg: Path) -> None:
-    with Project.create(pkg, "Demo") as project:
-        project.register_object("surface", "topo")
+def test_v1_project_is_migrated_to_the_operation_log_with_a_backup(pkg: Path) -> None:
+    # A project written by a MineCore that only knew schema v1.
+    with Project.create(pkg, "Demo", migrations=V1) as project:
+        project._writable().execute(
+            "INSERT INTO objects (object_id, kind, name, metadata_json, created_utc, "
+            "modified_utc) VALUES ('a', 'surface', 'topo', '{}', 'x', 'x')"
+        )
     v1_hash = sha256(pkg / "project.sqlite")
-    steps = (*load_migrations(), V2)
 
     with pytest.raises(ProjectVersionError, match="open it read-write once"):
-        Project.open(pkg, read_only=True, migrations=steps)
+        Project.open(pkg, read_only=True)
 
-    with Project.open(pkg, migrations=steps) as project:
+    with Project.open(pkg) as project:
         assert project.schema_version == 2
         assert project.objects()[0].name == "topo"  # data survived
+        assert project.history() == []  # pre-existing data has no history
+        project.register_object("solid", "ore")  # writes now go through operations
+        assert [op.kind for op in project.history()] == ["register_object"]
         backup = project.migration_backup
     assert backup is not None
     assert backup.parent.name == "backups"
@@ -217,23 +219,21 @@ def test_migration_upgrades_and_keeps_a_backup(pkg: Path) -> None:
     raw.close()
     with sqlite3.connect(pkg / "project.sqlite") as raw:
         history = raw.execute("SELECT version FROM schema_migrations ORDER BY 1").fetchall()
-        columns = [r[1] for r in raw.execute("PRAGMA table_info(objects)")]
     raw.close()
     assert history == [(1,), (2,)]
-    assert "tags_json" in columns
     assert sha256(pkg / "project.sqlite") != v1_hash
 
 
 def test_failed_migration_rolls_back_completely(pkg: Path) -> None:
-    Project.create(pkg, "Demo").close()
+    Project.create(pkg, "Demo", migrations=V1).close()
     broken = Migration(
         2,
         "half_done",
         "CREATE TABLE extra (x INTEGER);\nINSERT INTO no_such_table VALUES (1);",
     )
     with pytest.raises(MigrationError, match="0002_half_done"):
-        Project.open(pkg, migrations=(*load_migrations(), broken))
-    with Project.open(pkg) as project:  # still a healthy v1 project, and unlocked
+        Project.open(pkg, migrations=(*V1, broken))
+    with Project.open(pkg, migrations=V1) as project:  # still a healthy v1 project, unlocked
         assert project.schema_version == 1
         tables = {
             r[0]

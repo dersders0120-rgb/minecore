@@ -8,6 +8,7 @@ from minecore.project.errors import (
     ProjectVersionError,
     ReadOnlyProjectError,
 )
+from minecore.project.history import OperationRecord
 from minecore.project.package import (
     APPLICATION_ID,
     PACKAGE_SUFFIX,
@@ -21,6 +22,7 @@ __all__ = [
     "PACKAGE_SUFFIX",
     "MigrationError",
     "ObjectRecord",
+    "OperationRecord",
     "Project",
     "ProjectError",
     "ProjectFormatError",

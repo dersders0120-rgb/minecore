@@ -21,6 +21,8 @@ import json
 import re
 import sqlite3
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from types import TracebackType
@@ -28,12 +30,14 @@ from typing import Any, Self
 
 from minecore import coords
 from minecore._core import core_version
+from minecore.project import history as _history
 from minecore.project.errors import (
     ProjectError,
     ProjectFormatError,
     ProjectVersionError,
     ReadOnlyProjectError,
 )
+from minecore.project.history import OperationRecord
 from minecore.project.locking import ProjectLock
 from minecore.project.migrations import (
     Migration,
@@ -310,13 +314,48 @@ class Project:
         return default if row is None else json.loads(row[0])
 
     def set_setting(self, key: str, value: Any) -> None:
-        """Store a JSON-serialisable setting."""
+        """Store a JSON-serialisable setting (an undoable operation)."""
         payload = json.dumps(value, ensure_ascii=False, allow_nan=False, sort_keys=True)
-        self._writable().execute(
-            "INSERT INTO settings (key, value_json) VALUES (?, ?) "
-            "ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json",
-            (key, payload),
-        )
+        with self.operation("set_setting", f"Set {key}", {"key": key}):
+            self._writable().execute(
+                "INSERT INTO settings (key, value_json) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json",
+                (key, payload),
+            )
+
+    # -- operations and undo -------------------------------------------------
+
+    @contextmanager
+    def operation(
+        self, kind: str, description: str, parameters: dict[str, Any] | None = None
+    ) -> Iterator[None]:
+        """Group changes into one undoable operation and one transaction.
+
+        Nested calls join the outer operation. If the body raises, nothing is
+        changed and nothing is logged.
+        """
+        with _history.operation(self._writable(), kind, description, parameters):
+            yield
+
+    def history(self) -> list[OperationRecord]:
+        """The operation log, oldest first; undone entries are still redoable."""
+        return _history.history(self._db())
+
+    def can_undo(self) -> bool:
+        """True when an operation can be undone."""
+        return any(op.state == "done" for op in self.history())
+
+    def can_redo(self) -> bool:
+        """True when an undone operation can be redone."""
+        return any(op.state == "undone" for op in self.history())
+
+    def undo(self) -> OperationRecord | None:
+        """Undo the latest operation and return it; ``None`` if nothing to undo."""
+        return _history.undo(self._writable())
+
+    def redo(self) -> OperationRecord | None:
+        """Redo the next undone operation and return it; ``None`` if nothing to redo."""
+        return _history.redo(self._writable())
 
     # -- coordinate system ---------------------------------------------------
 
@@ -339,7 +378,10 @@ class Project:
                 "the coordinate system cannot change once the project holds objects; "
                 "reprojecting stored data is not supported yet"
             )
-        self.set_setting(COORDINATE_SYSTEM_KEY, new)
+        with self.operation(
+            "set_coordinate_system", f"Set coordinate system: {system.describe()}", {"system": new}
+        ):
+            self.set_setting(COORDINATE_SYSTEM_KEY, new)
 
     # -- object catalogue ----------------------------------------------------
 
@@ -368,11 +410,14 @@ class Project:
         now = utc_now()
         object_id = str(uuid.uuid4())
         try:
-            conn.execute(
-                "INSERT INTO objects (object_id, kind, name, parent_id, storage_path, "
-                "metadata_json, created_utc, modified_utc) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (object_id, kind, name.strip(), parent_id, path, meta, now, now),
-            )
+            with self.operation(
+                "register_object", f"Add {kind} {name.strip()!r}", {"object_id": object_id}
+            ):
+                conn.execute(
+                    "INSERT INTO objects (object_id, kind, name, parent_id, storage_path, "
+                    "metadata_json, created_utc, modified_utc) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (object_id, kind, name.strip(), parent_id, path, meta, now, now),
+                )
         except sqlite3.IntegrityError as exc:
             raise ProjectError(f"cannot register {kind} {name!r}: {exc}") from exc
         return self.get_object(object_id)

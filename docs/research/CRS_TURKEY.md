@@ -11,7 +11,10 @@
 >   dataset. What PROJ actually selects for onshore Turkey: "ED50 to ETRS89 (9)" +
 >   "TUREF to ETRS89 (1)" for ED50→TUREF (2.1 m), "ED50 to WGS 84 (30)" for ED50→WGS 84
 >   (2 m). MineCore reports these accuracies to the user (ADR-0005).
-> - UNVERIFIED, needs the owner: the MAPEG / Maden Yönetmeliği article on licence
+> - OWNER CONFIRMED (2026-10-25, mining engineer): licence coordinates are valid in both
+>   ED50 6° UTM and ITRF96 3° TM; both are in use. The regulation article itself is
+>   still uncited.
+> - UNVERIFIED, needs the owner: the exact MAPEG / Maden Yönetmeliği article on licence
 >   coordinates (6° UTM, ED50 vs ITRF96) and the TKGM/HGM transformation grids and
 >   geoid licensing. The quotes were not checked (no web access from the dev
 >   environment) and must not be cited until checked.

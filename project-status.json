@@ -140,22 +140,22 @@
       "milestone": "M1",
       "title": "Operation log and undo/redo model",
       "owner": "opus",
-      "status": "READY",
+      "status": "SUBMITTED",
       "depends_on": [
         "T-005"
       ],
-      "brief": null
+      "brief": "docs/adr/0007-operations-undo-jobs-errors.md"
     },
     {
       "id": "T-007",
       "milestone": "M1",
       "title": "Error hierarchy and job/cancellation model",
       "owner": "opus",
-      "status": "BACKLOG",
+      "status": "SUBMITTED",
       "depends_on": [
         "T-001"
       ],
-      "brief": null
+      "brief": "docs/adr/0007-operations-undo-jobs-errors.md"
     },
     {
       "id": "T-008",
@@ -199,6 +199,33 @@
       "depends_on": [],
       "brief": null,
       "evidence": "Draft glossary committed to docs/i18n; awaits owner review."
+    },
+    {
+      "id": "T-012",
+      "milestone": "M2",
+      "title": "Independent compositing reference cases",
+      "owner": "chatgpt",
+      "status": "ASSIGNED",
+      "depends_on": [],
+      "brief": "prompts/T-012-chatgpt.md"
+    },
+    {
+      "id": "T-013",
+      "milestone": "M2",
+      "title": "Text table dialect detector",
+      "owner": "deepseek",
+      "status": "ASSIGNED",
+      "depends_on": [],
+      "brief": "prompts/T-013-deepseek.md"
+    },
+    {
+      "id": "T-014",
+      "milestone": "M2",
+      "title": "Research: assay QA/QC methods and thresholds",
+      "owner": "gemini",
+      "status": "ASSIGNED",
+      "depends_on": [],
+      "brief": "prompts/T-014-gemini.md"
     }
   ]
 }
