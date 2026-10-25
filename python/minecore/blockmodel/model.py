@@ -195,12 +195,15 @@ class BlockModel:
         *,
         density: float | str,
         mask: npt.NDArray[np.bool_] | None = None,
+        weight: npt.NDArray[np.float64] | None = None,
     ) -> GradeTonnage:
         """Tonnes, mean grade and contained metal above each cut-off (grade >= cut-off).
 
         ``density`` is a constant in t/m3 or the name of a density attribute
         (t/m3). Blocks without an estimate are excluded and counted. ``mask``
         restricts the report to selected blocks (domain, category, pit).
+        ``weight`` is a volume fraction per block (partial blocks inside a
+        solid, 0..1) that scales volume and tonnes; blocks with 0 drop out.
         """
         grid = self.grid
         grade = self.values(attribute)
@@ -217,6 +220,11 @@ class BlockModel:
             known &= selected
         else:
             selected = np.ones(grid.blocks, bool)
+        share = np.ones(grid.blocks)
+        if weight is not None:
+            share = np.clip(np.nan_to_num(np.asarray(weight, np.float64), nan=0.0), 0.0, 1.0)
+            known &= share > 0
+            selected &= share > 0
         # Contained metal: tonnes * grade converted to a mass fraction.
         if unit is None:
             fraction, metal_unit = 1.0, "t x grade"
@@ -227,13 +235,18 @@ class BlockModel:
         rows = []
         for c in sorted(cutoffs):
             sel = known & (grade >= c)
-            tonnes_each = rho[sel] * grid.block_volume
+            tonnes_each = rho[sel] * share[sel] * grid.block_volume
             tonnes = float(tonnes_each.sum())
             mean = float((tonnes_each * grade[sel]).sum() / tonnes) if tonnes > 0 else math.nan
             metal = tonnes * mean * to_metal if tonnes > 0 else 0.0
             rows.append(
                 GradeTonnageRow(
-                    c, int(sel.sum()), int(sel.sum()) * grid.block_volume, tonnes, mean, metal
+                    c,
+                    int(sel.sum()),
+                    float(share[sel].sum()) * grid.block_volume,
+                    tonnes,
+                    mean,
+                    metal,
                 )
             )
         return GradeTonnage(

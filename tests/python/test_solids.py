@@ -182,6 +182,51 @@ def test_store_and_flag_blocks(tmp_path: Path) -> None:
     project.close()
 
 
+def test_partial_block_fractions(tmp_path: Path) -> None:
+    from minecore.solids import block_fractions, grade_shell  # noqa: PLC0415
+
+    project = Project.create(tmp_path / "f.mcproj", "f")
+    box = read_obj(_box_obj(tmp_path / "box.obj"))  # [0,10] x [0,20] x [0,5], 1000 m3
+    # Box faces cut blocks in half on every side: fractions are exactly 0.5 / 0.25 / 0.125.
+    grid = Grid((-6.25, -6.25, -3.75), (2.5, 2.5, 2.5), (10, 14, 6))
+    frac = block_fractions(grid, box, 4)
+    assert frac.sum() * grid.block_volume == pytest.approx(1000.0)
+    assert set(np.round(frac, 6)) <= {0.0, 0.125, 0.25, 0.5, 1.0}
+    model = BlockModel.create(project, "bm", grid)
+    model.set_attributes({"cu": np.ones(grid.blocks)}, {"cu": {"unit": "%"}}, "cu")
+    flag_blocks(model, box, "dom_box", subdivisions=4)
+    gt = model.grade_tonnage("cu", [0.0], density=2.0, weight=model.values("dom_box_pct"))
+    assert gt.rows[0].tonnes == pytest.approx(2000.0)
+    assert gt.rows[0].volume == pytest.approx(1000.0)
+    # Sphere r = 20 on coarse 8 m blocks: fractions beat centroid flags.
+    fine = Grid((-30.0, -30.0, -30.0), (2.0, 2.0, 2.0), (30, 30, 30))
+    sm = BlockModel.create(project, "s", fine)
+    sm.set_attributes({"g": 20.0 - np.linalg.norm(fine.centroids(), axis=1)}, {}, "g")
+    sphere = grade_shell(sm, "g", 0.0)
+    coarse = Grid((-27.0, -27.0, -27.0), (8.0, 8.0, 8.0), (7, 7, 7))
+    exact = sphere.volume()
+    by_fraction = block_fractions(coarse, sphere, 6).sum() * coarse.block_volume
+    assert by_fraction == pytest.approx(exact, rel=0.01)
+    project.close()
+
+
+def test_solid_cli(tmp_path: Path) -> None:
+    import io  # noqa: PLC0415
+
+    from minecore.cli import main  # noqa: PLC0415
+
+    p = str(tmp_path / "c.mcproj")
+    out = io.StringIO()
+    assert main(["project", "create", p, "--name", "c"], out) == 0
+    project = Project.open(p)
+    BlockModel.create(project, "BM", Grid((-6.25, -6.25, -3.75), (2.5, 2.5, 2.5), (10, 14, 6)))
+    project.close()
+    obj = str(_box_obj(tmp_path / "box.obj"))
+    assert main(["solid", "import", p, "box", obj], out) == 0
+    assert main(["solid", "flag", p, "box", "BM", "--subdivisions", "4"], out) == 0
+    assert "dom_box_pct: volume 1,000 m3" in out.getvalue()
+
+
 def test_grade_shell_of_a_spherical_grade_is_closed_and_has_the_right_volume(
     tmp_path: Path,
 ) -> None:

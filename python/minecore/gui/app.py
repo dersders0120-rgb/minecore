@@ -666,12 +666,30 @@ class MainWindow(QMainWindow):
         model_name, ok = QInputDialog.getItem(self, "Domen", "Blok modeli:", models, 0, False)
         if not ok:
             return
+        n, ok = QInputDialog.getInt(
+            self,
+            "Domen",
+            "Kısmi blok örneklemesi (her eksende alt hücre; 1 = yalnız blok merkezi):",
+            4,
+            1,
+            10,
+        )
+        if not ok:
+            return
         model = BlockModel.open(project, model_name)
         attribute = f"dom_{solid}"
-        count = solids.flag_blocks(model, solids.load_solid(project, solid), attribute)
+        count = solids.flag_blocks(model, solids.load_solid(project, solid), attribute, n)
         self.refresh()
+        extra = (
+            f"\n'{attribute}_pct': blokların katı içindeki hacim oranı (0-1); tenör-tonaj "
+            "raporunda 'Kısmi blok oranı' olarak seçin."
+            if n > 1
+            else ""
+        )
         QMessageBox.information(
-            self, "Domen", f"'{attribute}': {count:,} blok katının içinde (1), diğerleri 0."
+            self,
+            "Domen",
+            f"'{attribute}': {count:,} blok merkezi katının içinde (1), diğerleri 0." + extra,
         )
 
     def make_grade_shell(self) -> None:

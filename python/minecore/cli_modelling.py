@@ -50,7 +50,7 @@ from minecore.pitopt.optimise import Schedule, store
 from minecore.pitopt.scheduling import ConstrainedSchedule, Limits, schedule_constrained
 from minecore.pitopt.width import apply_mining_width
 from minecore.project import Project
-from minecore.solids import save_solid
+from minecore.solids import flag_blocks, load_solid, read_solid, save_solid
 from minecore.underground.stopes import stopes_from_model
 
 METHODS = {"nn": Method.NEAREST, "idw": Method.INVERSE_DISTANCE, "ok": Method.ORDINARY_KRIGING}
@@ -97,6 +97,18 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     st_link.add_argument("name")
     st_link.add_argument("solid")
 
+    sol = commands.add_parser("solid", help="wireframe solids: import, flag blocks")
+    sol_cmds = sol.add_subparsers(dest="solid_command", metavar="ACTION", required=True)
+    so_imp = sol_cmds.add_parser("import", help="OBJ, STL or DXF 3DFACE")
+    so_imp.add_argument("project")
+    so_imp.add_argument("name")
+    so_imp.add_argument("file")
+    so_flag = sol_cmds.add_parser("flag", help="dom_<solid> (and _pct fractions) in a model")
+    so_flag.add_argument("project")
+    so_flag.add_argument("solid")
+    so_flag.add_argument("model")
+    so_flag.add_argument("--subdivisions", type=int, default=1, help="partial blocks: n^3 samples")
+
     bm = commands.add_parser("bm", help="block models, variograms, estimation, reports")
     bm_cmds = bm.add_subparsers(dest="bm_command", metavar="ACTION", required=True)
     create = bm_cmds.add_parser("create", help="regular model covering a data table")
@@ -139,6 +151,7 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     rep.add_argument("--density", default="2.7", help="t/m3 or a density attribute")
     rep.add_argument("--json", action="store_true")
     rep.add_argument("--filter", nargs=3, metavar=("ATTR", "MIN", "MAX"), help="report subset")
+    rep.add_argument("--weight", help="block fraction attribute (e.g. dom_ore_pct)")
     reb = bm_cmds.add_parser("reblock", help="combine blocks into larger blocks")
     reb.add_argument("project")
     reb.add_argument("model")
@@ -271,6 +284,26 @@ def strings_command(args: argparse.Namespace, out: TextIO) -> int:
             f"{args.solid}: {len(ordered)} sections, volume {solid.volume():,.0f} m3, "
             f"open edges {solid.open_edges()}\n"
         )
+    return 0
+
+
+def solid_command(args: argparse.Namespace, out: TextIO) -> int:
+    with Project.open(args.project) as project:
+        if args.solid_command == "import":
+            solid = read_solid(Path(args.file))
+            save_solid(project, args.name, solid)
+            out.write(
+                f"{args.name}: {len(solid.triangles):,} triangles, volume "
+                f"{solid.volume():,.0f} m3, open edges {solid.open_edges()}\n"
+            )
+            return 0
+        model = BlockModel.open(project, args.model)
+        attribute = f"dom_{args.solid}"
+        n = flag_blocks(model, load_solid(project, args.solid), attribute, args.subdivisions)
+        out.write(f"{attribute}: {n:,} blocks inside\n")
+        if args.subdivisions > 1:
+            pct = model.values(f"{attribute}_pct")
+            out.write(f"{attribute}_pct: volume {pct.sum() * model.grid.block_volume:,.0f} m3\n")
     return 0
 
 
@@ -437,7 +470,10 @@ def bm_command(args: argparse.Namespace, out: TextIO) -> int:
         if args.filter:
             f = model.values(args.filter[0])
             mask = np.isfinite(f) & (f >= float(args.filter[1])) & (f <= float(args.filter[2]))
-        gt = model.grade_tonnage(args.attribute, args.cutoffs, density=density, mask=mask)
+        weight = model.values(args.weight) if args.weight else None
+        gt = model.grade_tonnage(
+            args.attribute, args.cutoffs, density=density, mask=mask, weight=weight
+        )
         if args.json:
             json.dump([r.__dict__ for r in gt.rows], out, indent=2)
             out.write("\n")
@@ -634,4 +670,5 @@ HANDLERS = {
     "pit": pit_command,
     "ug": ug_command,
     "strings": strings_command,
+    "solid": solid_command,
 }

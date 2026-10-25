@@ -609,6 +609,8 @@ class GradeTonnageDialog(QDialog):
         self.f1 = _spin(1.0, -1e9, 1e9, 1.0, 3)
         form.addRow("Filtre özniteliği (domen, kategori, ocak)", self.filter_attr)
         form.addRow("Filtre aralığı: en az / en çok", _row(self.f0, self.f1))
+        self.weight_attr = QComboBox()
+        form.addRow("Kısmi blok oranı (katı içi %)", self.weight_attr)
         run = QPushButton("Hesapla")
         run.clicked.connect(self.compute)
         export = QPushButton("CSV olarak dışa aktar...")
@@ -634,6 +636,8 @@ class GradeTonnageDialog(QDialog):
         self.density_attr.addItem("(sabit)")
         self.filter_attr.clear()
         self.filter_attr.addItem("(yok)")
+        self.weight_attr.clear()
+        self.weight_attr.addItem("(yok)")
         if not name:
             return
         attrs = BlockModel.open(self.project, name).attributes
@@ -641,6 +645,7 @@ class GradeTonnageDialog(QDialog):
         self.attribute.addItems(grades)
         self.density_attr.addItems(grades)
         self.filter_attr.addItems(list(attrs))
+        self.weight_attr.addItems([a for a in attrs if a.endswith("_pct")])
         if grades:
             values = BlockModel.open(self.project, name).values(grades[0])
             finite = values[np.isfinite(values)]
@@ -661,8 +666,13 @@ class GradeTonnageDialog(QDialog):
         if fattr and fattr != "(yok)":
             f = model.values(fattr)
             mask = np.isfinite(f) & (f >= self.f0.value()) & (f <= self.f1.value())
+        wattr = self.weight_attr.currentText()
         self.report = model.grade_tonnage(
-            self.attribute.currentText(), [float(c) for c in cutoffs], density=density, mask=mask
+            self.attribute.currentText(),
+            [float(c) for c in cutoffs],
+            density=density,
+            mask=mask,
+            weight=model.values(wattr) if wattr and wattr != "(yok)" else None,
         )
         r = self.report
         unit = r.grade_unit or "-"

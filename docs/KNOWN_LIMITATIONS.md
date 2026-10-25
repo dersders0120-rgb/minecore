@@ -132,7 +132,10 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
   twisted bands. No solid editing or boolean operations.
 - Strings import: ASCII DXF LWPOLYLINE (with elevation) and POLYLINE/VERTEX;
   no bulges (arcs) or splines.
-- Inside test is by block centroid (no partial-block percentages yet).
+- Block flags use the centroid; partial-block volume fractions (`_pct`) are
+  estimated by n³ sub-cell sampling of blocks near the surface (error about
+  one sub-cell layer), not by exact polyhedron clipping. Domain estimation
+  still selects blocks by centroid.
 - Grade shells: marching cubes over block centres (VTK), not an implicit model.
 
 ## Underground (M9 start)

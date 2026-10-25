@@ -329,6 +329,13 @@ def test_classification_dialog_and_filtered_report(qapp: QApplication, tmp_path:
     gt.compute()
     assert gt.report is not None
     assert gt.report.rows[0].blocks == 2
+    model.set_attributes({"dom_z_pct": np.array([0.5, 0.0, 1.0, 0.25])}, {}, "pct")
+    gt = resource.GradeTonnageDialog(project, parent)
+    gt.weight_attr.setCurrentText("dom_z_pct")
+    gt.c0.setValue(0.0)
+    gt.compute()
+    assert gt.report is not None
+    assert gt.report.rows[0].volume == pytest.approx(1.75 * 1000.0)
     project.close()
 
 
