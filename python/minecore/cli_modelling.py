@@ -88,6 +88,7 @@ from minecore.pitopt.sensitivity import (
 from minecore.pitopt.width import apply_mining_width
 from minecore.plots import SectionSpec, section_plot
 from minecore.project import Project
+from minecore.reserves import bench_reserves, between_fraction, volume_between
 from minecore.solids import flag_blocks, load_solid, read_solid, save_solid
 from minecore.underground.development import DeclineDesign, development_from_model
 from minecore.underground.stopes import stopes_from_model
@@ -120,6 +121,11 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     s_col = sf_cmds.add_parser("from-collars", help="surface through the collars")
     s_col.add_argument("project")
     s_col.add_argument("name")
+    s_vol = sf_cmds.add_parser("volume", help="cut and fill volume between two surfaces")
+    s_vol.add_argument("project")
+    s_vol.add_argument("upper", help="surface a (cut where a is above b)")
+    s_vol.add_argument("lower", help="surface b")
+    s_vol.add_argument("--cell", type=float, default=5.0, help="raster cell, m")
     s_flag = sf_cmds.add_parser("flag", help="write kaya=1 below the surface into a block model")
     s_flag.add_argument("project")
     s_flag.add_argument("surface")
@@ -483,6 +489,17 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     per.add_argument("--topography")
     per.add_argument("--prefix", default="donem")
     per.add_argument("--dxf")
+    res = pit_cmds.add_parser("reserves", help="ore and waste per bench between two surfaces")
+    res.add_argument("project")
+    res.add_argument("model")
+    res.add_argument("grade")
+    res.add_argument("--bottom", required=True, help="pit design (or period) surface")
+    res.add_argument("--top", help="upper surface, e.g. topography (default: none)")
+    res.add_argument("--cutoff", type=float, required=True)
+    res.add_argument("--density", default="2.7", help="t/m3 or a density attribute")
+    res.add_argument("--bench-height", type=float, help="default: block height")
+    res.add_argument("--by", help="split each bench by this attribute (rock type, category)")
+    res.add_argument("--json", action="store_true")
     exp = pit_cmds.add_parser("export", help="pit outlines, surface and solid to DXF")
     exp.add_argument("project")
     exp.add_argument("model")
@@ -712,6 +729,16 @@ def surface_command(args: argparse.Namespace, out: TextIO) -> int:
             s = surfaces.read_points_csv(Path(args.file))
             surfaces.save_surface(project, args.name, s)
             out.write(f"surface {args.name}: {len(s.points)} points\n")
+        elif args.sf_command == "volume":
+            v = volume_between(
+                surfaces.load_surface(project, args.upper),
+                surfaces.load_surface(project, args.lower),
+                args.cell,
+            )
+            out.write(
+                f"cut {v.cut:,.0f} m3, fill {v.fill:,.0f} m3, net {v.net:,.0f} m3 "
+                f"over {v.area:,.0f} m2 ({v.cells} cells of {args.cell:g} m)\n"
+            )
         elif args.sf_command == "from-collars":
             db = _db(project)
             geo = hole_geometry(db, validate(db))
@@ -944,7 +971,7 @@ def _write_routes(result: PitResult, econ: Economics, final: int, out: TextIO) -
             out.write(f"route {name}: {feed_t:,.0f} t feed, {metal:,.1f} metal\n")
 
 
-def pit_command(args: argparse.Namespace, out: TextIO) -> int:
+def pit_command(args: argparse.Namespace, out: TextIO) -> int:  # noqa: PLR0911 - dispatch
     with Project.open(args.project) as project:
         if args.pit_command == "export":
             return pit_export(project, args, out)
@@ -952,6 +979,8 @@ def pit_command(args: argparse.Namespace, out: TextIO) -> int:
             return pit_design(project, args, out)
         if args.pit_command == "cutoff":
             return pit_cutoff(project, args, out)
+        if args.pit_command == "reserves":
+            return pit_reserves(project, args, out)
         if args.pit_command == "scenarios":
             if args.delete:
                 delete_scenario(project, args.delete)
@@ -1288,6 +1317,42 @@ def _write_cash_flow(flow: CashFlow, out: TextIO) -> None:
         + (f"{payback:.1f} years" if math.isfinite(payback) else "not reached")
         + f"; undiscounted {flow.undiscounted:,.0f}\n"
     )
+
+
+def pit_reserves(project: Project, args: argparse.Namespace, out: TextIO) -> int:
+    model = BlockModel.open(project, args.model)
+    top = surfaces.load_surface(project, args.top) if args.top else None
+    frac = between_fraction(model, top, surfaces.load_surface(project, args.bottom))
+    rows = bench_reserves(
+        model,
+        args.grade,
+        args.cutoff,
+        frac,
+        density=_density(args.density),
+        bench_height=args.bench_height,
+        category=args.by,
+    )
+    if args.json:
+        json.dump([r.__dict__ for r in rows], out, indent=2)
+        out.write("\n")
+        return 0
+    out.write(
+        f"{'toe':>8} {'class':>6} {'total t':>13} {'ore t':>13} {'grade':>8} {'waste t':>13}\n"
+    )
+    for r in rows:
+        grade = f"{r.grade:8.3f}" if math.isfinite(r.grade) else f"{'-':>8}"
+        out.write(
+            f"{r.toe:8.1f} {r.category:>6} {r.total_t:13,.0f} {r.ore_t:13,.0f} {grade} "
+            f"{r.waste_t:13,.0f}\n"
+        )
+    ore = sum(r.ore_t for r in rows)
+    waste = sum(r.waste_t for r in rows)
+    metal = sum(r.metal for r in rows)
+    out.write(
+        f"total ore {ore:,.0f} t at {metal / ore if ore else math.nan:.3f}, waste {waste:,.0f} t, "
+        f"strip ratio {waste / ore if ore else math.inf:.2f}\n"
+    )
+    return 0
 
 
 def pit_cutoff(project: Project, args: argparse.Namespace, out: TextIO) -> int:

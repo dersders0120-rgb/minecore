@@ -321,3 +321,13 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
   through the crosscut end (no footwall offset, no drawpoints, no curved
   drives for folded ore). No ventilation raises, sumps, passing bays, switchbacks, geotechnical or
   clash checks against other excavations, and no development scheduling.
+
+## Design reserves and surface volumes
+
+- `reserves` (GUI "Tasarım rezervi", CLI `pit reserves`, `surface volume`):
+  bench inventory between an upper and a lower surface, partial blocks
+  prorated by the height cut on the block's vertical centre line (not by
+  the true volume under a sloping surface); ore is a single grade cut-off
+  (no NSR or route choice); split by one attribute. Cut/fill on a raster
+  where both surfaces exist (cell centre test). Not a reserve statement
+  (rule 8).

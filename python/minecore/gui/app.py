@@ -366,6 +366,7 @@ class MainWindow(QMainWindow):
         action(pit, "Dönem sonu yüzeyleri (çizelgeden), DXF...", self.export_periods)
         action(pit, "Delme-patlatma tasarımı (dilim, aralık, şarj, delik planı)...", self.blast)
         action(pit, "Döküm sahası tasarımı (kat, şev, berm, kapasite)...", self.dump)
+        action(pit, "Tasarım rezervi (basamak basamak) ve yüzeyler arası hacim...", self.reserves)
         ug = self.menuBar().addMenu("Yer&altı")
         action(ug, "Pano zarfı (floating stope) ve pano seçimi...", self.stopes)
         action(ug, "Dekline ve kat galerileri...", self.decline)
@@ -1079,6 +1080,11 @@ class MainWindow(QMainWindow):
 
         DumpDialog(self._need_project(), self).exec()
         self.refresh()
+
+    def reserves(self) -> None:
+        from minecore.gui.reserves import ReservesDialog  # noqa: PLC0415
+
+        ReservesDialog(self._need_project(), self).exec()
 
     def blast(self) -> None:
         from minecore.gui.blast import BlastDialog  # noqa: PLC0415

@@ -852,3 +852,34 @@ def test_dump_dialog(qapp: QApplication, tmp_path: Path) -> None:
     assert dialog.table.rowCount() == 3
     assert "Kapasite" in dialog.summary.text()
     project.close()
+
+
+def test_reserves_dialog(qapp: QApplication, tmp_path: Path) -> None:
+    from minecore.blockmodel import BlockModel, Grid  # noqa: PLC0415
+    from minecore.gui.reserves import ReservesDialog  # noqa: PLC0415
+    from minecore.surfaces import Surface, save_surface  # noqa: PLC0415
+
+    project = Project.create(tmp_path / "r.mcproj", "r")
+    model = BlockModel.create(project, "BM", Grid((0.0, 0.0, 0.0), (10.0, 10.0, 10.0), (4, 4, 5)))
+    k = np.arange(80) // 16
+    model.set_attributes({"au": np.where(k >= 2, 2.0, 0.1)}, {"au": {"unit": "g/t"}}, "au")
+    corners = [[-5, -5], [45, -5], [-5, 45], [45, 45]]
+    save_surface(project, "topo", Surface(np.array([[x, y, 45.0] for x, y in corners])))
+    save_surface(project, "pit", Surface(np.array([[x, y, 15.0] for x, y in corners])))
+    parent = QWidget()
+    dialog = ReservesDialog(project, parent)
+    dialog.grade.setCurrentText("au")
+    dialog.top.setCurrentText("topo")
+    dialog.bottom.setCurrentText("pit")
+    dialog.cutoff.setValue(1.0)
+    dialog.run()
+    # 45 -> 15 m: half of layer 4, layers 3 and 2 (ore), half of layer 1 (waste); 1600 m2 x 2.7
+    ore = sum(r.ore_t for r in dialog.rows)
+    waste = sum(r.waste_t for r in dialog.rows)
+    assert ore == pytest.approx(1600 * 25 * 2.7)
+    assert waste == pytest.approx(1600 * 5 * 2.7)
+    dialog.vol_a.setCurrentText("topo")
+    dialog.vol_b.setCurrentText("pit")
+    dialog.volume()
+    assert "Kazı" in dialog.vol_label.text()
+    project.close()

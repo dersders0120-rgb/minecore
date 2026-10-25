@@ -81,6 +81,10 @@ GUIDE = """
    "Ekipman" sekmesi çizelgenin her yılı için ortalama nakliye çevrimini (ocak içi,
    rampa ve yüzey mesafesi, dolu/boş hızlar), gereken kamyon ve yükleyici sayısını ve
    nakliye-yükleme maliyetini ($/t) verir.
+   **Açık Ocak → Tasarım rezervi** iki yüzey (ör. topoğrafya ile pit tasarımı) arasındaki
+   cevher ve pasayı basamak basamak verir; sınır bloklar kesilen yükseklik oranında
+   sayılır, istenirse kaya tipi veya kategoriye göre ayrılır. Aynı pencerede iki yüzey
+   arası kazı/dolgu hacmi hesaplanır.
    "Senaryolar" sekmesi çalışmayı adıyla kaydeder (tüm girdiler ve ana sonuçlar
    projede saklanır), senaryoları yan yana tablo ve NPV grafiği ile karşılaştırır,
    bir senaryonun girdilerini forma geri yükler ve karşılaştırmayı CSV'ye yazar.
