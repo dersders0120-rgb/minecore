@@ -331,3 +331,16 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
   (no NSR or route choice); split by one attribute. Cut/fill on a raster
   where both surfaces exist (cell centre test). Not a reserve statement
   (rule 8).
+
+## String editor and toe-string pit design
+
+- String editor (GUI "Çizgi düzenleyici"): plan view only (no section or 3D
+  editing), points get z from a constant or a draped surface; no snapping,
+  no offsetting or smoothing, no string clipping or joining, undo within the
+  session only. GUI only (strings are imported with `strings import`).
+- Toe design (`pit design-toes`, GUI "Taban çizgisinden pit tasarımı"):
+  benches are expanded on a raster with the same distance-transform
+  envelope as the optimised-pit bench design (rounded corners, raster
+  resolution); a toe's floor is the mean z of its points; the ramp starts
+  at the deepest floor. No interactive bench-by-bench editing of crests.
+  Smoke-tested only.

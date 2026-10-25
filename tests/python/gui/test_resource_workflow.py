@@ -883,3 +883,37 @@ def test_reserves_dialog(qapp: QApplication, tmp_path: Path) -> None:
     dialog.volume()
     assert "Kazı" in dialog.vol_label.text()
     project.close()
+
+
+def test_string_editor_and_toe_design(qapp: QApplication, tmp_path: Path) -> None:
+    from minecore.gui.strings_editor import StringEditor  # noqa: PLC0415
+    from minecore.gui.toedesign import ToeDesignDialog  # noqa: PLC0415
+    from minecore.strings import load_strings, string_names  # noqa: PLC0415
+
+    project = Project.create(tmp_path / "s.mcproj", "s")
+    parent = QWidget()
+    ed = StringEditor(project, parent)
+    ed.z.setValue(-40.0)
+    for x, y in ((0, 0), (80, 0), (80, 60), (0, 60)):
+        ed.add_point(x, y)
+    ed.toggle_closed()
+    ed.insert_point(0, 0, 40.0, 0.0)
+    assert len(ed.lines[0].points) == 5
+    ed.move_point(0, 1, 40.0, -10.0)
+    ed.delete_point(0, 1)
+    ed.undo()
+    assert len(ed.lines[0].points) == 5
+    ed.name.setText("taban")
+    ed.save()
+    assert "taban" in string_names(project)
+    assert load_strings(project, "taban")[0].closed
+    dialog = ToeDesignDialog(project, parent)
+    dialog.toes.setCurrentText("taban")
+    dialog.ground.setValue(0.0)
+    dialog.res.setValue(2.0)
+    dialog.run()
+    assert dialog.pit is not None
+    assert dialog.pit.volume() > 80 * 60 * 40
+    assert dialog.pit.ramp_length > 0
+    assert load_strings(project, "tasarim_taban_cizgiler")
+    project.close()

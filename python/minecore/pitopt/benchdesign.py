@@ -59,6 +59,7 @@ from __future__ import annotations
 
 import itertools
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -300,8 +301,78 @@ def design_pit(  # noqa: PLR0913 - options are keyword-only
     on_grid = (ci >= 0) & (ci < nx) & (cj >= 0) & (cj < ny)
     floor = np.full(xx.shape, np.inf)
     floor[on_grid] = floor_col[cj[on_grid], ci[on_grid]]
-    design = _envelope(floor, geometry, res, sectors)
     top = _original_surface(grid, xx, yy, topography, rock, cube)
+    return _design_on_raster(x, y, floor, top, on_grid, geometry, res, ramp, sectors)
+
+
+def design_from_toes(  # noqa: PLR0913 - options are keyword-only
+    toes: Sequence[Floats],
+    geometry: BenchGeometry,
+    *,
+    topography: Surface | None = None,
+    ground_z: float | None = None,
+    resolution: float = 2.0,
+    ramp: Ramp | None = None,
+    sectors: tuple[Sector, ...] = (),
+) -> DesignedPit:
+    """Bench design expanded upwards from closed toe strings (pit floors).
+
+    Each toe is a closed outline (n x 3); its floor elevation is the mean z of
+    its points, so several floors at different levels make a pit with several
+    bottoms. Benches rise from each floor with the face angle, bench height and
+    berm (or the sectors) until they meet the topography (or the flat
+    ``ground_z``). The ramp, when given, is traced from the deepest floor.
+    """
+    from matplotlib.path import Path as MplPath  # noqa: PLC0415
+
+    rings = [np.asarray(t, np.float64) for t in toes if len(t) >= 3]
+    if not rings:
+        raise PitOptError("a toe design needs at least one closed string of 3 or more points")
+    if topography is None and ground_z is None:
+        raise PitOptError("give a topography surface or a ground elevation")
+    sectors = _check_sectors(tuple(sectors), geometry)
+    flattest = min([geometry, *(s.geometry for s in sectors)], key=lambda g: g.overall_angle)
+    pts = np.vstack(rings)
+    floor_low = min(float(r[:, 2].mean()) for r in rings)
+    if topography is not None:
+        ground_high = float(topography.points[:, 2].max())
+    else:
+        ground_high = float(ground_z)  # type: ignore[arg-type]
+    depth = max(ground_high - floor_low, geometry.bench_height)
+    pad = depth / math.tan(math.radians(flattest.overall_angle)) + 4 * resolution
+    lo, hi = pts[:, :2].min(axis=0) - pad, pts[:, :2].max(axis=0) + pad
+    x = np.arange(lo[0] + resolution / 2, hi[0], resolution)
+    y = np.arange(lo[1] + resolution / 2, hi[1], resolution)
+    if len(x) * len(y) > 16_000_000:
+        raise PitOptError("the design raster is too large; use a coarser resolution")
+    xx, yy = np.meshgrid(x, y)
+    cells = np.column_stack([xx.ravel(), yy.ravel()])
+    floor = np.full(xx.shape, np.inf)
+    for ring in rings:
+        inside = MplPath(ring[:, :2]).contains_points(cells).reshape(xx.shape)
+        floor = np.where(inside, np.minimum(floor, float(ring[:, 2].mean())), floor)
+    if not np.isfinite(floor).any():
+        raise PitOptError("the toe strings enclose no raster cell; use a finer resolution")
+    if topography is not None:
+        top = topography.elevation(cells)[0].reshape(xx.shape)
+    else:
+        top = np.full(xx.shape, float(ground_z))  # type: ignore[arg-type]
+    on = np.ones(xx.shape, bool)
+    return _design_on_raster(x, y, floor, top, on, geometry, resolution, ramp, sectors)
+
+
+def _design_on_raster(  # noqa: PLR0913, PLR0917 - raster inputs
+    x: Floats,
+    y: Floats,
+    floor: Floats,
+    top: Floats,
+    on_grid: Mask,
+    geometry: BenchGeometry,
+    res: float,
+    ramp: Ramp | None,
+    sectors: tuple[Sector, ...],
+) -> DesignedPit:
+    design = _envelope(floor, geometry, res, sectors)
     openings = _openings(design, top, floor)
     bottoms = _bottoms(floor)
     roads: list[Floats] = []

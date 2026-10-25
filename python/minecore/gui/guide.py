@@ -81,6 +81,11 @@ GUIDE = """
    "Ekipman" sekmesi çizelgenin her yılı için ortalama nakliye çevrimini (ocak içi,
    rampa ve yüzey mesafesi, dolu/boş hızlar), gereken kamyon ve yükleyici sayısını ve
    nakliye-yükleme maliyetini ($/t) verir.
+   **Yüzey → Çizgi düzenleyici** planda çizgi çizer: nokta ekle, taşı (sürükle), araya
+   ekle, sil; sağ tık çizgiyi bitirir, kot sabit verilir ya da yüzeye oturtulur.
+   **Açık Ocak → Taban çizgisinden pit tasarımı** kapalı taban çizgilerinden (kotu taban
+   kotudur) şev, basamak ve bermle yukarı doğru pit açar, rampa ekler, yüzeyi ve
+   toe/crest çizgilerini kaydeder.
    **Açık Ocak → Tasarım rezervi** iki yüzey (ör. topoğrafya ile pit tasarımı) arasındaki
    cevher ve pasayı basamak basamak verir; sınır bloklar kesilen yükseklik oranında
    sayılır, istenirse kaya tipi veya kategoriye göre ayrılır. Aynı pencerede iki yüzey

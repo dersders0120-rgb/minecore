@@ -45,11 +45,13 @@ from minecore.drillholes.importer import import_folder
 from minecore.drillholes.workflow import composite_table, hole_geometry, save_composites
 from minecore.estimation import Ellipsoid, Method, Search, experimental, fit_spherical
 from minecore.geology.implicit import interval_contacts, model_domain
+from minecore.io.dxf import write_dxf
 from minecore.pitopt import Economics, PriceUnit, SlopeProfile, optimise_pit, pushbacks, schedule
 from minecore.pitopt.benchdesign import (
     BenchGeometry,
     Ramp,
     design_from_model,
+    design_from_toes,
     parse_exits,
     parse_sectors,
 )
@@ -479,6 +481,20 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
         metavar="AZ:FACE:BERM",
         help="geotechnical sector from azimuth AZ (0 = north wall); repeat for each sector",
     )
+    toe = pit_cmds.add_parser("design-toes", help="bench design expanded from closed toe strings")
+    toe.add_argument("project")
+    toe.add_argument("strings", help="string set with closed toe outlines (z = floor)")
+    toe.add_argument("--topography", help="ground surface (else --ground)")
+    toe.add_argument("--ground", type=float, help="flat ground elevation, m")
+    toe.add_argument("--face", type=float, default=70.0)
+    toe.add_argument("--height", type=float, default=10.0)
+    toe.add_argument("--berm", type=float, default=6.0)
+    toe.add_argument("--ramp-width", type=float, default=0.0, help="0 = no ramp")
+    toe.add_argument("--ramp-gradient", type=float, default=0.1)
+    toe.add_argument("--ramp-exit", type=float, default=0.0)
+    toe.add_argument("--resolution", type=float, default=2.0)
+    toe.add_argument("--save", default="tasarim_taban", help="surface and string set name")
+    toe.add_argument("--dxf")
     scn = pit_cmds.add_parser("scenarios", help="list, compare or delete saved pit scenarios")
     scn.add_argument("project")
     scn.add_argument("--delete", metavar="NAME")
@@ -981,6 +997,8 @@ def pit_command(args: argparse.Namespace, out: TextIO) -> int:  # noqa: PLR0911 
             return pit_cutoff(project, args, out)
         if args.pit_command == "reserves":
             return pit_reserves(project, args, out)
+        if args.pit_command == "design-toes":
+            return pit_design_toes(project, args, out)
         if args.pit_command == "scenarios":
             if args.delete:
                 delete_scenario(project, args.delete)
@@ -1317,6 +1335,31 @@ def _write_cash_flow(flow: CashFlow, out: TextIO) -> None:
         + (f"{payback:.1f} years" if math.isfinite(payback) else "not reached")
         + f"; undiscounted {flow.undiscounted:,.0f}\n"
     )
+
+
+def pit_design_toes(project: Project, args: argparse.Namespace, out: TextIO) -> int:
+    rings = [s.points for s in strings.load_strings(project, args.strings) if s.closed]
+    if not rings:
+        raise PitOptError(f"{args.strings!r} holds no closed string")
+    pit = design_from_toes(
+        rings,
+        BenchGeometry(args.face, args.height, args.berm),
+        topography=surfaces.load_surface(project, args.topography) if args.topography else None,
+        ground_z=args.ground,
+        resolution=args.resolution,
+        ramp=Ramp(args.ramp_width, args.ramp_gradient, args.ramp_exit) if args.ramp_width else None,
+    )
+    surfaces.save_surface(project, args.save, pit.surface())
+    lines = pit.strings(args.save.upper())
+    found = [strings.String(p.points, p.closed, p.layer) for p in lines]
+    strings.save_strings(project, f"{args.save}_cizgiler", found)
+    if args.dxf:
+        write_dxf(Path(args.dxf), lines)
+    out.write(
+        f"volume {pit.volume():,.0f} m3; bottoms {pit.bottoms}; pits {pit.pits}; "
+        f"ramp {pit.ramp_length:,.0f} m; surface {args.save}, strings {args.save}_cizgiler\n"
+    )
+    return 0
 
 
 def pit_reserves(project: Project, args: argparse.Namespace, out: TextIO) -> int:
