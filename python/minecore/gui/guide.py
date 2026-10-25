@@ -61,6 +61,9 @@ GUIDE = """
    yüksek marjlı yola gider) desteklenir. Çizelgede stok tenör sınıfları (ör. `1; 2`),
    stok kapasitesi ve geri yükleme maliyeti verilebilir: tesis önce yüksek tenörlü
    cevherle beslenir, düşük tenör stokta bekler, dolu stoktan taşan cevher döküme gider.
+   "Pushback'leri NPV'ye göre seç" işaretlenirse kabuklar, çizelge NPV'sini en büyütecek
+   şekilde gruplanır (her pushback en az cevher hedefini taşır; az kabukta tüm
+   gruplamalar denenir, çokta yerel arama yapılır).
    Çizelge yöntemi olarak "NPV optimizasyonu (MILP)" seçilirse aynı kurallarla NPV'yi en
    büyüten çizelge bulunur (kurallı çizelgeden kötü olamaz; süre sınırı verilir).
    **Proje nakit akışı** bölümünde yatırım (ör. `0:250; 4:40`, yıl:M$), sabit gider,

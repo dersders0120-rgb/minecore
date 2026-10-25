@@ -1,7 +1,7 @@
 # Session handoff
 
-Updated: 2026-10-25 ~07:50 UTC (architect, thread "Continue MineCore development":
-rotated block models, ADR-0009)
+Updated: 2026-10-25 ~10:50 UTC (architect, thread "Continue MineCore development":
+PR #27-#33)
 
 ## Owner direction (binding)
 - Windows 11 only. Wants a usable program fast, accepts some bugs, tests the GUI
@@ -13,6 +13,15 @@ rotated block models, ADR-0009)
 - Open-source libraries welcome if permissive (MIT/BSD/Apache); no GPL.
 
 ## State
+- Thread "Continue MineCore development" (2026-10-25): PR #27 rotated block
+  models (ADR-0009); #28 switchback ramps and technical audit v1
+  (`docs/audit/AUDIT_2026-10.md`, known-answer tests A-H, pushback ore-target
+  fix); #29 payables, royalty and project cash flow (capital, tax with
+  depreciation and loss carry-forward, closure, IRR, payback); #30
+  co-products/by-products; #31 stockpile grade bins, capacity, rehandling;
+  #32 sensitivity analysis (spider table/chart) and exact Lane balancing
+  points; #33 NPV-maximising MILP schedule (HiGHS via scipy, never below the
+  greedy schedule). Owner said not to post Windows build links for now.
 - `main`: PRs #1-#26 merged (PR #21-#22: process routes in pit optimisation
   and per-route plant capacity in the scheduler; PR #23: ore drives; PR #24:
   self-test covers routes, Lane cut-off, sectors and the decline; PR #26:
@@ -60,14 +69,12 @@ rotated block models, ADR-0009)
 - Limits: `docs/KNOWN_LIMITATIONS.md` (kept current).
 
 ## Next actions
-1. Owner feedback on the Windows build with real data comes first. Owner
-   workflow tip: auto-fit variogram is a starting point only (owner asked; told
-   him to check nugget with downhole variogram and ranges with directions).
-   Consider a sill default from the data variance in the variogram dialog.
-2. Sub-cells (needs its own ADR). Rotated block models are done (ADR-0009,
-   azimuth about the vertical; thread "Continue MineCore development").
-3. Pit design: multiple pit bottoms, blended sector changes (switchback ramps done).
-4. Routes and stockpiles in Lane; re-routing ore when a route is full.
+1. Owner feedback on the Windows build with real data comes first.
+2. Audit plan (docs/audit/AUDIT_2026-10.md) P1/P2 left: scenario storage and
+   side-by-side comparison; pushbacks chosen by NPV (best phase selection);
+   multiple pit bottoms in bench design.
+3. Sub-cells (needs its own ADR).
+4. Routes and stockpiles in Lane; blending targets in the MILP schedule.
 5. Underground: stope shapes beyond grid boxes, footwall drives and drawpoints,
    development schedule.
 6. Interoperability: OMF export (check licence of the `omf` package first).
