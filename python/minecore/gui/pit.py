@@ -332,7 +332,9 @@ class PitDialog(QDialog):
             "Her dönemin uzunluğu (yıl); son değer tekrar eder. Boş: her dönem 1 yıl. "
             "Kapasiteler yıllıktır, dönem uzunluğuyla çarpılır."
         )
-        pf.addRow("Dönem uzunlukları (yıl)", self.period_years)
+        monthly = QPushButton("Aylık (ilk yıl)")
+        monthly.clicked.connect(lambda: self.period_years.setText("0.0833333*12; 1"))
+        pf.addRow("Dönem uzunlukları (yıl)", _row(self.period_years, monthly))
         self.mining_rates = QLineEdit()
         self.mining_rates.setPlaceholderText("örn. 6*2; 10 (Mt/yıl, dönem sırasıyla; boş: sabit)")
         pf.addRow("Dönemlere göre kazı (Mt/yıl)", self.mining_rates)
@@ -906,6 +908,12 @@ class PitDialog(QDialog):
             "kadar yerleştirilir; yüzey mesafesi (tesise) cevher için kullanılır."
         )
         form.addRow("Döküm sahaları", self.fl_dumps)
+        self.fl_to_cash = QCheckBox("Nakliye-yükleme maliyetini nakit akışına ekle")
+        self.fl_to_cash.setToolTip(
+            "Madencilik maliyeti taşımayı içermiyorsa işaretleyin; "
+            "filo maliyeti her döneme ek gider olarak girer."
+        )
+        form.addRow(self.fl_to_cash)
         run = QPushButton("Kamyon ve yükleyici filosunu hesapla")
         run.clicked.connect(self._guard(self.run_fleet))
         form.addRow(run)
@@ -968,13 +976,22 @@ class PitDialog(QDialog):
         peak = max((r.trucks for r in rows), default=0)
         total = sum(r.cost for r in rows)
         tonnes = sum(r.mined_t for r in rows)
+        to_cash = self.fl_to_cash.isChecked() and bool(self.sched.rows)
         self.fleet_note.setText(
             f"En çok {peak} kamyon, {max((r.loaders for r in rows), default=0)} yükleyici. "
             f"Nakliye+yükleme ortalama {total / tonnes if tonnes else 0:,.2f} $/t. "
-            "Ortalama çevrim tahminidir (kuyruk/eşleşme benzetimi yok); maliyet çizelge "
-            "nakit akışına eklenmez, madencilik maliyetiyle karşılaştırmak içindir."
+            "Ortalama çevrim tahminidir (kuyruk/eşleşme benzetimi yok); "
+            + (
+                "maliyet nakit akışına ek gider olarak eklendi."
+                if to_cash
+                else "maliyet çizelge nakit akışına eklenmez, madencilik maliyetiyle "
+                "karşılaştırmak içindir."
+            )
             + _dump_note(self.dump_plan, dumps)
         )
+        if to_cash:
+            self.flow = cash_flow(self.sched.rows, self.terms(), {r.period: r.cost for r in rows})
+            self._show_cash_flow()
 
     def _scenario_page(self) -> QWidget:
         page = QWidget()
@@ -1291,6 +1308,7 @@ CASH_HEADERS = [
     "Zenginleştirme M$",
     "Madencilik M$",
     "Sabit gider M$",
+    "Ek gider M$",
     "FAVÖK M$",
     "Amortisman M$",
     "Vergi M$",
@@ -1311,6 +1329,7 @@ def _cash_cells(r: CashFlowRow) -> list[Any]:
         r.processing,
         r.mining,
         r.fixed,
+        r.other,
         r.ebitda,
         r.depreciation,
         r.tax,

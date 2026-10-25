@@ -114,6 +114,7 @@ class CashFlowRow:
     discounted: float
     cumulative: float  # undiscounted, for payback
     years: float = math.nan  # time at the end of the period, years from the start of mining
+    other: float = 0.0  # extra operating cost of the period (e.g. haulage from the fleet model)
 
 
 @dataclass(frozen=True)
@@ -169,8 +170,16 @@ class CashFlow:
         return math.nan
 
 
-def cash_flow(schedule_rows: Sequence[PeriodRow], terms: FinancialTerms) -> CashFlow:
-    """Period-by-period project cash flow (period 0 = construction)."""
+def cash_flow(
+    schedule_rows: Sequence[PeriodRow],
+    terms: FinancialTerms,
+    extra_costs: dict[int, float] | None = None,
+) -> CashFlow:
+    """Period-by-period project cash flow (period 0 = construction).
+
+    ``extra_costs`` adds an operating cost per production period (e.g. the
+    truck and loader cost when the mining cost excludes haulage)."""
+    extra_costs = extra_costs or {}
     production = max((r.period for r in schedule_rows), default=0)
     if production == 0:
         raise PitOptError("the schedule has no production periods")
@@ -196,7 +205,8 @@ def cash_flow(schedule_rows: Sequence[PeriodRow], terms: FinancialTerms) -> Cash
         start = ends[t - 1] if t > 0 else 0.0
         fixed = terms.fixed_cost * (ends[t] - start) if 1 <= t <= production else 0.0
         closure = terms.closure_cost if t == production + 1 else 0.0
-        ebitda = revenue - processing - mining - fixed
+        other = extra_costs.get(t, 0.0) if 1 <= t <= production else 0.0
+        ebitda = revenue - processing - mining - fixed - other
         if t <= production:
             # straight line over ``life`` years, from the end of the spending period
             depreciation = sum(
@@ -240,6 +250,7 @@ def cash_flow(schedule_rows: Sequence[PeriodRow], terms: FinancialTerms) -> Cash
                 cash * factor,
                 cumulative,
                 ends[t],
+                other,
             )
         )
     last = rows[-1]
