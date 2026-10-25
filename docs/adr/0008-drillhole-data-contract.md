@@ -182,6 +182,8 @@ Initial catalogue (M2):
 | `INTERVAL_GAP` | info | none | Unlogged gap between consecutive intervals, with its length |
 | `INTERVAL_BEYOND_DEPTH` | warning | none | `to` deeper than `max_depth` plus tolerance |
 | `VALUE_OUT_OF_RANGE` | warning | none | Numeric value outside its quantity's valid range (negative grade, a fraction above 100 %) |
+| `VALUE_UNREADABLE` | warning | none | Import: text that is neither a number, a qualifier nor a declared code; kept as missing |
+| `ROW_WIDTH` | warning | none | Import: rows with a different number of fields than the header |
 | `VALUE_QUALIFIED` | info | none | Count of qualified values per field and flag |
 
 `max_depth` missing is not an error: the hole's depth is the deepest of its

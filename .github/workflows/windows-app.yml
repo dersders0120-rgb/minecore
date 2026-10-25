@@ -1,0 +1,61 @@
+name: Windows app
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths: [".github/workflows/windows-app.yml", "packaging/**", "python/minecore/gui/**", "pyproject.toml"]
+  workflow_dispatch:
+
+concurrency:
+  group: windows-app-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  UV_LOCKED: "1"
+
+jobs:
+  build:
+    name: Build MineCore for Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust (version from rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --no-dev
+
+      - name: Build the native core in release mode
+        run: uvx maturin@1.15 develop --release --uv
+
+      - name: Package with PyInstaller
+        run: >
+          uv run --no-sync --with "pyinstaller>=6.11" pyinstaller packaging/minecore_gui.py
+          --name MineCore --windowed --noconfirm --clean
+          --collect-all pyvista --collect-all pyvistaqt --collect-submodules vtkmodules
+          --collect-data pyproj --collect-binaries pyproj --collect-all pyarrow
+          --collect-submodules minecore
+
+      - name: Smoke test the packaged core
+        shell: bash
+        run: |
+          cat > smoke.py <<'PY'
+          import minecore, minecore.drillholes, minecore.gui.app
+          print("MineCore", minecore.__version__, minecore.core_build_profile())
+          PY
+          uv run --no-sync python smoke.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MineCore-windows
+          path: dist/MineCore
+          retention-days: 30

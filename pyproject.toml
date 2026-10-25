@@ -21,10 +21,16 @@ dependencies = [
     "numpy>=2.1",
     "pyarrow>=21",
     "pyproj>=3.7",
+    "pyside6-essentials>=6.9",
+    "pyvista>=0.46",
+    "pyvistaqt>=0.11",
 ]
 
 [project.scripts]
 minecore = "minecore.cli:main"
+
+[project.gui-scripts]
+minecore-gui = "minecore.gui.app:main"
 
 [dependency-groups]
 dev = [
@@ -75,8 +81,8 @@ files = ["python/minecore", "tests/python", "tools"]
 mypy_path = ["python", "tools"]
 
 [[tool.mypy.overrides]]
-# pyarrow ships no type information.
-module = ["pyarrow", "pyarrow.*"]
+# These ship no type information.
+module = ["pyarrow", "pyarrow.*", "pyvista", "pyvista.*", "pyvistaqt", "pyvistaqt.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
