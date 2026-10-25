@@ -35,6 +35,18 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
   validation are GUI and Python API only.
 - Grade-tonnage is a report, not a resource classification (rule 8).
 
+## Block model import
+
+- CSV/text with centroid columns (and optional per-row sizes for sub-blocked
+  models). Sub-blocks are merged into parent cells by volume-weighted mean;
+  categorical text columns are skipped (convert codes to numbers first).
+  Rotated models and native Datamine/Surpac/Vulcan formats are not read.
+
+## Sample statistics
+
+- Histogram, log-probability plot and top-cut effect on unweighted samples
+  (use equal-length composites). No declustering yet.
+
 ## Confidence categories
 
 - `blockmodel.classify` assigns categories from user thresholds on mean

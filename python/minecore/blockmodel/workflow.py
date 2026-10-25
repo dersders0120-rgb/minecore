@@ -80,19 +80,22 @@ def estimate_blocks(  # noqa: PLR0913 - options are keyword-only
     power: float = 2.0,
     discretisation: tuple[int, int, int] = (2, 2, 2),
     mask: npt.NDArray[np.bool_] | None = None,
+    top_cut: float | None = None,
     progress: Progress | None = None,
 ) -> int:
     """Estimate ``attribute`` into ``model``; returns the number of unestimated blocks.
 
     ``mask`` limits estimation to selected blocks (e.g. below topography or
     inside a domain); the others stay empty and are not counted as unestimated.
+    ``top_cut`` caps sample values before estimation (outlier treatment).
     """
     grid = model.grid
     targets = grid.centroids()
     selected = np.ones(grid.blocks, bool) if mask is None else np.asarray(mask, bool)
+    sample_values = samples.values if top_cut is None else np.minimum(samples.values, top_cut)
     sub = estimate(
         samples.xyz,
-        samples.values,
+        sample_values,
         targets[selected],
         search,
         method,
@@ -117,6 +120,7 @@ def estimate_blocks(  # noqa: PLR0913 - options are keyword-only
                 "max_per_hole": search.max_per_hole,
             },
             "power": power if method is Method.INVERSE_DISTANCE else None,
+            "top_cut": top_cut,
         },
         f"{attribute}_n": {"unit": None},
         f"{attribute}_dist": {"unit": None},

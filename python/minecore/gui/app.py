@@ -281,6 +281,8 @@ class MainWindow(QMainWindow):
         action(drill, "Tabloyu CSV olarak dışa aktar...", self.export_table)
         bm = self.menuBar().addMenu("&Blok Modeli")
         action(bm, "Blok modeli oluştur...", self.new_block_model)
+        action(bm, "Blok modeli içe aktar (CSV, alt bloklu olabilir)...", self.import_block_model)
+        action(bm, "Örnek istatistikleri ve üst kesme (top-cut)...", self.sample_stats)
         action(bm, "Variogram analizi...", self.variogram)
         action(bm, "Tenör kestirimi (NN / IDW / Kriging)...", self.estimate)
         action(bm, "Kestirim doğrulama (swath, çapraz doğrulama)...", self.validate_estimate)
@@ -656,6 +658,42 @@ class MainWindow(QMainWindow):
             "Tenör kabuğu",
             f"'{name}': {len(solid.triangles):,} üçgen, hacim {solid.volume():,.0f} m³.",
         )
+
+    def import_block_model(self) -> None:
+        from minecore.blockmodel.importer import import_block_csv, parse_units  # noqa: PLC0415
+
+        project = self._need_project()
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Blok modeli CSV", "", "Metin tablolar (*.csv *.txt)"
+        )
+        if not path:
+            return
+        name, ok = QInputDialog.getText(self, "Blok modeli", "Ad:", text=Path(path).stem)
+        if not ok or not name.strip():
+            return
+        units, ok = QInputDialog.getText(
+            self, "Birimler", "Öznitelik birimleri (örn. au=g/t; cu=%; boş bırakılabilir):"
+        )
+        if not ok:
+            return
+        r = import_block_csv(project, Path(path), name.strip(), units=parse_units(units))
+        self.refresh()
+        g = r.model.grid
+        lines = [
+            f"{r.rows:,} satır; ızgara {g.count[0]} x {g.count[1]} x {g.count[2]} "
+            f"({g.size[0]:g} x {g.size[1]:g} x {g.size[2]:g} m); {r.blocks_filled:,} dolu blok.",
+            f"Öznitelikler: {', '.join(r.attributes)}",
+        ]
+        if r.merged_rows:
+            lines.append(f"{r.merged_rows:,} alt blok ana bloklarda birleştirildi.")
+        if r.skipped_columns:
+            lines.append(f"Atlanan metin sütunları: {', '.join(r.skipped_columns)}")
+        QMessageBox.information(self, "Blok modeli", "\n".join(lines))
+
+    def sample_stats(self) -> None:
+        from minecore.gui.resource import StatisticsDialog  # noqa: PLC0415
+
+        StatisticsDialog(self._need_db(), self).exec()
 
     def calculator(self) -> None:
         from minecore.gui.resource import CalculatorDialog  # noqa: PLC0415

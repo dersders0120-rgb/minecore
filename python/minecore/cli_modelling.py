@@ -28,6 +28,7 @@ from minecore import surfaces
 from minecore.blockmodel import BlockModel, BlockModelError, Grid
 from minecore.blockmodel.calc import calculate
 from minecore.blockmodel.classify import Criteria, classify
+from minecore.blockmodel.importer import import_block_csv, parse_units
 from minecore.blockmodel.workflow import (
     estimate_blocks,
     interval_samples,
@@ -88,6 +89,11 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     create.add_argument("--source", required=True, help="table/field to cover")
     create.add_argument("--size", type=float, nargs=3, required=True, metavar=("DX", "DY", "DZ"))
     create.add_argument("--padding", type=float, default=0.0)
+    bimp = bm_cmds.add_parser("import", help="block model from CSV (centroids, attributes)")
+    bimp.add_argument("project")
+    bimp.add_argument("name")
+    bimp.add_argument("file")
+    bimp.add_argument("--units", default="", help="e.g. 'au=g/t; cu=%%'")
     vg = bm_cmds.add_parser("variogram", help="omnidirectional variogram and spherical fit")
     vg.add_argument("project")
     vg.add_argument("source", help="table/field")
@@ -108,6 +114,7 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     est.add_argument("--per-hole", type=int, default=0)
     est.add_argument("--power", type=float, default=2.0)
     est.add_argument("--rock-only", action="store_true", help="only blocks with kaya=1")
+    est.add_argument("--top-cut", type=float, help="cap sample values before estimation")
     rep = bm_cmds.add_parser("report", help="grade-tonnage table")
     rep.add_argument("project")
     rep.add_argument("model")
@@ -280,6 +287,17 @@ def bm_command(args: argparse.Namespace, out: TextIO) -> int:
             BlockModel.create(project, args.name, grid)
             out.write(f"{args.name}: {grid.count} = {grid.blocks} blocks, origin {grid.origin}\n")
             return 0
+        if args.bm_command == "import":
+            imported = import_block_csv(
+                project, Path(args.file), args.name, units=parse_units(args.units)
+            )
+            out.write(
+                f"{args.name}: {imported.rows} rows -> {imported.model.grid.count}, "
+                f"{imported.blocks_filled} blocks, "
+                f"{imported.merged_rows} merged sub-blocks; "
+                f"attributes {', '.join(imported.attributes)}\n"
+            )
+            return 0
         if args.bm_command == "variogram":
             samples = interval_samples(_db(project), *_source(args.source))
             exp = experimental(samples.xyz, samples.values, args.lag, args.nlags)
@@ -313,6 +331,7 @@ def bm_command(args: argparse.Namespace, out: TextIO) -> int:
                 variogram=variogram,
                 power=args.power,
                 mask=mask,
+                top_cut=args.top_cut,
             )
             out.write(f"{args.attribute}: estimated; {missed} blocks without enough samples\n")
             return 0
