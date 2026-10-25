@@ -292,3 +292,37 @@ def test_bench_inventory_balances(project: Project) -> None:
     assert sum(r.value for r in rows) == pytest.approx(result.value[inside].sum())
     tops = [r.bench_toe for r in rows if r.phase == 1]
     assert tops == sorted(tops, reverse=True)
+
+
+def test_constrained_schedule_with_route_capacities(project: Project) -> None:
+    import dataclasses  # noqa: PLC0415
+
+    from minecore.pitopt.economics import Route  # noqa: PLC0415
+    from minecore.pitopt.scheduling import Limits, schedule_constrained  # noqa: PLC0415
+
+    model, econ = _ore_body(project)
+    econ = dataclasses.replace(econ, routes=(Route("leach", 0.55, 5.0),))
+    result = optimise_pit(model, "au", econ, SlopeProfile(45.0), [1.0], mining_rate=2e6)
+    phase = pushbacks(result, 1, min_ore_t=0.4 * result.rows[0].ore_t)
+    inside = phase > 0
+    feed = [float(result.feed[inside & (result.route == k)].sum()) for k in (1, 2)]
+    assert min(feed) > 0  # both routes receive ore
+    total_t = float(result.tonnes[inside].sum())
+    limits = Limits(total_t / 5, feed[0] / 6, bench_lag=1, route_capacities=(feed[1] / 8,))
+    sched = schedule_constrained(result, phase, limits)
+    for r in sched.rows:
+        assert len(r.fed_by_route) == 2
+        assert r.fed_by_route[0] <= feed[0] / 6 * (1 + 1e-9)
+        assert r.fed_by_route[1] <= feed[1] / 8 * (1 + 1e-9)
+        assert sum(r.fed_by_route) == pytest.approx(r.ore_fed_t)
+    # Each route processes all of its ore; margins and costs are conserved.
+    for k in range(2):
+        assert sum(r.fed_by_route[k] for r in sched.rows) == pytest.approx(feed[k], rel=1e-9)
+    assert sched.rows[-1].stockpile_t == pytest.approx(0.0, abs=1e-6)
+    assert sum(r.cash for r in sched.rows) == pytest.approx(
+        float(result.value[inside].sum()), rel=1e-9
+    )
+    # The slower leach capacity sets the life (8 periods at least).
+    assert len(sched.rows) >= 8
+    with pytest.raises(PitOptError):
+        Limits(1.0, 1.0, route_capacities=(0.0,))
