@@ -43,7 +43,7 @@ from minecore.drillholes.importer import import_folder
 from minecore.drillholes.workflow import composite_table, hole_geometry, save_composites
 from minecore.estimation import Ellipsoid, Method, Search, experimental, fit_spherical
 from minecore.pitopt import Economics, PriceUnit, SlopeProfile, optimise_pit, pushbacks, schedule
-from minecore.pitopt.benchdesign import BenchGeometry, design_from_model
+from minecore.pitopt.benchdesign import BenchGeometry, Ramp, design_from_model
 from minecore.pitopt.cutoff import cutoffs_from_model
 from minecore.pitopt.design import edge_blocks, export_pit
 from minecore.pitopt.economics import PitOptError
@@ -232,6 +232,10 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     des.add_argument("--save-surface")
     des.add_argument("--flag", help="attribute for blocks inside the design")
     des.add_argument("--dxf")
+    des.add_argument("--ramp-width", type=float, help="haul road width, m (adds a spiral ramp)")
+    des.add_argument("--ramp-gradient", type=float, default=0.10, help="e.g. 0.10 for 10 %%")
+    des.add_argument("--ramp-exit", type=float, default=0.0, help="exit azimuth, degrees")
+    des.add_argument("--ramp-ccw", action="store_true", help="spiral counter-clockwise going down")
     exp = pit_cmds.add_parser("export", help="pit outlines, surface and solid to DXF")
     exp.add_argument("project")
     exp.add_argument("model")
@@ -551,7 +555,15 @@ def pit_design(project: Project, args: argparse.Namespace, out: TextIO) -> int:
         save_surface=args.save_surface,
         flag_attribute=args.flag,
         dxf=Path(args.dxf) if args.dxf else None,
+        ramp=Ramp(args.ramp_width, args.ramp_gradient, args.ramp_exit, not args.ramp_ccw)
+        if args.ramp_width
+        else None,
     )
+    if r.pit.ramp is not None:
+        out.write(
+            f"ramp {r.pit.ramp_length:,.0f} m from {r.pit.ramp[0, 2]:.1f} "
+            f"to {r.pit.ramp[-1, 2]:.1f}\n"
+        )
     out.write(
         f"overall slope {geometry.overall_angle:.1f} deg; volume {r.pit.volume():,.0f} m3; "
         f"blocks {r.shell_blocks} in shell, {r.design_blocks} in design; "

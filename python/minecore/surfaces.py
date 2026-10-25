@@ -103,7 +103,11 @@ def _numeric(cells: list[str]) -> bool:
 
 def save_surface(project: Project, name: str, surface: Surface) -> str:
     table = pa.table({c: surface.points[:, i] for i, c in enumerate("xyz")})
-    record = project.register_object(KIND, name, metadata={"format": 1})
+    # Saving under an existing name replaces it (new bulk file, same object).
+    existing = [r for r in project.objects(KIND) if r.name == name]
+    record = (
+        existing[0] if existing else project.register_object(KIND, name, metadata={"format": 1})
+    )
     ref = bulk.write_table(project.path, record.object_id, "points", table)
     project.update_object(
         record.object_id, metadata={"format": 1, **ref.to_json()}, description=f"Store {name!r}"

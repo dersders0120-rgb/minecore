@@ -42,7 +42,7 @@ from minecore.pitopt import (
     optimise_pit,
     pushbacks,
 )
-from minecore.pitopt.benchdesign import BenchGeometry, DesignReport, design_from_model
+from minecore.pitopt.benchdesign import BenchGeometry, DesignReport, Ramp, design_from_model
 from minecore.pitopt.cutoff import LaneResult, cutoffs_from_model
 from minecore.pitopt.design import edge_blocks
 from minecore.pitopt.optimise import store
@@ -684,6 +684,15 @@ class BenchDesignDialog(QDialog):
         form.addRow("Berm genişliği (m)", self.berm)
         form.addRow("Arazi yüzeyi", self.topography)
         form.addRow("Genel şev açısı", self.overall)
+        self.ramp_on = QCheckBox("Spiral rampa (nakliye yolu) tasarla")
+        self.ramp_w = _spin(25.0, 3.0, 80.0, 1.0, 1)
+        self.ramp_g = _spin(10.0, 1.0, 25.0, 0.5, 1)
+        self.ramp_exit = _spin(0.0, 0.0, 359.0, 15.0, 0)
+        self.ramp_dir = QComboBox()
+        self.ramp_dir.addItems(["Saat yönünde (inerken)", "Saat yönünün tersine (inerken)"])
+        form.addRow(self.ramp_on)
+        form.addRow("Rampa genişliği (m) / eğim %", _row(self.ramp_w, self.ramp_g))
+        form.addRow("Çıkış yönü (° kuzeyden) / dönüş", _row(self.ramp_exit, self.ramp_dir))
         run = QPushButton("Tasarla, yüzeyi kaydet, blokları işaretle")
         run.clicked.connect(self._guard(self.run))
         export = QPushButton("Tasarımı DXF olarak dışa aktar...")
@@ -731,6 +740,14 @@ class BenchDesignDialog(QDialog):
             save_surface=f"tasarim_{self.shell.value()}",
             flag_attribute="pit_tasarim",
             dxf=dxf,
+            ramp=Ramp(
+                self.ramp_w.value(),
+                self.ramp_g.value() / 100.0,
+                self.ramp_exit.value(),
+                self.ramp_dir.currentIndex() == 0,
+            )
+            if self.ramp_on.isChecked()
+            else None,
         )
 
     def run(self) -> None:
@@ -741,6 +758,12 @@ class BenchDesignDialog(QDialog):
             f"tasarımda {r.design_blocks:,} blok. Değer {r.shell_value / 1e6:,.1f} → "
             f"{r.design_value / 1e6:,.1f} M$. Yüzey 'tasarim_{self.shell.value()}', "
             "bloklar 'pit_tasarim' olarak kaydedildi."
+            + (
+                f"\nRampa: {r.pit.ramp_length:,.0f} m, {r.pit.ramp[0, 2]:.0f} m kotundan "
+                f"{r.pit.ramp[-1, 2]:.0f} m kotuna."
+                if r.pit.ramp is not None
+                else ""
+            )
             + (
                 f"\nUyarı: tasarımın {outside / 1e6:,.2f} Mm³'ü blok modeli alanının dışında; "
                 "modeli daha geniş (dolgu payı ile) oluşturun."
