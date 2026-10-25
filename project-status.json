@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "updated": "2026-10-25",
-  "current_milestone": "M1",
+  "updated": "2026-10-25T01:25:00Z",
+  "current_milestone": "M3-M6 (estimation chain) in progress; M2 first release in PR #8",
   "milestones": [
     {
       "id": "M0",
@@ -226,6 +226,34 @@
       "status": "ASSIGNED",
       "depends_on": [],
       "brief": "prompts/T-014-gemini.md"
+    },
+    {
+      "id": "T-012",
+      "state": "INTEGRATED"
+    },
+    {
+      "id": "T-013",
+      "state": "INTEGRATED"
+    },
+    {
+      "id": "T-014",
+      "state": "INTEGRATED (unsourced; no defaults)"
+    },
+    {
+      "id": "T-015",
+      "state": "INTEGRATED (ADR-0008, PR #7)"
+    },
+    {
+      "id": "M2-app",
+      "state": "PR #8 open, green"
+    },
+    {
+      "id": "M3-estimation",
+      "state": "branch m3-estimation pushed, no PR; GUI not started"
+    },
+    {
+      "id": "T-016",
+      "state": "BACKLOG (ChatGPT kriging references)"
     }
   ]
 }

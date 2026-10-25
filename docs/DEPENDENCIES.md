@@ -40,3 +40,4 @@ The Windows pyproj wheel bundles its own library set; re-audit it when the insta
 | VTK | BSD-3-Clause | 3D rendering | |
 | pyvista, pyvistaqt | MIT | VTK convenience layer and Qt widget | |
 | PyInstaller | GPL-2.0 with bootloader exception | Build tool only | The exception permits distributing the bundled application under our licence |
+| scipy | BSD-3-Clause | KD-tree search for estimation | added in m3-estimation |
