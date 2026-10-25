@@ -107,8 +107,15 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
 - Bench design (`pitopt.benchdesign`): face angle, bench height and berm
   around the optimised pit by a distance-transform envelope on a raster
   (rounded corners, raster resolution half a block by default). Toe/crest
-  strings are contours of that surface. No geotechnical sectors in the
-  design (one geometry for the whole pit), no string editing.
+  strings are contours of that surface. No string editing.
+- Geotechnical sectors in bench design (`--sector AZ:FACE:BERM`, GUI field
+  "Geoteknik sektörler"): the sector is chosen by the azimuth from each
+  cell's nearest floor cell (the wall's outward normal), so sector changes
+  are abrupt steps, not blended transitions (the pit optimiser's slope
+  sectors interpolate between azimuths; the two can differ slightly near
+  boundaries). One bench height for all sectors; no sectors by rock type or
+  depth; the ramp is placed using the per-sector overall slope and cut with
+  the flattest sector.
 - Ramp: one spiral haul road per pit, traced bottom-up around the pit
   centroid at constant gradient and cut into the wall (benches above are set
   back). No switchbacks, no multiple pit bottoms/exits, no road batters or
@@ -171,3 +178,9 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
   non-overlapping stope selection by metal. Not a Mineable Shape Optimiser:
   no variable stope shapes, dip/strike following, pillars, dilution skins,
   development or scheduling. Stopes are aligned with the block grid.
+- `underground.development`: concept access layout only: one straight portal
+  leg plus a circular spiral decline at constant gradient beside the orebody
+  (standoff checked in plan against ore block centroids), and one straight
+  horizontal crosscut per level to the nearest ore block. No ore drives,
+  ventilation raises, sumps, passing bays, switchbacks, geotechnical or
+  clash checks against other excavations, and no development scheduling.

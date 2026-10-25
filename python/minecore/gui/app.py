@@ -312,11 +312,14 @@ class MainWindow(QMainWindow):
         action(pit, "Basamak tasarımı (şev açısı, basamak yüksekliği, berm)...", self.bench_design)
         action(pit, "Cut-off optimizasyonu (Lane, yıllara göre)...", self.lane_cutoff)
         action(pit, "Ocağı DXF olarak dışa aktar, ocak yüzeyi oluştur...", self.export_pit)
+        action(pit, "Dönem sonu yüzeyleri (çizelgeden), DXF...", self.export_periods)
         ug = self.menuBar().addMenu("Yer&altı")
         action(ug, "Pano zarfı (floating stope) ve pano seçimi...", self.stopes)
+        action(ug, "Dekline ve kat galerileri...", self.decline)
         help_menu = self.menuBar().addMenu("&Yardım")
         action(help_menu, "Adım adım kullanım kılavuzu", self.guide, "F1")
         action(help_menu, "Örnek sondaj projesini aç", self.open_sample)
+        action(help_menu, "Kurulumu sına (örnek veriyle tüm zincir)", self.self_test)
         action(help_menu, "Hakkında", self.about)
 
     def _guard(self, slot: Any) -> None:
@@ -834,6 +837,42 @@ class MainWindow(QMainWindow):
         count = write_dxf(Path(path), faces=[(name, solid.vertices[solid.triangles])])
         self.statusBar().showMessage(f"{count:,} üçgen yazıldı: {path}")
 
+    def export_periods(self) -> None:
+        from minecore.pitopt.design import period_surfaces  # noqa: PLC0415
+
+        project = self._need_project()
+        models = [
+            m
+            for m in block_models(project)
+            if "pit_period" in BlockModel.open(project, m).attributes
+        ]
+        if not models:
+            raise RuntimeError("Önce ocak optimizasyonunu çizelgeyle çalıştırıp kaydedin.")
+        model_name, ok = QInputDialog.getItem(self, "Dönemler", "Blok modeli:", models, 0, False)
+        if not ok:
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Dönem çizgileri (DXF)", "donemler.dxf", "DXF (*.dxf)"
+        )
+        names = [
+            n
+            for n in surfaces.surface_names(project)
+            if not n.startswith(("ocak_", "donem_", "tasarim"))
+        ]
+        rows = period_surfaces(
+            project,
+            BlockModel.open(project, model_name),
+            topography=names[0] if names else None,
+            dxf=Path(path) if path else None,
+        )
+        self.refresh()
+        QMessageBox.information(
+            self,
+            "Dönemler",
+            f"{len(rows)} dönem sonu yüzeyi kaydedildi (donem_1 ... donem_{len(rows)})"
+            + (f"; dönem çizgileri: {path}." if path else "."),
+        )
+
     def export_pit(self) -> None:
         project = self._need_project()
         models = [
@@ -884,6 +923,15 @@ class MainWindow(QMainWindow):
         StopeDialog(project, self).exec()
         self.refresh()
 
+    def decline(self) -> None:
+        from minecore.gui.underground import DeclineDialog  # noqa: PLC0415
+
+        project = self._need_project()
+        if not block_models(project):
+            raise RuntimeError("Önce bir blok modeli ve pano seçimi gerekli.")
+        DeclineDialog(project, self).exec()
+        self.refresh()
+
     def bench_design(self) -> None:
         from minecore.gui.pit import BenchDesignDialog  # noqa: PLC0415
 
@@ -910,6 +958,30 @@ class MainWindow(QMainWindow):
             raise RuntimeError("Önce bir blok modeli oluşturup tenör kestirin.")
         PitDialog(project, self).exec()
         self.refresh()
+
+    def self_test(self) -> None:
+        import tempfile  # noqa: PLC0415
+
+        from minecore.selftest import run_steps  # noqa: PLC0415
+
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            with tempfile.TemporaryDirectory(prefix="minecore-selftest-") as tmp:
+                steps = run_steps(Path(tmp))
+        finally:
+            QApplication.restoreOverrideCursor()
+        failed = [s for s in steps if not s.ok]
+        lines = [f"{'✓' if s.ok else '✗'} {s.name} ({s.seconds:.1f} s)" for s in steps]
+        if failed:
+            lines.append("\nHata ayrıntısı:\n" + failed[0].detail[-1500:])
+        box = QMessageBox.warning if failed else QMessageBox.information
+        box(
+            self,
+            "Kurulum sınaması",
+            ("Bir adım başarısız oldu." if failed else "Tüm adımlar başarılı.")
+            + "\n\n"
+            + "\n".join(lines),
+        )
 
     def open_sample(self) -> None:
         """Create a project from the bundled 30-hole sample (with deliberate errors)."""

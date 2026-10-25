@@ -22,6 +22,11 @@ GUIDE = """
 2. **Blok Modeli > Variogram analizi**: her yönde veya yönlü, kuyu içi variogram;
    otomatik uydurma, iki yapılı model; modeli projeye kaydedin.
 3. **Yüzey > Katı model içe aktar**: OBJ/STL/DXF cevher zonu (domen) katıları.
+   Kesit yorumlarınız DXF çizgiyse **Çizgileri içe aktar** ve **Kesit çizgilerini bağla**.
+4. **Yüzey > Örtük (implicit) domen modeli**: sondaj aralıklarından (tenör eşiği veya
+   litoloji kodu) RBF ile kapalı domen katısı; yassı kütleler için anizotropi.
+5. **Yüzey > Blok modelini katı ile işaretle**: alt hücre örneklemesiyle `_pct` kısmi
+   blok oranı da yazılır; tenör-tonaj raporunda *Kısmi blok oranı* olarak seçin.
 
 ## 3. Blok modeli ve kestirim
 1. **Blok Modeli > Blok modeli oluştur**: kompozitleri kapsayan düzenli model. Açık ocak
@@ -44,16 +49,25 @@ GUIDE = """
    en iyi/en kötü NPV, pushback'ler (minimum kazı genişliği), kısıtlı üretim çizelgesi,
    pushback-basamak envanteri, Excel raporu. Kazanım, seyrelme ve NSR modu desteklenir.
 2. **Basamak tasarımı**: şev açısı, basamak yüksekliği ve berm ile tasarım yüzeyi,
-   tasarım içindeki bloklar ve değer karşılaştırması; DXF.
-3. **Ocağı DXF olarak dışa aktar**: basamak üst/alt çizgileri, ocak katısı, kazı sonrası yüzey.
+   tasarım içindeki bloklar ve değer karşılaştırması; isteğe bağlı spiral rampa
+   (genişlik, eğim, çıkış yönü); geoteknik sektörler (ör. `0:70:6; 180:55:8`:
+   kuzey şevinden başlayarak azimut:basamak açısı:berm); DXF.
+3. **Cut-off optimizasyonu (Lane)**: maden, tesis ve pazar kapasitesine göre yıllara
+   göre en uygun sınır tenör ve NPV.
+4. **Ocağı DXF olarak dışa aktar**: basamak üst/alt çizgileri, ocak katısı, kazı sonrası yüzey.
+5. **Dönem sonu yüzeyleri**: çizelgedeki her yılın sonundaki kazı yüzeyi ve DXF çizgileri.
 
 ## 5. Yeraltı
 - **Yeraltı > Pano zarfı**: sabit boyutlu pano ile yüzen pano zarfı ve çakışmasız pano
   seçimi; DXF.
+- **Yeraltı > Dekline ve kat galerileri**: ağızdan spiral dekline (eğim, dönüş yarıçapı,
+  cevherden uzaklık) ve her kata yatay galeri; metraj, hacim, tonaj; DXF.
 
 ## 6. Görünüm
 - **3B Görünüm** sekmesinde renklendirme, blok sınır tenörü ve **kesit** (K-G, D-B, plan)
   kalınlığı ile ◀ ▶ adımları.
+- **Kesiti yazdır (PDF/PNG)**: seçili kesit A3 olarak; blok kesiti, sondajlar,
+  yüzeyler ve katılar.
 
 ## Komut satırı
 Her işlem `minecore` komutuyla da çalışır, örn.

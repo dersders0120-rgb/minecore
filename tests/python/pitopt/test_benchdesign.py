@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from minecore.blockmodel import Grid
-from minecore.pitopt.benchdesign import BenchGeometry, Ramp, design_pit
+from minecore.pitopt.benchdesign import BenchGeometry, Ramp, Sector, design_pit
 from minecore.pitopt.economics import PitOptError
 
 
@@ -103,3 +103,42 @@ def test_ramp_validation() -> None:
         Ramp(width=0.0, gradient=0.1)
     with pytest.raises(PitOptError):
         Ramp(width=20.0, gradient=0.5)
+
+
+def test_geotechnical_sectors_set_the_slope_by_wall_position() -> None:
+    grid = Grid((0.0, 0.0, 0.0), (10.0, 10.0, 10.0), (21, 21, 5))
+    mined = np.zeros((5, 21, 21), bool)
+    mined[2:, 10, 10] = True  # floor at z = 20 in the column x, y = 100..110
+    base = BenchGeometry(45.0, 10.0, 0.0)
+    steep, flat = BenchGeometry(70.0, 10.0, 0.0), BenchGeometry(30.0, 10.0, 0.0)
+    # East half (0..180 deg) steep, west half flat. Berm 0: rise = d * tan(face).
+    sectors = (Sector(180.0, flat), Sector(0.0, steep))
+    pit = design_pit(grid, mined.ravel(), base, resolution=1.0, margin=60.0, sectors=sectors)
+    j = int(np.argmin(np.abs(pit.y - 105.0)))
+    for d in (5.0, 15.0):
+        east = int(np.argmin(np.abs(pit.x - (110.0 + d))))
+        west = int(np.argmin(np.abs(pit.x - (100.0 - d))))
+        de, dw = pit.x[east] - 110.0, 100.0 - pit.x[west]
+        z_east = min(20.0 + de * math.tan(math.radians(70)), 50.0)
+        z_west = min(20.0 + dw * math.tan(math.radians(30)), 50.0)
+        assert pit.z[j, east] == pytest.approx(z_east, abs=1.5)
+        assert pit.z[j, west] == pytest.approx(z_west, abs=1.0)
+    # The flat west wall daylights much further out than the steep east wall.
+    out = pit.z[j] >= 50.0 - 1e-6
+    west_crest = 100.0 - pit.x[~out & (pit.x < 100)].min()
+    east_crest = pit.x[~out & (pit.x > 110)].max() - 110.0
+    assert west_crest == pytest.approx(30.0 / math.tan(math.radians(30)), abs=1.5)
+    assert east_crest == pytest.approx(30.0 / math.tan(math.radians(70)), abs=1.5)
+    with pytest.raises(PitOptError):
+        design_pit(grid, mined.ravel(), base, sectors=(Sector(0.0, BenchGeometry(60, 15, 0)),))
+    with pytest.raises(PitOptError):
+        design_pit(grid, mined.ravel(), base, sectors=(Sector(0.0, steep), Sector(360.0, flat)))
+
+
+def test_sectors_with_a_ramp() -> None:
+    grid, mined = _cone_pit()
+    g = BenchGeometry(65.0, 10.0, 6.0)
+    sectors = (Sector(90.0, BenchGeometry(50.0, 10.0, 8.0)), Sector(270.0, g))
+    pit = design_pit(grid, mined, g, ramp=Ramp(15.0, 0.10), sectors=sectors)
+    assert pit.ramp is not None
+    assert pit.inside(grid.centroids()[mined]).all()

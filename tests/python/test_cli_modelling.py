@@ -117,6 +117,9 @@ def test_csv_to_pit_schedule(tmp_path: Path) -> None:  # noqa: PLR0915 - one end
     assert len(result["shells"]) == 4
     assert "npv" in result
     assert all(p["ore_fed_t"] <= 300000 * (1 + 1e-9) for p in result["schedule"])
+    periods = _run("pit", "periods", p, "BM", "--dxf", str(tmp_path / "y.dxf"))
+    assert "donem_1:" in periods
+    assert "Y1_CREST" in (tmp_path / "y.dxf").read_text()
     dxf = tmp_path / "pit.dxf"
     text = _run("pit", "export", p, "BM", str(dxf), "--phases", "--save-surface", "pit")
     assert "outlines" in text
@@ -144,8 +147,10 @@ def test_csv_to_pit_schedule(tmp_path: Path) -> None:  # noqa: PLR0915 - one end
     ramp = _run(
         "pit", "design", p, "BM", "--face", "65", "--height", "10", "--berm", "5",
         "--ramp-width", "15", "--ramp-gradient", "0.1",
+        "--sector", "0:70:5", "--sector", "180:55:8",
     )  # fmt: skip
     assert "ramp " in ramp
+    assert "sector from 180 deg: face 55" in ramp
     assert "DESIGN_TOE" in (tmp_path / "d.dxf").read_text()
     pdf = tmp_path / "kesit.pdf"
     text = _run(
@@ -185,4 +190,11 @@ def test_csv_to_pit_schedule(tmp_path: Path) -> None:  # noqa: PLR0915 - one end
         str(tmp_path / "ug.dxf"),
     )
     assert "stopes" in ug
+    dec = _run(
+        "decline", p, "BM", "--portal", str(_centre_x(p) + 400), "4400000", "1200",
+        "--dxf", str(tmp_path / "dec.dxf"),
+    )  # fmt: skip
+    assert "crosscut" in dec
+    assert "decline" in dec
+    assert "DECLINE" in (tmp_path / "dec.dxf").read_text()
     assert "blocks of" in _run("bm", "reblock", p, "BM", "BM2", "--factors", "2", "2", "1")

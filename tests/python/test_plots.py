@@ -58,3 +58,15 @@ def test_section_figure(tmp_path: Path, axis: int, suffix: str) -> None:
     with pytest.raises(PlotError):
         section_plot(project, SectionSpec(axis, 1e6, 10.0, model="BM"), out)
     project.close()
+
+
+def test_plan_of_a_tall_model(tmp_path: Path) -> None:
+    # Regression: the plane index along z can exceed the x and y counts.
+    project = Project.create(tmp_path / "t.mcproj", "t")
+    grid = Grid((0.0, 0.0, 0.0), (10.0, 10.0, 10.0), (2, 2, 10))
+    model = BlockModel.create(project, "BM", grid)
+    model.set_attributes({"au": np.ones(grid.blocks)}, {}, "au")
+    r = section_plot(project, SectionSpec(2, 85.0, 10.0, model="BM", attribute="au"),
+                     tmp_path / "p.png")  # fmt: skip
+    assert r.blocks == 4
+    project.close()

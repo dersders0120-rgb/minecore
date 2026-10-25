@@ -173,6 +173,51 @@ def export_pit(  # noqa: PLR0913 - options are keyword-only
     return PitExport(last, int(mined.sum()), solid.volume(), len(lines), mined_out)
 
 
+@dataclass(frozen=True)
+class PeriodSurface:
+    period: int
+    blocks: int  # blocks mined in this period
+    cumulative_blocks: int
+    name: str  # stored surface
+
+
+def period_surfaces(
+    project: Project,
+    model: BlockModel,
+    *,
+    topography: str | None = None,
+    prefix: str = "donem",
+    dxf: Path | None = None,
+) -> list[PeriodSurface]:
+    """End-of-period mined-out surfaces from the stored schedule (``pit_period``).
+
+    Surface ``<prefix>_<p>`` is the topography (or top of rock) lowered to the
+    floor of every block mined up to and including period ``p``. With ``dxf``
+    the cumulative pit outlines of each period are written on layers
+    ``Y<p>_CREST``/``Y<p>_TOE``.
+    """
+    if "pit_period" not in model.attributes:
+        raise PitOptError(f"{model.name} has no pit_period; run the pit schedule first")
+    period = np.nan_to_num(model.values("pit_period"), nan=0.0).astype(np.int64)
+    last = int(period.max())
+    if last < 1:
+        raise PitOptError("the schedule mines no blocks")
+    grid = model.grid
+    topo = surfaces.load_surface(project, topography) if topography else None
+    rock = model.values("kaya") > 0.5 if "kaya" in model.attributes else None
+    out, lines = [], []
+    for p in range(1, last + 1):
+        mined = (period > 0) & (period <= p)
+        name = f"{prefix}_{p}"
+        surfaces.save_surface(project, name, pit_surface(grid, mined, topo, rock))
+        if dxf is not None:
+            lines += bench_outlines(grid, mined, f"Y{p}")
+        out.append(PeriodSurface(p, int((period == p).sum()), int(mined.sum()), name))
+    if dxf is not None:
+        write_dxf(dxf, lines)
+    return out
+
+
 def edge_blocks(grid: Grid, mined: Mask) -> int:
     """Mined blocks on the lateral faces of the model.
 

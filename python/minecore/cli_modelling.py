@@ -44,9 +44,9 @@ from minecore.drillholes.workflow import composite_table, hole_geometry, save_co
 from minecore.estimation import Ellipsoid, Method, Search, experimental, fit_spherical
 from minecore.geology.implicit import interval_contacts, model_domain
 from minecore.pitopt import Economics, PriceUnit, SlopeProfile, optimise_pit, pushbacks, schedule
-from minecore.pitopt.benchdesign import BenchGeometry, Ramp, design_from_model
+from minecore.pitopt.benchdesign import BenchGeometry, Ramp, design_from_model, parse_sectors
 from minecore.pitopt.cutoff import cutoffs_from_model
-from minecore.pitopt.design import edge_blocks, export_pit
+from minecore.pitopt.design import edge_blocks, export_pit, period_surfaces
 from minecore.pitopt.economics import PitOptError
 from minecore.pitopt.optimise import Schedule, store
 from minecore.pitopt.scheduling import ConstrainedSchedule, Limits, schedule_constrained
@@ -54,6 +54,7 @@ from minecore.pitopt.width import apply_mining_width
 from minecore.plots import SectionSpec, section_plot
 from minecore.project import Project
 from minecore.solids import flag_blocks, load_solid, read_solid, save_solid
+from minecore.underground.development import DeclineDesign, development_from_model
 from minecore.underground.stopes import stopes_from_model
 
 METHODS = {"nn": Method.NEAREST, "idw": Method.INVERSE_DISTANCE, "ok": Method.ORDINARY_KRIGING}
@@ -226,6 +227,22 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     ug.add_argument("--rock")
     ug.add_argument("--dxf")
 
+    dec = commands.add_parser("decline", help="underground decline and level crosscuts")
+    dec.add_argument("project")
+    dec.add_argument("model")
+    dec.add_argument("--portal", type=float, nargs=3, required=True, metavar=("X", "Y", "Z"))
+    dec.add_argument("--ore", default="ug_pano", help="ore flag attribute (default ug_pano)")
+    dec.add_argument("--levels", type=float, nargs="+", help="level elevations")
+    dec.add_argument("--level-interval", type=float, default=25.0)
+    dec.add_argument("--gradient", type=float, default=1 / 7)
+    dec.add_argument("--radius", type=float, default=25.0)
+    dec.add_argument("--standoff", type=float, default=40.0)
+    dec.add_argument("--drive", type=float, nargs=2, default=[5.0, 5.5], metavar=("W", "H"))
+    dec.add_argument("--density", type=float, default=2.7)
+    dec.add_argument("--anticlockwise", action="store_true")
+    dec.add_argument("--dxf")
+    dec.add_argument("--save", default="dekline", help="store centrelines as a string set")
+
     pit = commands.add_parser("pit", help="open-pit optimisation")
     pit_cmds = pit.add_subparsers(dest="pit_command", metavar="ACTION", required=True)
     opt = pit_cmds.add_parser("optimise", help="nested shells, pushbacks, schedule")
@@ -269,6 +286,19 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     des.add_argument("--ramp-gradient", type=float, default=0.10, help="e.g. 0.10 for 10 %%")
     des.add_argument("--ramp-exit", type=float, default=0.0, help="exit azimuth, degrees")
     des.add_argument("--ramp-ccw", action="store_true", help="spiral counter-clockwise going down")
+    des.add_argument(
+        "--sector",
+        action="append",
+        default=[],
+        metavar="AZ:FACE:BERM",
+        help="geotechnical sector from azimuth AZ (0 = north wall); repeat for each sector",
+    )
+    per = pit_cmds.add_parser("periods", help="end-of-period surfaces from the schedule")
+    per.add_argument("project")
+    per.add_argument("model")
+    per.add_argument("--topography")
+    per.add_argument("--prefix", default="donem")
+    per.add_argument("--dxf")
     exp = pit_cmds.add_parser("export", help="pit outlines, surface and solid to DXF")
     exp.add_argument("project")
     exp.add_argument("model")
@@ -395,6 +425,37 @@ def plot_command(args: argparse.Namespace, out: TextIO) -> int:
         out.write(
             f"{args.out}: {r.blocks} blocks, {r.holes} holes, {r.samples} samples, "
             f"surfaces {r.surface_lines}, solids {r.solid_segments}\n"
+        )
+    return 0
+
+
+def decline_command(args: argparse.Namespace, out: TextIO) -> int:
+    with Project.open(args.project) as project:
+        design = DeclineDesign(
+            args.gradient,
+            args.radius,
+            args.standoff,
+            args.drive[0],
+            args.drive[1],
+            args.density,
+            not args.anticlockwise,
+        )
+        dev = development_from_model(
+            BlockModel.open(project, args.model),
+            (args.portal[0], args.portal[1], args.portal[2]),
+            design,
+            ore_attribute=args.ore,
+            level_interval=args.level_interval,
+            levels=args.levels,
+            dxf=Path(args.dxf) if args.dxf else None,
+            project=project,
+            save_as=args.save,
+        )
+        for a in dev.accesses:
+            out.write(f"level {a.elevation:.1f}: crosscut {a.length:,.0f} m\n")
+        out.write(
+            f"decline {dev.decline_length:,.0f} m, crosscuts {dev.crosscut_length:,.0f} m, "
+            f"total {dev.total_length:,.0f} m, {dev.volume:,.0f} m3, {dev.tonnes:,.0f} t\n"
         )
     return 0
 
@@ -637,7 +698,13 @@ def pit_design(project: Project, args: argparse.Namespace, out: TextIO) -> int:
         ramp=Ramp(args.ramp_width, args.ramp_gradient, args.ramp_exit, not args.ramp_ccw)
         if args.ramp_width
         else None,
+        sectors=parse_sectors(";".join(args.sector), args.height),
     )
+    for s in r.pit.sectors:
+        out.write(
+            f"sector from {s.azimuth % 360.0:.0f} deg: face {s.geometry.face_angle:g}, "
+            f"berm {s.geometry.berm:g}, overall {s.geometry.overall_angle:.1f} deg\n"
+        )
     if r.pit.ramp is not None:
         out.write(
             f"ramp {r.pit.ramp_length:,.0f} m from {r.pit.ramp[0, 2]:.1f} "
@@ -664,6 +731,17 @@ def pit_command(args: argparse.Namespace, out: TextIO) -> int:
             return pit_design(project, args, out)
         if args.pit_command == "cutoff":
             return pit_cutoff(project, args, out)
+        if args.pit_command == "periods":
+            ends = period_surfaces(
+                project,
+                BlockModel.open(project, args.model),
+                topography=args.topography,
+                prefix=args.prefix,
+                dxf=Path(args.dxf) if args.dxf else None,
+            )
+            for e in ends:
+                out.write(f"{e.name}: {e.blocks} blocks (cumulative {e.cumulative_blocks})\n")
+            return 0
         model = BlockModel.open(project, args.model)
         if not args.nsr and None in (args.price, args.price_unit, args.recovery):
             raise PitOptError("--price, --price-unit and --recovery are required without --nsr")
@@ -791,4 +869,5 @@ HANDLERS = {
     "solid": solid_command,
     "geo": geo_command,
     "plot": plot_command,
+    "decline": decline_command,
 }

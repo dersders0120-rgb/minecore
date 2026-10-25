@@ -121,7 +121,12 @@ def section_plot(  # noqa: PLR0912, PLR0915 - one figure, one pass per layer
         if spec.attribute:
             nx, ny, nz = g.count
             cube = model.values(spec.attribute).reshape(nz, ny, nx)
-            plane = {0: cube[:, :, idx], 1: cube[:, idx, :], 2: cube[idx, :, :]}[spec.axis]
+            if spec.axis == 0:
+                plane = cube[:, :, idx]
+            elif spec.axis == 1:
+                plane = cube[:, idx, :]
+            else:
+                plane = cube[idx, :, :]
             he = g.origin[h_ax] + g.size[h_ax] * np.arange(g.count[h_ax] + 1)
             ve = g.origin[v_ax] + g.size[v_ax] * np.arange(g.count[v_ax] + 1)
             masked = np.ma.masked_invalid(plane)
