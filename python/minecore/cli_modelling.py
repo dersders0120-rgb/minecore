@@ -31,6 +31,7 @@ from minecore.blockmodel.calc import calculate
 from minecore.blockmodel.classify import Criteria, classify
 from minecore.blockmodel.importer import import_block_csv, parse_units
 from minecore.blockmodel.reblock import reblock
+from minecore.blockmodel.validation import swath
 from minecore.blockmodel.workflow import (
     estimate_blocks,
     interval_samples,
@@ -143,6 +144,14 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     est.add_argument("--power", type=float, default=2.0)
     est.add_argument("--rock-only", action="store_true", help="only blocks with kaya=1")
     est.add_argument("--top-cut", type=float, help="cap sample values before estimation")
+    sw = bm_cmds.add_parser("swath", help="swath plot: block estimate vs samples per slice")
+    sw.add_argument("project")
+    sw.add_argument("model")
+    sw.add_argument("attribute")
+    sw.add_argument("source", help="table/field")
+    sw.add_argument("--axis", choices=["x", "y", "z"], default="x")
+    sw.add_argument("--width", type=float, required=True, help="slice width, m")
+    sw.add_argument("--json", action="store_true")
     rep = bm_cmds.add_parser("report", help="grade-tonnage table")
     rep.add_argument("project")
     rep.add_argument("model")
@@ -378,7 +387,25 @@ def surface_command(args: argparse.Namespace, out: TextIO) -> int:
     return 0
 
 
+def _bm_swath(project: Project, model: BlockModel, args: argparse.Namespace, out: TextIO) -> int:
+    samples = interval_samples(_db(project), *_source(args.source))
+    rows = swath(samples, model, args.attribute, "xyz".index(args.axis), args.width)
+    if args.json:
+        json.dump([r.__dict__ for r in rows], out, indent=2)
+        out.write("\n")
+        return 0
+    out.write(f"{'centre':>10} {'samples':>8} {'mean':>10} {'blocks':>8} {'estimate':>10}\n")
+    for r in rows:
+        out.write(
+            f"{r.centre:10.1f} {r.samples:8d} {r.sample_mean:10.4g} "
+            f"{r.blocks:8d} {r.block_mean:10.4g}\n"
+        )
+    return 0
+
+
 def _bm_derive(project: Project, model: BlockModel, args: argparse.Namespace, out: TextIO) -> int:
+    if args.bm_command == "swath":
+        return _bm_swath(project, model, args, out)
     if args.bm_command == "reblock":
         new = reblock(
             project, model, args.name, tuple(args.factors), density=_density(args.density)
@@ -463,7 +490,7 @@ def bm_command(args: argparse.Namespace, out: TextIO) -> int:
             )
             out.write(f"{args.attribute}: estimated; {missed} blocks without enough samples\n")
             return 0
-        if args.bm_command in ("calc", "classify", "reblock"):
+        if args.bm_command in ("calc", "classify", "reblock", "swath"):
             return _bm_derive(project, model, args, out)
         density: float | str = _density(args.density)
         mask = None

@@ -66,6 +66,9 @@ def test_csv_to_pit_schedule(tmp_path: Path) -> None:
         )
     )
     report = json.loads(_run("bm", "report", p, "BM", "au_ok", "--cutoffs", "0", "0.3", "--json"))
+    sw = _run("bm", "swath", p, "BM", "au_ok", "assay_komp_2m/AU_PPM", "--width", "50")
+    assert "estimate" in sw.splitlines()[0]
+    assert len(sw.splitlines()) > 2
     assert report[0]["tonnes"] >= report[1]["tonnes"] > 0
     assert 0 < sub[0]["tonnes"] <= report[0]["tonnes"]
     result = json.loads(
