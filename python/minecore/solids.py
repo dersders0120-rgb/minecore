@@ -225,11 +225,12 @@ def block_fractions(grid: Grid, solid: Solid, subdivisions: int = 4) -> Floats:
     if subdivisions < 1:
         raise SolidError("subdivisions must be >= 1")
     nx, ny, nz = grid.count
-    origin, size = np.asarray(grid.origin), np.asarray(grid.size)
+    # Work in the model frame so rotated grids are handled like regular ones.
+    origin, size = np.zeros(3), np.asarray(grid.size)
     frac = solid.inside(grid.centroids()).astype(np.float64)
     if subdivisions == 1:
         return frac
-    tri = solid.vertices[solid.triangles]
+    tri = grid.to_local(solid.vertices)[solid.triangles]
     lo = np.floor((tri.min(axis=1) - origin) / size).astype(np.int64)
     hi = np.floor((tri.max(axis=1) - origin) / size).astype(np.int64)
     top = np.array([nx - 1, ny - 1, nz - 1])
@@ -247,10 +248,10 @@ def block_fractions(grid: Grid, solid: Solid, subdivisions: int = 4) -> Floats:
     offsets = (
         np.stack(np.meshgrid(*[np.arange(n)] * 3, indexing="ij"), -1).reshape(-1, 3) + 0.5
     ) / n
-    centres = grid.centroids()[flat] - 0.5 * size
+    centres = grid.local_centroids()[flat] - 0.5 * size
     for start in range(0, flat.size, max(1, 2_000_000 // len(offsets))):
         part = slice(start, start + max(1, 2_000_000 // len(offsets)))
-        pts = (centres[part, None, :] + offsets[None, :, :] * size).reshape(-1, 3)
+        pts = grid.to_world((centres[part, None, :] + offsets[None, :, :] * size).reshape(-1, 3))
         frac[flat[part]] = solid.inside(pts).reshape(-1, len(offsets)).mean(axis=1)
     return frac
 
@@ -293,11 +294,12 @@ def iso_solid(grid: Grid, values: Floats, level: float) -> Solid:
     low = level - 1.0
     padded = np.full((nz + 2, ny + 2, nx + 2), low)
     padded[1:-1, 1:-1, 1:-1] = np.where(np.isfinite(vals), vals, low)
-    first = np.asarray(grid.origin) + 0.5 * np.asarray(grid.size) - np.asarray(grid.size)
+    # Contour in the model frame, then place the surface in the world (rotated grids).
+    first = 0.5 * np.asarray(grid.size) - np.asarray(grid.size)
     image = pv.ImageData(dimensions=(nx + 2, ny + 2, nz + 2), spacing=grid.size, origin=first)
     image.point_data["v"] = padded.ravel()  # x fastest, then y, then z
     surface = image.contour([level], scalars="v").triangulate().clean()
     if surface.n_cells == 0:
         raise SolidError(f"no blocks reach {level:g}")
     faces = np.asarray(surface.faces).reshape(-1, 4)[:, 1:]
-    return Solid(np.asarray(surface.points, np.float64), faces.astype(np.int64))
+    return Solid(grid.to_world(np.asarray(surface.points, np.float64)), faces.astype(np.int64))

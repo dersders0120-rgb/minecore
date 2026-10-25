@@ -84,16 +84,17 @@ def bench_outlines(grid: Grid, mined: Mask, name: str = "PIT") -> list[Polyline]
     """Crest and toe loops of every bench that has mined blocks."""
     nx, ny, nz = grid.count
     cube = np.asarray(mined, bool).reshape(nz, ny, nx)
-    (ox, oy, oz), (dx, dy, dz) = grid.origin, grid.size
+    dx, dy, dz = grid.size
     lines: list[Polyline] = []
     for k in range(nz - 1, -1, -1):
         if not cube[k].any():
             continue
-        crest, toe = oz + (k + 1) * dz, oz + k * dz
+        crest, toe = (k + 1) * dz, k * dz
         for loop in _loops(cube[k]):
-            xy = np.array([(ox + i * dx, oy + j * dy) for i, j in loop], np.float64)
+            ij = np.array([(i * dx, j * dy) for i, j in loop], np.float64)
             for layer, z in ((f"{name}_CREST", crest), (f"{name}_TOE", toe)):
-                lines.append(Polyline(layer, np.column_stack([xy, np.full(len(xy), z)])))
+                local = np.column_stack([ij, np.full(len(ij), z)])
+                lines.append(Polyline(layer, grid.to_world(local)))
     return lines
 
 

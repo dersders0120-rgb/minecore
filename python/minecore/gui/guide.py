@@ -34,8 +34,12 @@ GUIDE = """
 
 ## 3. Blok modeli ve kestirim
 1. **Blok Modeli > Blok modeli oluştur**: kompozitleri kapsayan düzenli model. Açık ocak
-   için kenar payını geniş tutun (ocak modelin kenarına değmesin).
-   Başka yazılımdan gelen model için **Blok modeli içe aktar (CSV)**.
+   için kenar payını geniş tutun (ocak modelin kenarına değmesin). Cevher kuzey-güney
+   ya da doğu-batı uzanmıyorsa **Döndürme açısı** ile modeli cevher doğrultusuna hizalayın
+   (satır ekseninin kuzeyden saat yönünde açısı; örn. K35D doğrultu için 35). Döndürülmüş
+   model kestirim, rapor, ocak optimizasyonu, tasarım, yeraltı ve kesitlerde aynen çalışır.
+   Başka yazılımdan gelen model için **Blok modeli içe aktar (CSV)**; döndürülmüş bir
+   modelse içe aktarırken açısını girin.
 2. **Yüzey > Topoğrafya**: noktalardan veya kuyu ağızlarından yüzey; **kaya/hava** ile
    bloklar işaretlenir.
 3. **Blok Modeli > Tenör kestirimi**: NN, IDW veya sıradan kriging; isteğe bağlı domen

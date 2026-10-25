@@ -6,9 +6,13 @@ one row per block, ordered with ``i`` fastest, then ``j``, then ``k``
 (``index = i + nx * (j + ny * k)``). Changing attributes writes a new file in
 one undoable operation, as for drillhole tables (ADR-0008 §4).
 
-Grid: ``origin`` is the minimum corner (x, y, z); block ``(i, j, k)`` has its
-centroid at ``origin + (i + 0.5, j + 0.5, k + 0.5) * size``. Rotated and
-sub-celled models come with M4.
+Grid (ADR-0009): ``origin`` is the model's minimum corner in world coordinates
+and the pivot of its rotation. ``azimuth`` is the bearing of the model's +j
+(row) axis, in degrees clockwise from grid north, about the vertical through
+the origin; 0 is an unrotated model. Block ``(i, j, k)`` has its local
+centroid ``(i + 0.5, j + 0.5, k + 0.5) * size`` and its world centroid
+``origin + R @ local``. Only rotation about the vertical is supported, so
+columns stay vertical and benches stay horizontal.
 """
 
 from __future__ import annotations
@@ -27,6 +31,7 @@ from minecore.project import Project, bulk
 
 KIND = "block_model"
 FORMAT = 1
+FORMAT_ROTATED = 2  # written only for rotated grids, so old readers cannot misplace blocks
 Floats = npt.NDArray[np.float64]
 
 
@@ -39,10 +44,13 @@ class Grid:
     origin: tuple[float, float, float]
     size: tuple[float, float, float]
     count: tuple[int, int, int]
+    azimuth: float = 0.0
 
     def __post_init__(self) -> None:
-        if not all(math.isfinite(v) for v in (*self.origin, *self.size)):
-            raise BlockModelError("grid origin and size must be finite")
+        if not all(math.isfinite(v) for v in (*self.origin, *self.size, self.azimuth)):
+            raise BlockModelError("grid origin, size and azimuth must be finite")
+        if not -360.0 < self.azimuth < 360.0:
+            raise BlockModelError("azimuth must be between -360 and 360 degrees")
         if not all(s > 0 for s in self.size):
             raise BlockModelError("block size must be > 0")
         if not all(int(c) == c and c > 0 for c in self.count):
@@ -58,39 +66,120 @@ class Grid:
     def block_volume(self) -> float:
         return self.size[0] * self.size[1] * self.size[2]
 
+    @property
+    def rotated(self) -> bool:
+        return self.azimuth % 360.0 != 0.0
+
+    @property
+    def axes(self) -> Floats:
+        """3 x 3 matrix whose columns are the world directions of the i, j and k axes."""
+        a = math.radians(self.azimuth)
+        c, s = math.cos(a), math.sin(a)
+        return np.array([[c, s, 0.0], [-s, c, 0.0], [0.0, 0.0, 1.0]])
+
+    @property
+    def extent(self) -> Floats:
+        """Model size along its own axes: ``count * size``."""
+        return np.asarray(self.count, np.float64) * np.asarray(self.size, np.float64)
+
+    def to_local(self, points: Floats) -> Floats:
+        """World points (n x 3) to model coordinates measured from the origin along i, j, k."""
+        pts = np.asarray(points, np.float64)
+        result: Floats = (pts - np.asarray(self.origin)) @ self.axes
+        return result
+
+    def to_world(self, local: Floats) -> Floats:
+        """Model coordinates (n x 3, from the origin along i, j, k) to world points."""
+        loc = np.asarray(local, np.float64)
+        result: Floats = loc @ self.axes.T + np.asarray(self.origin)
+        return result
+
+    def cell_index(self, points: Floats) -> npt.NDArray[np.int64]:
+        """Integer (i, j, k) of the cell holding each world point; may lie outside the grid."""
+        local = self.to_local(points) / np.asarray(self.size)
+        result: npt.NDArray[np.int64] = np.floor(local + 1e-9).astype(np.int64)
+        return result
+
+    def corners(self) -> Floats:
+        """The 8 world corners of the model (i fastest, then j, then k)."""
+        e = self.extent
+        local = np.array(
+            [[e[0] * (b & 1), e[1] * ((b >> 1) & 1), e[2] * ((b >> 2) & 1)] for b in range(8)],
+            np.float64,
+        )
+        return self.to_world(local)
+
+    def bounds(self) -> tuple[Floats, Floats]:
+        """World axis-aligned bounding box (min, max) of the model."""
+        c = self.corners()
+        return c.min(axis=0), c.max(axis=0)
+
+    def local(self) -> Grid:
+        """The same grid unrotated, with its origin at (0, 0, 0): the model frame."""
+        return Grid((0.0, 0.0, 0.0), self.size, self.count)
+
     @classmethod
     def covering(
-        cls, points: Floats, size: tuple[float, float, float], padding: float = 0.0
+        cls,
+        points: Floats,
+        size: tuple[float, float, float],
+        padding: float = 0.0,
+        azimuth: float = 0.0,
     ) -> Grid:
-        """Smallest grid aligned to whole multiples of ``size`` covering ``points`` (+ padding)."""
+        """Smallest grid aligned to whole multiples of ``size`` covering ``points`` (+ padding).
+
+        For a rotated grid the alignment holds along the model axes, measured
+        from the world origin rotated by ``azimuth``.
+        """
         pts = np.asarray(points, np.float64)
         pts = pts[np.isfinite(pts).all(axis=1)]
         if len(pts) == 0:
             raise BlockModelError("no points to cover")
+        frame = cls((0.0, 0.0, 0.0), (1.0, 1.0, 1.0), (1, 1, 1), azimuth)
+        loc = frame.to_local(pts)
         s = np.asarray(size, np.float64)
-        lo = np.floor((pts.min(axis=0) - padding) / s) * s
-        hi = np.ceil((pts.max(axis=0) + padding) / s) * s
+        lo = np.floor((loc.min(axis=0) - padding) / s) * s
+        hi = np.ceil((loc.max(axis=0) + padding) / s) * s
         count = np.maximum(np.round((hi - lo) / s).astype(int), 1)
+        o = frame.to_world(lo[None, :])[0]
         return cls(
-            (float(lo[0]), float(lo[1]), float(lo[2])),
+            (float(o[0]), float(o[1]), float(o[2])),
             (float(s[0]), float(s[1]), float(s[2])),
             (int(count[0]), int(count[1]), int(count[2])),
+            float(azimuth),
         )
 
-    def centroids(self) -> Floats:
+    def local_centroids(self) -> Floats:
+        """Block centroids in the model frame (from the origin along i, j, k)."""
         nx, ny, nz = self.count
         k, j, i = np.meshgrid(np.arange(nz), np.arange(ny), np.arange(nx), indexing="ij")
         ijk = np.column_stack([i.ravel(), j.ravel(), k.ravel()]).astype(np.float64)
-        result: Floats = np.asarray(self.origin) + (ijk + 0.5) * np.asarray(self.size)
+        result: Floats = (ijk + 0.5) * np.asarray(self.size)
         return result
 
+    def centroids(self) -> Floats:
+        """World block centroids, one row per block (i fastest, then j, then k)."""
+        return self.to_world(self.local_centroids())
+
     def to_json(self) -> dict[str, Any]:
-        return {"origin": list(self.origin), "size": list(self.size), "count": list(self.count)}
+        out: dict[str, Any] = {
+            "origin": list(self.origin),
+            "size": list(self.size),
+            "count": list(self.count),
+        }
+        if self.rotated:
+            out["azimuth"] = self.azimuth
+        return out
 
     @classmethod
     def from_json(cls, data: dict[str, Any]) -> Grid:
         o, s, c = data["origin"], data["size"], data["count"]
-        return cls((o[0], o[1], o[2]), (s[0], s[1], s[2]), (int(c[0]), int(c[1]), int(c[2])))
+        return cls(
+            (o[0], o[1], o[2]),
+            (s[0], s[1], s[2]),
+            (int(c[0]), int(c[1]), int(c[2])),
+            float(data.get("azimuth", 0.0)),
+        )
 
 
 @dataclass(frozen=True)
@@ -117,15 +206,21 @@ class BlockModel:
     def __init__(self, project: Project, object_id: str) -> None:
         self._project = project
         self._id = object_id
-        if project.get_object(object_id).kind != KIND:
+        record = project.get_object(object_id)
+        if record.kind != KIND:
             raise BlockModelError(f"object {object_id} is not a block model")
+        if int(record.metadata.get("format", FORMAT)) > FORMAT_ROTATED:
+            raise BlockModelError(
+                f"block model {record.name!r} was written by a newer MineCore; update MineCore"
+            )
 
     @classmethod
     def create(cls, project: Project, name: str, grid: Grid) -> BlockModel:
         table = pa.table({"_block": pa.array(np.arange(grid.blocks, dtype=np.int64))})
-        record = project.register_object(KIND, name, metadata={"format": FORMAT})
+        fmt = FORMAT_ROTATED if grid.rotated else FORMAT
+        record = project.register_object(KIND, name, metadata={"format": fmt})
         ref = bulk.write_table(project.path, record.object_id, "blocks", table)
-        meta = {"format": FORMAT, "grid": grid.to_json(), "attributes": {}, **ref.to_json()}
+        meta = {"format": fmt, "grid": grid.to_json(), "attributes": {}, **ref.to_json()}
         project.update_object(
             record.object_id, metadata=meta, description=f"Define grid of {name!r}"
         )

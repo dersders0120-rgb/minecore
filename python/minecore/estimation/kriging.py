@@ -77,6 +77,7 @@ def estimate(  # noqa: PLR0913 - options are keyword-only
     power: float = 2.0,
     block_size: tuple[float, float, float] | None = None,
     discretisation: tuple[int, int, int] = (1, 1, 1),
+    block_axes: Floats | None = None,
     hole_ids: npt.NDArray[np.int64] | None = None,
     exclude_hole: npt.NDArray[np.int64] | None = None,
     progress: Progress | None = None,
@@ -85,6 +86,8 @@ def estimate(  # noqa: PLR0913 - options are keyword-only
 
     ``exclude_hole[t]`` (with ``hole_ids``) drops every sample of that hole
     from target ``t``'s neighbourhood: leave-one-hole-out cross-validation.
+    ``block_axes`` (3 x 3, columns = world directions of the block axes)
+    orients the block discretisation of a rotated block model.
     """
     samples = np.asarray(samples, np.float64)
     values = np.asarray(values, np.float64)
@@ -112,6 +115,8 @@ def estimate(  # noqa: PLR0913 - options are keyword-only
         k = min(len(values), search.max_samples * 4 + 200)
     if block_size is not None and method is Method.ORDINARY_KRIGING:
         offsets = _discretise(block_size, discretisation)
+        if block_axes is not None:
+            offsets = offsets @ np.asarray(block_axes, np.float64).T
     else:
         offsets = np.zeros((1, 3))
     structures = []

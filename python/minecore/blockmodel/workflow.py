@@ -105,6 +105,7 @@ def estimate_blocks(  # noqa: PLR0913 - options are keyword-only
         power=power,
         block_size=grid.size,
         discretisation=discretisation if method is Method.ORDINARY_KRIGING else (1, 1, 1),
+        block_axes=grid.axes if grid.rotated else None,
         hole_ids=samples.hole_index,
         progress=progress,
     )

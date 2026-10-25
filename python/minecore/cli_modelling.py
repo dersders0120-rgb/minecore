@@ -152,11 +152,23 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     create.add_argument("--source", required=True, help="table/field to cover")
     create.add_argument("--size", type=float, nargs=3, required=True, metavar=("DX", "DY", "DZ"))
     create.add_argument("--padding", type=float, default=0.0)
+    create.add_argument(
+        "--azimuth",
+        type=float,
+        default=0.0,
+        help="model rotation: bearing of the +j (row) axis, degrees clockwise from north",
+    )
     bimp = bm_cmds.add_parser("import", help="block model from CSV (centroids, attributes)")
     bimp.add_argument("project")
     bimp.add_argument("name")
     bimp.add_argument("file")
     bimp.add_argument("--units", default="", help="e.g. 'au=g/t; cu=%%'")
+    bimp.add_argument(
+        "--azimuth",
+        type=float,
+        default=0.0,
+        help="model rotation: bearing of the +j (row) axis, degrees clockwise from north",
+    )
     vg = bm_cmds.add_parser("variogram", help="omnidirectional variogram and spherical fit")
     vg.add_argument("project")
     vg.add_argument("source", help="table/field")
@@ -602,13 +614,20 @@ def bm_command(args: argparse.Namespace, out: TextIO) -> int:
     with Project.open(args.project) as project:
         if args.bm_command == "create":
             samples = interval_samples(_db(project), *_source(args.source))
-            grid = Grid.covering(samples.xyz, tuple(args.size), args.padding)
+            grid = Grid.covering(samples.xyz, tuple(args.size), args.padding, args.azimuth)
             BlockModel.create(project, args.name, grid)
-            out.write(f"{args.name}: {grid.count} = {grid.blocks} blocks, origin {grid.origin}\n")
+            turned = f", azimuth {grid.azimuth:g}" if grid.rotated else ""
+            out.write(
+                f"{args.name}: {grid.count} = {grid.blocks} blocks, origin {grid.origin}{turned}\n"
+            )
             return 0
         if args.bm_command == "import":
             imported = import_block_csv(
-                project, Path(args.file), args.name, units=parse_units(args.units)
+                project,
+                Path(args.file),
+                args.name,
+                units=parse_units(args.units),
+                azimuth=args.azimuth,
             )
             out.write(
                 f"{args.name}: {imported.rows} rows -> {imported.model.grid.count}, "

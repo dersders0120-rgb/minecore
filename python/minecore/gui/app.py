@@ -47,7 +47,7 @@ from PySide6.QtWidgets import (
 )
 
 from minecore import __version__, solids, strings, surfaces
-from minecore.blockmodel import BlockModel
+from minecore.blockmodel import BlockModel, Grid
 from minecore.blockmodel.workflow import load_variograms
 from minecore.drillholes import (
     DrillholeDatabase,
@@ -139,6 +139,26 @@ SECTION_AXES = (
     ("Doğu-batı kesiti (Y sabit)", 1),
     ("Plan (Z sabit)", 2),
 )
+
+
+def block_mesh(grid: Grid, origin: Any) -> Any:
+    """VTK cells of a block model (i fastest, then j, then k), shifted by ``origin``.
+
+    A rotated model (ADR-0009) becomes a structured grid with the same cells
+    in the same order, every node turned about the model origin.
+    """
+    import pyvista as pv  # noqa: PLC0415
+
+    if not grid.rotated:
+        return pv.ImageData(
+            dimensions=np.array(grid.count) + 1,
+            spacing=grid.size,
+            origin=np.asarray(grid.origin) - origin,
+        )
+    mesh = pv.ImageData(dimensions=np.array(grid.count) + 1, spacing=grid.size)
+    turned = mesh.cast_to_structured_grid()
+    turned.points = grid.to_world(np.asarray(turned.points)) - np.asarray(origin)
+    return turned
 
 
 def in_slab(points: Any, axis: int, centre: float, width: float) -> Any:
@@ -858,7 +878,22 @@ class MainWindow(QMainWindow):
         )
         if not ok:
             return
-        r = import_block_csv(project, Path(path), name.strip(), units=parse_units(units))
+        azimuth, ok = QInputDialog.getDouble(
+            self,
+            "Döndürme",
+            "Model döndürme açısı (°, satır ekseninin kuzeyden saat yönü açısı;\n"
+            "döndürülmemiş model için 0):",
+            0.0,
+            -359.99,
+            359.99,
+            2,
+        )
+        if not ok:
+            return
+        with self._busy("Blok modeli içe aktarılıyor..."):
+            r = import_block_csv(
+                project, Path(path), name.strip(), units=parse_units(units), azimuth=azimuth
+            )
         self.refresh()
         g = r.model.grid
         lines = [
@@ -1256,8 +1291,8 @@ class MainWindow(QMainWindow):
     def _data_centre(self) -> Any:
         model = self._selected_block_model()
         if model is not None:
-            g = model[0].grid
-            return np.asarray(g.origin) + 0.5 * np.asarray(g.size) * np.asarray(g.count)
+            lo, hi = model[0].grid.bounds()
+            return 0.5 * (lo + hi)
         if self.db is not None and self.report is not None:
             geo = hole_geometry(self.db, self.report)
             if geo:
@@ -1452,14 +1487,8 @@ class MainWindow(QMainWindow):
         return model, (None if attr == "(ızgara)" else attr)
 
     def _draw_blocks(self, model: BlockModel, attr: str | None, origin: Any) -> None:
-        import pyvista as pv  # noqa: PLC0415
-
         grid = model.grid
-        image = pv.ImageData(
-            dimensions=np.array(grid.count) + 1,
-            spacing=grid.size,
-            origin=np.asarray(grid.origin) - origin,
-        )
+        image = block_mesh(grid, origin)
         if attr is None:
             self.view.add_mesh(image.outline(), color="#ffca28", line_width=2)
             return
@@ -1475,7 +1504,7 @@ class MainWindow(QMainWindow):
         if not keep.any():
             self.statusBar().showMessage(f"{attr}: sınır tenör üstünde blok yok.")
             return
-        shown = image.extract_cells(keep)  # type: ignore[arg-type]
+        shown = image.extract_cells(keep)
         if sec is not None:
             # Flat section through the block centres so drillholes are not hidden.
             normal = np.zeros(3)

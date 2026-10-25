@@ -130,12 +130,22 @@ def stope_envelope(  # noqa: PLR0913 - one pass over the windows
 
 
 def stope_boxes(grid: Grid, result: StopeResult) -> Floats:
-    """Corner coordinates of every accepted stope: ``m x 2 x 3`` (min, max)."""
-    o = np.asarray(grid.origin)
+    """Min and max corner of every accepted stope in the model frame: ``m x 2 x 3``.
+
+    Model frame: metres from the grid origin along the block axes i, j, k
+    (equal to world offsets for an unrotated model). ``stope_triangles``
+    gives the world geometry.
+    """
     s = np.asarray(grid.size)
     size = np.asarray(result.size)
     lo = np.array([[st.i, st.j, st.k] for st in result.stopes], np.float64).reshape(-1, 3)
-    return np.stack([o + lo * s, o + (lo + size) * s], axis=1)
+    return np.stack([lo * s, (lo + size) * s], axis=1)
+
+
+def stope_triangles(grid: Grid, result: StopeResult) -> Floats:
+    """World triangles (``12m x 3 x 3``) of the accepted stopes, rotated with the model."""
+    tris = box_triangles(stope_boxes(grid, result))
+    return grid.to_world(tris.reshape(-1, 3)).reshape(-1, 3, 3)
 
 
 def box_triangles(boxes: Floats) -> Floats:
@@ -195,5 +205,5 @@ def stopes_from_model(  # noqa: PLR0913 - options are keyword-only
         "Stope envelope and stopes",
     )
     if dxf is not None:
-        write_dxf(dxf, faces=[("STOPES", box_triangles(stope_boxes(grid, result)))])
+        write_dxf(dxf, faces=[("STOPES", stope_triangles(grid, result))])
     return result

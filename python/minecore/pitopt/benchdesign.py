@@ -220,18 +220,21 @@ def design_pit(  # noqa: PLR0913 - options are keyword-only
     cube = np.asarray(mined, bool).reshape(nz, ny, nx)
     if not cube.any():
         raise PitOptError("no mined blocks")
-    (ox, oy, oz), (sx, sy, sz) = grid.origin, grid.size
+    oz = grid.origin[2]
+    sx, sy, sz = grid.size
     res = resolution or min(sx, sy) / 2.0
     depth = nz * sz
     pad = margin if margin is not None else depth / math.tan(math.radians(flattest.overall_angle))
-    x = np.arange(ox - pad + res / 2, ox + nx * sx + pad, res)
-    y = np.arange(oy - pad + res / 2, oy + ny * sy + pad, res)
+    # The raster is world-aligned (sectors and ramps use world azimuths); a rotated
+    # model is sampled through its own cell index.
+    lo, hi = grid.bounds()
+    x = np.arange(lo[0] - pad + res / 2, hi[0] + pad, res)
+    y = np.arange(lo[1] - pad + res / 2, hi[1] + pad, res)
     xx, yy = np.meshgrid(x, y)
     # Column floor (bottom of the deepest mined block) on the raster, +inf if unmined.
     lowest = np.argmax(cube, axis=0)
     floor_col = np.where(cube.any(axis=0), oz + lowest * sz, np.inf)
-    ci = np.floor((xx - ox) / sx).astype(int)
-    cj = np.floor((yy - oy) / sy).astype(int)
+    ci, cj = _raster_cells(grid, xx, yy)
     on_grid = (ci >= 0) & (ci < nx) & (cj >= 0) & (cj < ny)
     floor = np.full(xx.shape, np.inf)
     floor[on_grid] = floor_col[cj[on_grid], ci[on_grid]]
@@ -398,7 +401,7 @@ def _original_surface(  # noqa: PLR0913, PLR0917 - raster inputs
     cube: Mask,
 ) -> Floats:
     nx, ny, nz = grid.count
-    (ox, oy, oz), (sx, sy, sz) = grid.origin, grid.size
+    oz, sz = grid.origin[2], grid.size[2]
     if topography is not None:
         z, _ = topography.elevation(np.column_stack([xx.ravel(), yy.ravel()]))
         return np.asarray(z, np.float64).reshape(xx.shape)
@@ -408,9 +411,17 @@ def _original_surface(  # noqa: PLR0913, PLR0917 - raster inputs
         col_top = np.where(r.any(axis=0), oz + top_k * sz, oz)
     else:
         col_top = np.full((ny, nx), oz + nz * sz)
-    ci = np.clip(np.floor((xx - ox) / sx).astype(int), 0, nx - 1)
-    cj = np.clip(np.floor((yy - oy) / sy).astype(int), 0, ny - 1)
-    return np.asarray(col_top[cj, ci], np.float64)
+    ci, cj = _raster_cells(grid, xx, yy)
+    return np.asarray(col_top[np.clip(cj, 0, ny - 1), np.clip(ci, 0, nx - 1)], np.float64)
+
+
+def _raster_cells(
+    grid: Grid, xx: Floats, yy: Floats
+) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.int64]]:
+    """Block column (i, j) under each raster point, unclipped (may be off the model)."""
+    pts = np.column_stack([xx.ravel(), yy.ravel(), np.full(xx.size, grid.origin[2])])
+    ijk = grid.cell_index(pts)
+    return ijk[:, 0].reshape(xx.shape), ijk[:, 1].reshape(xx.shape)
 
 
 @dataclass(frozen=True)
