@@ -944,7 +944,7 @@ def test_grade_control_dialog(qapp: QApplication, tmp_path: Path) -> None:
     dialog.path.setText(str(csv_path))
     dialog.cutoffs.setText("0.5; 1.5")
     dialog.run()
-    assert dialog.result is not None
+    assert dialog.gc is not None
     assert dialog.table.rowCount() == 3
     assert load_strings(project, "kazi_hatlari")
     project.close()

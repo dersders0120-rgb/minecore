@@ -97,7 +97,7 @@ class GradeControlDialog(QDialog):
         )
         right.addWidget(self.table, 1)
         layout.addLayout(right, 3)
-        self.result: GradeControl | None = None
+        self.gc: GradeControl | None = None
 
     def _guard(self, slot: Callable[[], None]) -> Callable[[], None]:
         def run() -> None:
@@ -121,7 +121,7 @@ class GradeControlDialog(QDialog):
         if not self.path.text():
             raise RuntimeError("Delik tenörleri dosyasını seçin.")
         cutoffs = parse_cutoffs(self.cutoffs.text())
-        self.result = gc = grade_control(
+        self.gc = gc = grade_control(
             rings[0],
             read_holes_csv(Path(self.path.text()), self.grade.text()),
             cutoffs,
@@ -177,12 +177,12 @@ class GradeControlDialog(QDialog):
         self.canvas.draw_idle()  # type: ignore[no-untyped-call]
 
     def export(self) -> None:
-        if self.result is None:
+        if self.gc is None:
             raise RuntimeError("Önce hesaplayın.")
         path, _ = QFileDialog.getSaveFileName(self, "DXF", "kazi_hatlari.dxf", "DXF (*.dxf)")
         if path:
             write_dxf(
-                Path(path), [Polyline(f"GC_CLASS_{c}", p, True) for c, p in self.result.lines]
+                Path(path), [Polyline(f"GC_CLASS_{c}", p, True) for c, p in self.gc.lines]
             )
 
 
