@@ -45,7 +45,9 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
 ## Sample statistics
 
 - Histogram, log-probability plot and top-cut effect on unweighted samples
-  (use equal-length composites). No declustering yet.
+  (use equal-length composites). Cell declustering (GSLIB DECLUS method)
+  reports the declustered mean; its weights are not yet used by the
+  grade-tonnage or estimation steps.
 
 ## Confidence categories
 
@@ -115,3 +117,11 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
 - No solid editing, sections/strings to solid linking, or boolean operations.
 - Inside test is by block centroid (no partial-block percentages yet).
 - Grade shells: marching cubes over block centres (VTK), not an implicit model.
+
+## Underground (M9 start)
+
+- `underground.stopes`: floating stope envelope (fixed stope size in whole
+  blocks, tonnage-weighted mean grade >= cut-off) and a greedy,
+  non-overlapping stope selection by metal. Not a Mineable Shape Optimiser:
+  no variable stope shapes, dip/strike following, pillars, dilution skins,
+  development or scheduling. Stopes are aligned with the block grid.

@@ -27,3 +27,22 @@ def test_lognormal_is_straight_on_log_probability() -> None:
     slope, intercept = np.polyfit(q, np.log(x), 1)
     assert slope == pytest.approx(1.0, abs=0.03)
     assert intercept == pytest.approx(0.0, abs=0.03)
+
+
+def test_declustering_removes_cluster_bias() -> None:
+    from minecore.estimation.statistics import cell_decluster  # noqa: PLC0415
+
+    # A regular 10 x 10 grid (value 1) plus a tight cluster of 100 samples of value 5
+    # inside one 10 m cell: the naive mean is 3.02, the declustered mean (99 + 5) / 100.
+    gx, gy = np.meshgrid(np.arange(5.0, 100, 10), np.arange(5.0, 100, 10))
+    grid = np.column_stack([gx.ravel(), gy.ravel(), np.zeros(100)])
+    rng = np.random.default_rng(0)
+    cluster = np.column_stack([rng.uniform(56, 64, 100), rng.uniform(56, 64, 100), np.zeros(100)])
+    xyz = np.vstack([grid, cluster])
+    values = np.r_[np.ones(100), np.full(100, 5.0)]
+    values[55] = 5.0  # the grid sample in the cluster cell is high too
+    d = cell_decluster(xyz, values, np.array([1.0, 5.0, 10.0, 20.0]), offsets=1)
+    assert np.mean(values) == pytest.approx(3.02)
+    assert d.best_size == 10.0
+    assert d.means[2] == pytest.approx(1.04)
+    assert d.weights.sum() == pytest.approx(200.0)

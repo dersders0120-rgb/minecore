@@ -255,7 +255,7 @@ class MainWindow(QMainWindow):
 
     # -- menus ---------------------------------------------------------------
 
-    def _menus(self) -> None:
+    def _menus(self) -> None:  # noqa: PLR0915 - one line per menu entry
         def action(menu: Any, text: str, slot: Any, shortcut: str | None = None) -> QAction:
             act = QAction(text, self)
             if shortcut:
@@ -304,6 +304,8 @@ class MainWindow(QMainWindow):
         action(pit, "Ocak optimizasyonu, pushback ve çizelge...", self.optimise_pit)
         action(pit, "Basamak tasarımı (şev açısı, basamak yüksekliği, berm)...", self.bench_design)
         action(pit, "Ocağı DXF olarak dışa aktar, ocak yüzeyi oluştur...", self.export_pit)
+        ug = self.menuBar().addMenu("Yer&altı")
+        action(ug, "Pano zarfı (floating stope) ve pano seçimi...", self.stopes)
         help_menu = self.menuBar().addMenu("&Yardım")
         action(help_menu, "Örnek sondaj projesini aç", self.open_sample)
         action(help_menu, "Hakkında", self.about)
@@ -768,6 +770,15 @@ class MainWindow(QMainWindow):
             f"Kazı sonrası yüzey 'ocak_{last}' adıyla kaydedildi"
             + (f" (topoğrafya: {topo})." if topo else "."),
         )
+
+    def stopes(self) -> None:
+        from minecore.gui.underground import StopeDialog  # noqa: PLC0415
+
+        project = self._need_project()
+        if not block_models(project):
+            raise RuntimeError("Önce bir blok modeli oluşturun veya içe aktarın.")
+        StopeDialog(project, self).exec()
+        self.refresh()
 
     def bench_design(self) -> None:
         from minecore.gui.pit import BenchDesignDialog  # noqa: PLC0415

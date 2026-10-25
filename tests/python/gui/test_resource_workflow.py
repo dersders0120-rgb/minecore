@@ -86,6 +86,8 @@ def test_block_model_variogram_estimate_report(  # noqa: PLR0915 - one end-to-en
     stats.cap.setValue(1.0)
     stats.compute()
     assert "Üst kesme" in stats.text.text()
+    stats.decluster()
+    assert "kümelenmesi giderilmiş" in stats.text.text()
     save_variogram(project, "vg", fitted, {"data": vg.source.currentText()})
     assert "vg" in load_variograms(project)
 
@@ -366,4 +368,28 @@ def test_bench_design_dialog(qapp: QApplication, tmp_path: Path) -> None:
     assert dialog.report.design_blocks >= 32
     assert "tasarim_1" in surface_names(project)
     assert "pit_tasarim" in BlockModel.open(project, "BM").attributes
+    project.close()
+
+
+def test_stope_dialog(qapp: QApplication, tmp_path: Path) -> None:
+    from minecore.blockmodel import Grid  # noqa: PLC0415
+    from minecore.gui.underground import StopeDialog  # noqa: PLC0415
+
+    project = Project.create(tmp_path / "u.mcproj", "u")
+    grid = Grid((0.0, 0.0, 0.0), (5.0, 5.0, 5.0), (8, 4, 4))
+    model = BlockModel.create(project, "BM", grid)
+    au = np.zeros((4, 4, 8))
+    au[:, 1:3, 2:6] = 5.0
+    model.set_attributes({"au": au.ravel()}, {"au": {"unit": "g/t"}}, "au")
+    parent = QWidget()
+    dialog = StopeDialog(project, parent)
+    dialog.sx.setValue(10.0)
+    dialog.sy.setValue(10.0)
+    dialog.sz.setValue(10.0)
+    dialog.cutoff.setValue(4.0)
+    dialog.run()
+    assert dialog.stopes is not None
+    assert len(dialog.stopes.stopes) == 4
+    assert dialog.table.rowCount() == 4
+    assert "ug_pano" in BlockModel.open(project, "BM").attributes
     project.close()

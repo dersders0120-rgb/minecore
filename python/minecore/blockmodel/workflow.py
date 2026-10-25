@@ -88,6 +88,8 @@ def estimate_blocks(  # noqa: PLR0913 - options are keyword-only
     ``mask`` limits estimation to selected blocks (e.g. below topography or
     inside a domain); the others stay empty and are not counted as unestimated.
     ``top_cut`` caps sample values before estimation (outlier treatment).
+    With a ``mask``, existing values of the attribute outside the mask are
+    kept, so domains can be estimated one after another into one attribute.
     """
     grid = model.grid
     targets = grid.centroids()
@@ -133,6 +135,18 @@ def estimate_blocks(  # noqa: PLR0913 - options are keyword-only
     if method is Method.ORDINARY_KRIGING:
         values[f"{attribute}_kv"] = result.variance
         info[f"{attribute}_kv"] = {"unit": None}
+    if mask is not None:
+        # Estimating domain by domain into one attribute: keep the other domains.
+        existing = model.attributes
+        for name in list(values):
+            if name in existing:
+                old = model.values(name)
+                values[name] = np.where(selected, values[name], old)
+        if attribute in existing:
+            previous = existing[attribute].get("domains") or [
+                {k: v for k, v in existing[attribute].items() if k != "domains"}
+            ]
+            info[attribute]["domains"] = [*previous, dict(info[attribute])]
     model.set_attributes(values, info, f"Estimate {attribute!r} by {method.value}")
     return sub.unestimated
 
