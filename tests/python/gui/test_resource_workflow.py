@@ -330,3 +330,27 @@ def test_calculator_dialog(qapp: QApplication, tmp_path: Path) -> None:
     assert BlockModel.open(project, "BM").values("cu2").tolist() == [7.0, 19.0]
     assert "cu2" in [dialog.names.item(i).text() for i in range(dialog.names.count())]
     project.close()
+
+
+def test_bench_design_dialog(qapp: QApplication, tmp_path: Path) -> None:
+    from minecore.blockmodel import Grid  # noqa: PLC0415
+    from minecore.gui.pit import BenchDesignDialog  # noqa: PLC0415
+    from minecore.surfaces import surface_names  # noqa: PLC0415
+
+    project = Project.create(tmp_path / "d.mcproj", "d")
+    grid = Grid((0.0, 0.0, 0.0), (10.0, 10.0, 10.0), (12, 12, 5))
+    model = BlockModel.create(project, "BM", grid)
+    shell = np.zeros((5, 12, 12))
+    shell[3:, 4:8, 4:8] = 1.0
+    model.set_attributes(
+        {"pit_shell": shell.ravel(), "pit_value": np.ones(grid.blocks)}, {}, "pit"
+    )
+    parent = QWidget()
+    dialog = BenchDesignDialog(project, parent)
+    assert dialog.model.currentText() == "BM"
+    dialog.run()
+    assert dialog.report is not None
+    assert dialog.report.design_blocks >= 32
+    assert "tasarim_1" in surface_names(project)
+    assert "pit_tasarim" in BlockModel.open(project, "BM").attributes
+    project.close()

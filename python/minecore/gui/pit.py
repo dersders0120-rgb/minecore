@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from minecore import surfaces
 from minecore.blockmodel import BlockModel
 from minecore.gui.resource import _row, _spin, _with_progress, block_models
 from minecore.pitopt import (
@@ -41,6 +42,7 @@ from minecore.pitopt import (
     optimise_pit,
     pushbacks,
 )
+from minecore.pitopt.benchdesign import BenchGeometry, DesignReport, design_from_model
 from minecore.pitopt.optimise import store
 from minecore.pitopt.scheduling import ConstrainedSchedule, Limits, schedule_constrained
 from minecore.pitopt.width import apply_mining_width
@@ -593,3 +595,109 @@ def write_pit_reports(path: Path, result: PitResult, sched: ConstrainedSchedule 
                         f"{p.discounted:.0f}",
                     ]
                 )
+
+
+class BenchDesignDialog(QDialog):
+    """Bench design (face angle, bench height, berm) around the optimised pit."""
+
+    def __init__(self, project: Project, parent: QWidget) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Basamak tasarımı")
+        self.project = project
+        self.report: DesignReport | None = None
+        form = QFormLayout(self)
+        self.model = QComboBox()
+        self.model.addItems(
+            [
+                m
+                for m in block_models(project)
+                if "pit_shell" in BlockModel.open(project, m).attributes
+            ]
+        )
+        self.shell = QSpinBox(minimum=1, maximum=1000, value=1)
+        self.face = _spin(65.0, 10.0, 89.0, 1.0, 1)
+        self.bench_h = _spin(10.0, 0.5, 100.0, 1.0, 1)
+        self.berm = _spin(6.0, 0.0, 100.0, 0.5, 1)
+        self.topography = QComboBox()
+        self.topography.addItem("(blok modelindeki kaya üstü)")
+        self.topography.addItems(surfaces.surface_names(project))
+        self.overall = QLabel()
+        for w in (self.face, self.bench_h, self.berm):
+            w.valueChanged.connect(self._overall)
+        form.addRow("Blok modeli", self.model)
+        form.addRow("Son kabuk (nihai ocak)", self.shell)
+        form.addRow("Basamak şev açısı °", self.face)
+        form.addRow("Basamak yüksekliği (m)", self.bench_h)
+        form.addRow("Berm genişliği (m)", self.berm)
+        form.addRow("Arazi yüzeyi", self.topography)
+        form.addRow("Genel şev açısı", self.overall)
+        run = QPushButton("Tasarla, yüzeyi kaydet, blokları işaretle")
+        run.clicked.connect(self._guard(self.run))
+        export = QPushButton("Tasarımı DXF olarak dışa aktar...")
+        export.clicked.connect(self._guard(self.export))
+        form.addRow(_row(run, export))
+        self.result_label = QLabel()
+        self.result_label.setWordWrap(True)
+        form.addRow(self.result_label)
+        self.model.currentTextChanged.connect(self._fill)
+        self._fill(self.model.currentText())
+        self._overall()
+
+    def _guard(self, slot: Any) -> Any:
+        def run() -> None:
+            try:
+                slot()
+            except Exception as exc:
+                QMessageBox.critical(self, "Basamak tasarımı", str(exc))
+
+        return run
+
+    def _fill(self, name: str) -> None:
+        if name:
+            top = int(np.nanmax(BlockModel.open(self.project, name).values("pit_shell")))
+            self.shell.setMaximum(max(top, 1))
+            self.shell.setValue(max(top, 1))
+
+    def geometry_value(self) -> BenchGeometry:
+        return BenchGeometry(self.face.value(), self.bench_h.value(), self.berm.value())
+
+    def _overall(self) -> None:
+        try:
+            self.overall.setText(f"{self.geometry_value().overall_angle:.1f}°")
+        except Exception as exc:
+            self.overall.setText(str(exc))
+
+    def _design(self, dxf: Path | None) -> DesignReport:
+        topo = self.topography.currentText()
+        return design_from_model(
+            self.project,
+            BlockModel.open(self.project, self.model.currentText()),
+            self.geometry_value(),
+            last_shell=self.shell.value(),
+            topography=None if topo.startswith("(") else topo,
+            save_surface=f"tasarim_{self.shell.value()}",
+            flag_attribute="pit_tasarim",
+            dxf=dxf,
+        )
+
+    def run(self) -> None:
+        self.report = r = self._design(None)
+        outside = r.pit.volume(outside_model_only=True)
+        self.result_label.setText(
+            f"Kazı hacmi {r.pit.volume() / 1e6:,.2f} Mm³; kabukta {r.shell_blocks:,} blok, "
+            f"tasarımda {r.design_blocks:,} blok. Değer {r.shell_value / 1e6:,.1f} → "
+            f"{r.design_value / 1e6:,.1f} M$. Yüzey 'tasarim_{self.shell.value()}', "
+            "bloklar 'pit_tasarim' olarak kaydedildi."
+            + (
+                f"\nUyarı: tasarımın {outside / 1e6:,.2f} Mm³'ü blok modeli alanının dışında; "
+                "modeli daha geniş (dolgu payı ile) oluşturun."
+                if outside > 0
+                else ""
+            )
+        )
+
+    def export(self) -> None:
+        path, _ = QFileDialog.getSaveFileName(self, "DXF kaydet", "tasarim.dxf", "DXF (*.dxf)")
+        if path:
+            self.report = self._design(Path(path))
+            self.result_label.setText(f"Tasarım yazıldı: {path}")

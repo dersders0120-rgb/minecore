@@ -79,8 +79,14 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
   smoothing), a closed pit solid (marching cubes of the mined indicator, so
   corners are chamfered; volume slightly below the block volume), and the
   mined-out surface at block-column centres (staircase interpolated linearly).
-- No ramp, berm or haul-road design; no conversion of shells to designed
-  bench toe/crest strings with batter angles.
+- Bench design (`pitopt.benchdesign`): face angle, bench height and berm
+  around the optimised pit by a distance-transform envelope on a raster
+  (rounded corners, raster resolution half a block by default). Toe/crest
+  strings are contours of that surface. No ramps or haul roads, no
+  geotechnical sectors in the design (one geometry for the whole pit), no
+  string editing. Because the optimiser treats the block model edge as
+  unconstrained, a design can need ground outside the model; the volume
+  outside is reported (create the model with padding).
 - DXF export writes R12 ASCII `POLYLINE` (3D) and `3DFACE` entities only, no
   header/table sections, no blocks or text.
 

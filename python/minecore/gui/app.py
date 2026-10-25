@@ -300,6 +300,7 @@ class MainWindow(QMainWindow):
         action(surf, "Katı modeli DXF olarak dışa aktar...", self.export_solid)
         pit = self.menuBar().addMenu("&Açık Ocak")
         action(pit, "Ocak optimizasyonu, pushback ve çizelge...", self.optimise_pit)
+        action(pit, "Basamak tasarımı (şev açısı, basamak yüksekliği, berm)...", self.bench_design)
         action(pit, "Ocağı DXF olarak dışa aktar, ocak yüzeyi oluştur...", self.export_pit)
         help_menu = self.menuBar().addMenu("&Yardım")
         action(help_menu, "Örnek sondaj projesini aç", self.open_sample)
@@ -729,6 +730,16 @@ class MainWindow(QMainWindow):
             f"Kazı sonrası yüzey 'ocak_{last}' adıyla kaydedildi"
             + (f" (topoğrafya: {topo})." if topo else "."),
         )
+
+    def bench_design(self) -> None:
+        from minecore.gui.pit import BenchDesignDialog  # noqa: PLC0415
+
+        project = self._need_project()
+        dialog = BenchDesignDialog(project, self)
+        if dialog.model.count() == 0:
+            raise RuntimeError("Önce ocak optimizasyonunu çalıştırıp sonuçları kaydedin.")
+        dialog.exec()
+        self.refresh()
 
     def optimise_pit(self) -> None:
         from minecore.gui.pit import PitDialog  # noqa: PLC0415

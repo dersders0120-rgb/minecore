@@ -38,6 +38,7 @@ from minecore.drillholes.importer import import_folder
 from minecore.drillholes.workflow import composite_table, hole_geometry, save_composites
 from minecore.estimation import Ellipsoid, Method, Search, experimental, fit_spherical
 from minecore.pitopt import Economics, PriceUnit, SlopeProfile, optimise_pit, pushbacks, schedule
+from minecore.pitopt.benchdesign import BenchGeometry, design_from_model
 from minecore.pitopt.design import export_pit
 from minecore.pitopt.economics import PitOptError
 from minecore.pitopt.optimise import Schedule, store
@@ -158,6 +159,17 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     opt.add_argument("--lag", type=int, default=2, help="bench lag between pushbacks")
     opt.add_argument("--sinking", type=int, default=6, help="max benches per pushback per year")
     opt.add_argument("--min-width", type=float, default=0.0, help="minimum mining width, m")
+    des = pit_cmds.add_parser("design", help="bench design around the optimised pit")
+    des.add_argument("project")
+    des.add_argument("model")
+    des.add_argument("--face", type=float, required=True, help="bench face angle, degrees")
+    des.add_argument("--height", type=float, required=True, help="bench height, m")
+    des.add_argument("--berm", type=float, required=True, help="berm width, m")
+    des.add_argument("--shell", type=int, help="last shell of the pit (default: all)")
+    des.add_argument("--topography")
+    des.add_argument("--save-surface")
+    des.add_argument("--flag", help="attribute for blocks inside the design")
+    des.add_argument("--dxf")
     exp = pit_cmds.add_parser("export", help="pit outlines, surface and solid to DXF")
     exp.add_argument("project")
     exp.add_argument("model")
@@ -350,10 +362,37 @@ def pit_export(project: Project, args: argparse.Namespace, out: TextIO) -> int:
     return 0
 
 
+def pit_design(project: Project, args: argparse.Namespace, out: TextIO) -> int:
+    geometry = BenchGeometry(args.face, args.height, args.berm)
+    r = design_from_model(
+        project,
+        BlockModel.open(project, args.model),
+        geometry,
+        last_shell=args.shell,
+        topography=args.topography,
+        save_surface=args.save_surface,
+        flag_attribute=args.flag,
+        dxf=Path(args.dxf) if args.dxf else None,
+    )
+    out.write(
+        f"overall slope {geometry.overall_angle:.1f} deg; volume {r.pit.volume():,.0f} m3; "
+        f"blocks {r.shell_blocks} in shell, {r.design_blocks} in design; "
+        f"value {r.shell_value:,.0f} -> {r.design_value:,.0f}\n"
+    )
+    outside = r.pit.volume(outside_model_only=True)
+    if outside > 0:
+        out.write(f"warning: {outside:,.0f} m3 of the design lies outside the block model\n")
+    if r.pit.reaches_edge:
+        out.write("warning: the design reaches the edge of the model area\n")
+    return 0
+
+
 def pit_command(args: argparse.Namespace, out: TextIO) -> int:
     with Project.open(args.project) as project:
         if args.pit_command == "export":
             return pit_export(project, args, out)
+        if args.pit_command == "design":
+            return pit_design(project, args, out)
         model = BlockModel.open(project, args.model)
         if not args.nsr and None in (args.price, args.price_unit, args.recovery):
             raise PitOptError("--price, --price-unit and --recovery are required without --nsr")
