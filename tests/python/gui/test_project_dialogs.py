@@ -131,3 +131,26 @@ def test_user_messages_show_without_traceback(
     assert shown[0] == ("w", "Önce bir model kaydedin.")
     assert shown[1][0] == "c"
     assert "Traceback" in shown[1][1]
+
+
+def test_free_name_and_duplicate_object_message(
+    qapp: QApplication, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from PySide6.QtWidgets import QMessageBox  # noqa: PLC0415
+
+    from minecore.gui.app import free_name  # noqa: PLC0415
+    from minecore.project import ProjectError  # noqa: PLC0415
+
+    assert free_name("BM", set()) == "BM_1"
+    assert free_name("BM", {"BM_1", "BM_2"}) == "BM_3"
+    shown: list[str] = []
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: shown.append(a[2]))
+
+    def duplicate() -> None:
+        raise ProjectError(
+            "cannot register block_model 'BM_1': UNIQUE constraint failed: "
+            "objects.kind, objects.name"
+        )
+
+    MainWindow()._guard(duplicate)
+    assert shown == ["Bu adla bir nesne zaten var. Başka bir ad seçin."]

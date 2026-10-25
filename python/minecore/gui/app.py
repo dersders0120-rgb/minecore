@@ -92,6 +92,14 @@ def new_project_path(folder: Path, name: str) -> Path:
     return folder / f"{stem}.mcproj"
 
 
+def free_name(prefix: str, taken: set[str]) -> str:
+    """First of ``prefix_1``, ``prefix_2``, ... that is not in ``taken``."""
+    index = 1
+    while f"{prefix}_{index}" in taken:
+        index += 1
+    return f"{prefix}_{index}"
+
+
 def find_projects(folder: Path) -> list[Path]:
     """Projects meant by a chosen folder: the package itself, one it is inside, or its children."""
     for candidate in (folder, *folder.parents):
@@ -351,6 +359,10 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             if type(exc) is RuntimeError:  # a message raised for the user: no traceback
                 QMessageBox.warning(self, "MineCore", str(exc))
+            elif "UNIQUE constraint failed: objects.kind, objects.name" in str(exc):
+                QMessageBox.warning(
+                    self, "MineCore", "Bu adla bir nesne zaten var. Başka bir ad seçin."
+                )
             else:
                 trace = traceback.format_exc(limit=3)
                 QMessageBox.critical(self, "MineCore", f"{exc}\n\n{trace}")
@@ -573,9 +585,14 @@ class MainWindow(QMainWindow):
     def new_block_model(self) -> None:
         project = self._need_project()
         dialog = BlockModelDialog(self._need_db(), self)
+        taken = set(block_models(project))
+        dialog.name.setText(free_name("BM", taken))
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
-        model = BlockModel.create(project, dialog.name.text().strip(), dialog.grid())
+        name = dialog.name.text().strip()
+        if name in taken:
+            raise RuntimeError(f"'{name}' adında bir blok modeli zaten var. Başka bir ad yazın.")
+        model = BlockModel.create(project, name, dialog.grid())
         self.refresh()
         QMessageBox.information(
             self, "Blok modeli", f"'{model.name}': {model.grid.blocks:,} blok oluşturuldu."
