@@ -1570,11 +1570,13 @@ class BenchDesignDialog(QDialog):
         self.ramp_on = QCheckBox("Rampa (nakliye yolu) tasarla")
         self.ramp_w = _spin(25.0, 3.0, 80.0, 1.0, 1)
         self.ramp_g = _spin(10.0, 1.0, 25.0, 0.5, 1)
+        self.ramp_bund = _spin(0.0, 0.0, 20.0, 0.5, 1)
         self.ramp_exit = _spin(0.0, 0.0, 359.0, 15.0, 0)
         self.ramp_dir = QComboBox()
         self.ramp_dir.addItems(["Saat yönünde (inerken)", "Saat yönünün tersine (inerken)"])
         form.addRow(self.ramp_on)
         form.addRow("Rampa genişliği (m) / eğim %", _row(self.ramp_w, self.ramp_g))
+        form.addRow("Emniyet seddi genişliği (m)", self.ramp_bund)
         form.addRow("Çıkış yönü (° kuzeyden) / dönüş", _row(self.ramp_exit, self.ramp_dir))
         self.ramp_kind = QComboBox()
         self.ramp_kind.addItems(["Spiral (ocak çevresinde)", "Zikzak (tek şevde, dönüşlü)"])
@@ -1645,6 +1647,7 @@ class BenchDesignDialog(QDialog):
                 self.ramp_dir.currentIndex() == 0,
                 self.ramp_span.value() if self.ramp_kind.currentIndex() == 1 else 0.0,
                 exits=parse_exits(self.ramp_exits.text()),
+                bund=self.ramp_bund.value(),
             )
             if self.ramp_on.isChecked()
             else None,

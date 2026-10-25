@@ -34,7 +34,7 @@ from minecore.strings import String, load_strings, save_strings, string_names
 
 
 class ToeDesignDialog(QDialog):
-    def __init__(self, project: Project, parent: QWidget) -> None:
+    def __init__(self, project: Project, parent: QWidget) -> None:  # noqa: PLR0915 - one form
         super().__init__(parent)
         self.setWindowTitle("Taban çizgisinden pit tasarımı")
         fit_to_screen(self, 700, 650)
@@ -70,11 +70,13 @@ class ToeDesignDialog(QDialog):
         self.ramp_on.setChecked(True)
         self.ramp_w = _spin(25.0, 3.0, 80.0, 1.0, 1)
         self.ramp_g = _spin(10.0, 1.0, 25.0, 0.5, 1)
+        self.ramp_bund = _spin(0.0, 0.0, 20.0, 0.5, 1)
         self.ramp_exit = _spin(0.0, 0.0, 359.0, 15.0, 0)
         self.ramp_kind = QComboBox()
         self.ramp_kind.addItems(["Spiral", "Zikzak"])
         form.addRow(self.ramp_on)
         form.addRow("Rampa genişliği (m) / eğim %", _row(self.ramp_w, self.ramp_g))
+        form.addRow("Emniyet seddi genişliği (m)", self.ramp_bund)
         form.addRow("Çıkış yönü (°) / tip", _row(self.ramp_exit, self.ramp_kind))
         self.res = _spin(2.0, 0.5, 20.0, 0.5, 1)
         form.addRow("Raster çözünürlüğü (m)", self.res)
@@ -118,6 +120,7 @@ class ToeDesignDialog(QDialog):
                 self.ramp_g.value() / 100.0,
                 self.ramp_exit.value(),
                 switchback_span=120.0 if self.ramp_kind.currentIndex() == 1 else 0.0,
+                bund=self.ramp_bund.value(),
             )
             if self.ramp_on.isChecked()
             else None

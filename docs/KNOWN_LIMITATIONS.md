@@ -256,9 +256,11 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
   in order of excavated volume, and a pit whose road cannot be traced is
   reported without one. Roads of different pits are not checked against
   each other. A single opening with several bottoms (pits merged above some
-  level) gets one road from its deepest bottom; the other bottoms are only
-  counted, no connecting road is designed. No road batters or safety bunds,
-  and the road is not checked against a minimum curve radius. Because the optimiser treats the block model edge as
+  level) gets a main road from its deepest bottom and a connector road from
+  each other bottom up to the saddle where its basin joins the main pit (the
+  connector is not joined to the main road). Road edges and the safety bund
+  toe (`--bund`) are output as strings only (no bund solid, no road batters);
+  the road is not checked against a minimum curve radius. Because the optimiser treats the block model edge as
   unconstrained, a design can need ground outside the model; the volume
   outside is reported (create the model with padding).
 - DXF export writes R12 ASCII `POLYLINE` (3D) and `3DFACE` entities only, no

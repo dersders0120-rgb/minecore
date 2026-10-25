@@ -508,6 +508,9 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     )
     des.add_argument("--turn-length", type=float, help="flat road at each switchback, m")
     des.add_argument(
+        "--bund", type=float, default=0.0, help="safety bund width on the open side of the road, m"
+    )
+    des.add_argument(
         "--sector",
         action="append",
         default=[],
@@ -525,6 +528,9 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     toe.add_argument("--ramp-width", type=float, default=0.0, help="0 = no ramp")
     toe.add_argument("--ramp-gradient", type=float, default=0.1)
     toe.add_argument("--ramp-exit", type=float, default=0.0)
+    toe.add_argument(
+        "--bund", type=float, default=0.0, help="safety bund width on the open side of the road, m"
+    )
     toe.add_argument("--resolution", type=float, default=2.0)
     toe.add_argument("--save", default="tasarim_taban", help="surface and string set name")
     toe.add_argument("--dxf")
@@ -1055,6 +1061,7 @@ def pit_design(project: Project, args: argparse.Namespace, out: TextIO) -> int:
             args.switchback,
             args.turn_length,
             parse_exits(args.ramp_exits),
+            bund=args.bund,
         )
         if args.ramp_width
         else None,
@@ -1453,7 +1460,9 @@ def pit_design_toes(project: Project, args: argparse.Namespace, out: TextIO) -> 
         topography=surfaces.load_surface(project, args.topography) if args.topography else None,
         ground_z=args.ground,
         resolution=args.resolution,
-        ramp=Ramp(args.ramp_width, args.ramp_gradient, args.ramp_exit) if args.ramp_width else None,
+        ramp=Ramp(args.ramp_width, args.ramp_gradient, args.ramp_exit, bund=args.bund)
+        if args.ramp_width
+        else None,
     )
     surfaces.save_surface(project, args.save, pit.surface())
     lines = pit.strings(args.save.upper())
