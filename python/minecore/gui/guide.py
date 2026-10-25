@@ -55,8 +55,12 @@ GUIDE = """
 ## 4. Açık ocak
 1. **Açık Ocak > Ocak optimizasyonu**: iç içe kabuklar (Lerchs-Grossmann ile aynı sonuç),
    en iyi/en kötü NPV, pushback'ler (minimum kazı genişliği), kısıtlı üretim çizelgesi,
-   pushback-basamak envanteri, Excel raporu. Kazanım, seyrelme, NSR modu ve ek işleme
-   yolları (ör. `liç:60:4`; her blok en yüksek marjlı yola gider) desteklenir.
+   pushback-basamak envanteri, Excel raporu. Kazanım, seyrelme, ödenebilir metal,
+   royalty (devlet hakkı), NSR modu ve ek işleme yolları (ör. `liç:60:4`; her blok en
+   yüksek marjlı yola gider) desteklenir. **Proje nakit akışı** bölümünde yatırım
+   (ör. `0:250; 4:40`, yıl:M$), sabit gider, kapanış maliyeti, vergi ve amortisman
+   girilir; "Nakit akışı" sekmesi yıl yıl FAVÖK, vergi, nakit akışı ve proje NPV, İVO
+   (IRR) ve geri ödeme süresini verir.
 2. **Basamak tasarımı**: şev açısı, basamak yüksekliği ve berm ile tasarım yüzeyi,
    tasarım içindeki bloklar ve değer karşılaştırması; isteğe bağlı spiral rampa
    (genişlik, eğim, çıkış yönü); geoteknik sektörler (ör. `0:70:6; 180:55:8`:

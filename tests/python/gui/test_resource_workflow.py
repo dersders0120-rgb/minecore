@@ -6,6 +6,7 @@ import csv
 import itertools
 import os
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pytest
@@ -23,6 +24,9 @@ from minecore.estimation import Method
 from minecore.gui import resource
 from minecore.gui.app import SAMPLE_DIR
 from minecore.project import Project
+
+if TYPE_CHECKING:
+    from minecore.gui.pit import PitDialog
 
 
 @pytest.fixture(scope="module")
@@ -141,7 +145,7 @@ def test_block_model_variogram_estimate_report(  # noqa: PLR0915 - one end-to-en
 
 def test_pit_dialog_shells_pushbacks_and_save(qapp: QApplication, tmp_path: Path) -> None:
     from minecore.blockmodel import Grid  # noqa: PLC0415
-    from minecore.gui.pit import PitDialog, parse_sectors, write_pit_reports  # noqa: PLC0415
+    from minecore.gui.pit import PitDialog, parse_sectors  # noqa: PLC0415
 
     assert parse_sectors("0:50; 90:38,180:50") == ((0.0, 50.0), (90.0, 38.0), (180.0, 50.0))
     project = Project.create(tmp_path / "pit.mcproj", "pit")
@@ -168,8 +172,17 @@ def test_pit_dialog_shells_pushbacks_and_save(qapp: QApplication, tmp_path: Path
     dialog.route_caps.setText("0.01")
     dialog.min_ore.setValue(0.05)
     dialog.min_width.setValue(30.0)
+    dialog.royalty.setValue(4.0)
+    dialog.capex.setText("0:1; 2:0.5")
+    dialog.tax.setValue(20.0)
+    dialog.closure.setValue(0.2)
     dialog.make_phases()
     assert dialog.sched is not None
+    assert dialog.flow is not None
+    assert dialog.cash_table.rowCount() == len(dialog.flow.rows)
+    assert dialog.flow.rows[0].capital == 1e6
+    assert dialog.flow.rows[-1].closure == 0.2e6
+    assert any("Proje NPV" in n for n in notes)
     assert dialog.sched_table.rowCount() == len(dialog.sched.rows) + 1
     assert all(r.fed_by_route[1] <= 0.01e6 * (1 + 1e-9) for r in dialog.sched.rows)
     first_fed = dialog.sched_table.item(0, 3)
@@ -179,15 +192,22 @@ def test_pit_dialog_shells_pushbacks_and_save(qapp: QApplication, tmp_path: Path
     dialog.save()
     assert len([n for n in notes if not n.startswith("Uyarı")]) == 2
     assert "pit_period" in BlockModel.open(project, "BM").attributes
-    out = tmp_path / "pit.csv"
-    write_pit_reports(out, dialog.pit, dialog.sched)
-    assert out.read_text(encoding="utf-8-sig").startswith("shell;")
-    from minecore.gui.pit import write_pit_reports_xlsx  # noqa: PLC0415
-
-    write_pit_reports_xlsx(tmp_path / "pit.xlsx", dialog.pit, dialog.sched, dialog.inventory)
-    assert (tmp_path / "pit.xlsx").stat().st_size > 0
+    _write_pit_reports(dialog, tmp_path)
     project.close()
     _export_pit_from_main_window(tmp_path / "pit.mcproj", tmp_path / "ocak.dxf")
+
+
+def _write_pit_reports(dialog: PitDialog, folder: Path) -> None:
+    from minecore.gui.pit import write_pit_reports, write_pit_reports_xlsx  # noqa: PLC0415
+
+    assert dialog.pit is not None
+    out = folder / "pit.csv"
+    write_pit_reports(out, dialog.pit, dialog.sched)
+    assert out.read_text(encoding="utf-8-sig").startswith("shell;")
+    write_pit_reports_xlsx(
+        folder / "pit.xlsx", dialog.pit, dialog.sched, dialog.inventory, dialog.flow
+    )
+    assert (folder / "pit.xlsx").stat().st_size > 0
 
 
 def _export_pit_from_main_window(path: Path, dxf: Path) -> None:

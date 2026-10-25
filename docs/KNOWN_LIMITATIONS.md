@@ -96,6 +96,18 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
   optimised (MILP) schedule; no blending targets, no cut-off optimisation, no
   equipment or haulage model; periods are years of equal capacity.
 
+## Project cash flow
+
+- `pitopt.cashflow` adds capital by period (period 0 = construction), fixed
+  costs, closure cost, income tax with straight-line depreciation and
+  unlimited loss carry-forward to the constrained schedule; NPV (end or
+  mid-period discounting), IRR (bisection) and payback. Payables and royalty
+  are part of the block value. Not modelled: working capital, inflation and
+  escalation, financing, salvage value, tax refunds of losses, depreciation
+  pools other than straight line, sustaining capital per tonne.
+- The simple fixed-rate schedule (without a plant capacity) has no cash-flow
+  breakdown; the project cash flow needs the constrained schedule.
+
 ## Cut-off grade optimisation (Lane)
 
 - `pitopt.cutoff`: Lane's method with mine, mill and market capacities, fixed

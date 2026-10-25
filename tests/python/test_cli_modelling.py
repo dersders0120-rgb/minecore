@@ -6,6 +6,8 @@ import io
 import json
 from pathlib import Path
 
+import pytest
+
 from minecore.cli import main
 from minecore.gui.app import SAMPLE_DIR
 
@@ -259,3 +261,49 @@ def test_rotated_model_chain(tmp_path: Path) -> None:
     )  # fmt: skip
     assert pdf.read_bytes().startswith(b"%PDF")
     assert " 0 blocks" not in text
+
+
+def test_project_cash_flow_from_the_cli(tmp_path: Path) -> None:
+    p = str(tmp_path / "f.mcproj")
+    _run("project", "create", p, "--name", "f")
+    _run("drillholes", "import", p, str(SAMPLE_DIR))
+    _run("drillholes", "validate", p)
+    _run("drillholes", "composite", p, "assay", "AU_PPM", "--length", "2")
+    src = "assay_komp_2m/AU_PPM"
+    _run("bm", "create", p, "BM", "--source", src, "--size", "20", "20", "10", "--padding", "40")
+    _run("bm", "estimate", p, "BM", src, "au", "--method", "idw", "--radius", "80")
+    econ = [
+        "pit", "optimise", p, "BM", "au", "--price", "2000", "--price-unit", "ozt",
+        "--recovery", "0.9", "--mining-cost", "2.5", "--processing-cost", "15",
+        "--rate", "2e6", "--plant", "5e5", "--discount", "0.1", "--json",
+    ]  # fmt: skip
+    plain = json.loads(_run(*econ))
+    assert "cash_flow" in plain  # with --plant the cash flow is always reported
+    assert plain["project"]["npv"] == pytest.approx(plain["npv"])
+    taxed = json.loads(
+        _run(
+            *econ,
+            "--royalty",
+            "0.04",
+            "--payable",
+            "0.99",
+            "--capex",
+            "0:5e6;2:1e6",
+            "--tax",
+            "0.25",
+            "--closure",
+            "1e6",
+            "--fixed-cost",
+            "2e5",
+        )
+    )
+    rows = taxed["cash_flow"]
+    assert rows[0]["period"] == 0
+    assert rows[0]["cash"] == pytest.approx(-5e6)
+    assert rows[-1]["closure"] == pytest.approx(1e6)
+    assert sum(r["royalty"] for r in rows) > 0
+    assert taxed["project"]["npv"] < plain["project"]["npv"]
+    text = _run(*econ[:-1], "--capex", "0:5e6", "--tax", "0.25")
+    assert "project NPV" in text
+    no_plant = [a for a in econ if a not in ("--plant", "5e5", "--json")]
+    assert main([*no_plant, "--capex", "0:1"], io.StringIO()) == 1  # needs --plant
