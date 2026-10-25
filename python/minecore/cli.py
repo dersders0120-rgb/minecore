@@ -7,6 +7,7 @@ tested without the desktop workbench.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import platform
 import sys
@@ -16,7 +17,10 @@ from typing import Any, TextIO
 
 from minecore import _core, coords
 from minecore._core import MineCoreError
+from minecore.jobs import CancelledError
 from minecore.project import Project
+
+EXIT_CANCELLED = 130
 
 
 def environment_info() -> dict[str, str]:
@@ -62,6 +66,13 @@ def build_parser() -> argparse.ArgumentParser:
     show = project_cmds.add_parser("info", help="show project identity and catalogue size")
     show.add_argument("path", help="package directory")
     show.add_argument("--json", action="store_true", help="print machine-readable JSON")
+
+    hist = project_cmds.add_parser("history", help="list the operation log")
+    hist.add_argument("path", help="package directory")
+    hist.add_argument("--json", action="store_true", help="print machine-readable JSON")
+    for action in ("undo", "redo"):
+        step = project_cmds.add_parser(action, help=f"{action} the last operation")
+        step.add_argument("path", help="package directory")
 
     set_crs = project_cmds.add_parser("set-crs", help="set a projected working CRS")
     set_crs.add_argument("path", help="package directory")
@@ -181,11 +192,36 @@ def _set_local_grid(args: argparse.Namespace, out: TextIO) -> coords.WorkingSyst
     return coords.LocalGridSystem(args.name, base, grid)
 
 
+def _history_command(args: argparse.Namespace, out: TextIO) -> int:
+    if args.project_command in ("undo", "redo"):
+        with Project.open(args.path) as opened:
+            done = opened.undo() if args.project_command == "undo" else opened.redo()
+        out.write(
+            f"nothing to {args.project_command}\n"
+            if done is None
+            else f"{args.project_command}: #{done.seq} {done.description}\n"
+        )
+        return 0
+    if args.project_command == "history":
+        with Project.open(args.path, read_only=True) as opened:
+            records = opened.history()
+        if args.json:
+            _dump(out, [dataclasses.asdict(r) for r in records])
+        else:
+            for r in records:
+                mark = " (undone)" if r.state == "undone" else ""
+                out.write(f"#{r.seq:<4} {r.utc}  {r.user_name:12} {r.description}{mark}\n")
+        return 0
+    raise AssertionError(args.project_command)
+
+
 def _project_command(args: argparse.Namespace, out: TextIO) -> int:
     if args.project_command == "create":
         with Project.create(args.path, args.name) as created:
             out.write(f"created {created.path} ({created.info.project_id})\n")
         return 0
+    if args.project_command in ("undo", "redo", "history"):
+        return _history_command(args, out)
     if args.project_command in ("set-crs", "set-local-grid"):
         system: coords.WorkingSystem
         if args.project_command == "set-local-grid":
@@ -231,6 +267,9 @@ def main(argv: Sequence[str] | None = None, out: TextIO | None = None) -> int:
     if args.command in handlers:
         try:
             return handlers[args.command](args, stream)
+        except (CancelledError, KeyboardInterrupt):
+            sys.stderr.write("cancelled; nothing was changed\n")
+            return EXIT_CANCELLED
         except MineCoreError as exc:
             sys.stderr.write(f"error: {exc}\n")
             return 1

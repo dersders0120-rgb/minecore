@@ -6,6 +6,7 @@ A project is a directory::
         project.sqlite   metadata, object catalogue, settings, history
         project.lock     single-writer lock (held while open for writing)
         tables/          Parquet tables (drillhole data, composites, ...)
+        sources/         archived copies of imported source files
         blocks/          chunked block model storage
         geometry/        meshes, strings and solids
         backups/         automatic copies of project.sqlite made before migrations
@@ -21,6 +22,8 @@ import json
 import re
 import sqlite3
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from types import TracebackType
@@ -28,12 +31,15 @@ from typing import Any, Self
 
 from minecore import coords
 from minecore._core import core_version
+from minecore.project import bulk as _bulk
+from minecore.project import history as _history
 from minecore.project.errors import (
     ProjectError,
     ProjectFormatError,
     ProjectVersionError,
     ReadOnlyProjectError,
 )
+from minecore.project.history import OperationRecord
 from minecore.project.locking import ProjectLock
 from minecore.project.migrations import (
     Migration,
@@ -46,7 +52,7 @@ from minecore.project.migrations import (
 APPLICATION_ID = 0x4D434F52  # "MCOR"
 PACKAGE_SUFFIX = ".mcproj"
 DB_FILE = "project.sqlite"
-DATA_DIRS = ("tables", "blocks", "geometry")
+DATA_DIRS = ("tables", "sources", "blocks", "geometry")
 BACKUP_DIR = "backups"
 COORDINATE_SYSTEM_KEY = "coordinate_system"
 
@@ -225,6 +231,7 @@ class Project:
             raise
         project = cls(package, conn, lock, read_only=False)
         project.migration_backup = backup
+        project.collect_garbage()
         return project
 
     def close(self) -> None:
@@ -297,10 +304,28 @@ class Project:
         )
 
     def integrity_errors(self) -> list[str]:
-        """Run SQLite's full integrity check; an empty list means healthy."""
+        """Check the database and every referenced bulk file; empty means healthy.
+
+        Runs SQLite's full integrity check and verifies the size and SHA-256
+        of each bulk file the current catalogue refers to.
+        """
         rows = self._db().execute("PRAGMA integrity_check").fetchall()
         messages = [str(r[0]) for r in rows]
-        return [] if messages == ["ok"] else messages
+        errors = [] if messages == ["ok"] else messages
+        for record in self.objects():
+            for ref in _bulk.file_refs(record.metadata):
+                problem = _bulk.verify(self._package, _bulk.FileRef.from_json(ref))
+                if problem is not None:
+                    errors.append(f"{record.kind} {record.name!r}: {problem}")
+        return errors
+
+    def collect_garbage(self) -> list[str]:
+        """Delete bulk files nothing can refer to any more; return their paths.
+
+        A file stays while the catalogue or any operation in the history
+        (including undone ones that can be redone) refers to it.
+        """
+        return _bulk.collect_garbage(self._package, self._writable())
 
     # -- settings ------------------------------------------------------------
 
@@ -310,13 +335,48 @@ class Project:
         return default if row is None else json.loads(row[0])
 
     def set_setting(self, key: str, value: Any) -> None:
-        """Store a JSON-serialisable setting."""
+        """Store a JSON-serialisable setting (an undoable operation)."""
         payload = json.dumps(value, ensure_ascii=False, allow_nan=False, sort_keys=True)
-        self._writable().execute(
-            "INSERT INTO settings (key, value_json) VALUES (?, ?) "
-            "ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json",
-            (key, payload),
-        )
+        with self.operation("set_setting", f"Set {key}", {"key": key}):
+            self._writable().execute(
+                "INSERT INTO settings (key, value_json) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json",
+                (key, payload),
+            )
+
+    # -- operations and undo -------------------------------------------------
+
+    @contextmanager
+    def operation(
+        self, kind: str, description: str, parameters: dict[str, Any] | None = None
+    ) -> Iterator[None]:
+        """Group changes into one undoable operation and one transaction.
+
+        Nested calls join the outer operation. If the body raises, nothing is
+        changed and nothing is logged.
+        """
+        with _history.operation(self._writable(), kind, description, parameters):
+            yield
+
+    def history(self) -> list[OperationRecord]:
+        """The operation log, oldest first; undone entries are still redoable."""
+        return _history.history(self._db())
+
+    def can_undo(self) -> bool:
+        """True when an operation can be undone."""
+        return any(op.state == "done" for op in self.history())
+
+    def can_redo(self) -> bool:
+        """True when an undone operation can be redone."""
+        return any(op.state == "undone" for op in self.history())
+
+    def undo(self) -> OperationRecord | None:
+        """Undo the latest operation and return it; ``None`` if nothing to undo."""
+        return _history.undo(self._writable())
+
+    def redo(self) -> OperationRecord | None:
+        """Redo the next undone operation and return it; ``None`` if nothing to redo."""
+        return _history.redo(self._writable())
 
     # -- coordinate system ---------------------------------------------------
 
@@ -339,7 +399,10 @@ class Project:
                 "the coordinate system cannot change once the project holds objects; "
                 "reprojecting stored data is not supported yet"
             )
-        self.set_setting(COORDINATE_SYSTEM_KEY, new)
+        with self.operation(
+            "set_coordinate_system", f"Set coordinate system: {system.describe()}", {"system": new}
+        ):
+            self.set_setting(COORDINATE_SYSTEM_KEY, new)
 
     # -- object catalogue ----------------------------------------------------
 
@@ -368,14 +431,72 @@ class Project:
         now = utc_now()
         object_id = str(uuid.uuid4())
         try:
-            conn.execute(
-                "INSERT INTO objects (object_id, kind, name, parent_id, storage_path, "
-                "metadata_json, created_utc, modified_utc) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (object_id, kind, name.strip(), parent_id, path, meta, now, now),
-            )
+            with self.operation(
+                "register_object", f"Add {kind} {name.strip()!r}", {"object_id": object_id}
+            ):
+                conn.execute(
+                    "INSERT INTO objects (object_id, kind, name, parent_id, storage_path, "
+                    "metadata_json, created_utc, modified_utc) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (object_id, kind, name.strip(), parent_id, path, meta, now, now),
+                )
         except sqlite3.IntegrityError as exc:
             raise ProjectError(f"cannot register {kind} {name!r}: {exc}") from exc
         return self.get_object(object_id)
+
+    def update_object(
+        self,
+        object_id: str,
+        *,
+        name: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        description: str | None = None,
+    ) -> ObjectRecord:
+        """Change an object's name and/or metadata in one operation.
+
+        Bulk files referenced by the new metadata must already be complete.
+
+        Raises:
+            ProjectError: unknown object, empty or duplicate name.
+        """
+        conn = self._writable()
+        current = self.get_object(object_id)
+        new_name = current.name if name is None else name.strip()
+        if not new_name:
+            raise ProjectError("object name must not be empty")
+        meta = current.metadata if metadata is None else metadata
+        text = json.dumps(meta, ensure_ascii=False, allow_nan=False, sort_keys=True)
+        try:
+            with self.operation(
+                "update_object",
+                description or f"Update {current.kind} {new_name!r}",
+                {"object_id": object_id},
+            ):
+                conn.execute(
+                    "UPDATE objects SET name = ?, metadata_json = ?, modified_utc = ? "
+                    "WHERE object_id = ?",
+                    (new_name, text, utc_now(), object_id),
+                )
+        except sqlite3.IntegrityError as exc:
+            raise ProjectError(f"cannot rename {current.kind} to {new_name!r}: {exc}") from exc
+        return self.get_object(object_id)
+
+    def delete_object(self, object_id: str) -> None:
+        """Remove an object from the catalogue (undoable; its files stay until unreferenced).
+
+        Raises:
+            ProjectError: unknown object, or other objects have it as parent.
+        """
+        conn = self._writable()
+        current = self.get_object(object_id)
+        try:
+            with self.operation(
+                "delete_object",
+                f"Delete {current.kind} {current.name!r}",
+                {"object_id": object_id},
+            ):
+                conn.execute("DELETE FROM objects WHERE object_id = ?", (object_id,))
+        except sqlite3.IntegrityError as exc:
+            raise ProjectError(f"cannot delete {current.kind} {current.name!r}: {exc}") from exc
 
     def get_object(self, object_id: str) -> ObjectRecord:
         """Return one catalogue record."""
