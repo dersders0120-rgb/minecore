@@ -74,10 +74,17 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
 - Several metals: a main grade plus co-products (`--coproduct
   ATTR:PRICE:UNIT:REC[:PAYABLE[:SELLING[:R2/R3]]]`, GUI "Yan ürünler"), each
   with its own price, recovery, payable fraction, selling cost and recovery
-  per process route; or an NSR value per tonne. Not modelled: penalty
-  elements (As, Hg, F deductions), minimum deductions and treatment/refining
-  charges per concentrate tonne, concentrate grade and mass pull, price
-  escalation per metal. The schedule's metal columns report the main metal
+  per process route; or an NSR value per tonne. Concentrate terms
+  (`--concentrate-grade`, `--treatment-charge`, `--penalty
+  ATTR:REC:LIMIT:STEP:RATE`, GUI "Konsantre tenörü / TC", "Cezalı öğeler"):
+  concentrate tonnes from the recovered main metal and a fixed concentrate
+  grade, a treatment charge per concentrate tonne and stepwise linear
+  penalties on element grades in the concentrate; main route only, no
+  moisture, no minimum deductions, no fractional-step rounding, no price
+  escalation per metal. Cost adjustment factors (`--mining-factor`,
+  `--processing-factor`, GUI "maliyet çarpanı"): block attributes that
+  multiply the mining and processing cost (MCAF/PCAF); the Lane cut-off tool
+  does not use them. The schedule's metal columns report the main metal
   only; co-product revenue is in the period revenue.
 - Process routes (`--route NAME:RECOVERY:COST`, GUI "Ek işleme yolları"):
   each block goes to the route with the best margin at the shell's revenue

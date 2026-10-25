@@ -56,7 +56,7 @@ from minecore.pitopt.benchdesign import (
 from minecore.pitopt.cashflow import CashFlow, FinancialTerms, cash_flow, parse_capital
 from minecore.pitopt.cutoff import cutoffs_from_model
 from minecore.pitopt.design import edge_blocks, export_pit, period_surfaces
-from minecore.pitopt.economics import PitOptError, parse_products, parse_routes
+from minecore.pitopt.economics import PitOptError, parse_penalties, parse_products, parse_routes
 from minecore.pitopt.milp import OptimisedSchedule, schedule_optimised
 from minecore.pitopt.optimise import PitResult, Schedule, route_tonnes, store
 from minecore.pitopt.phases import best_pushbacks
@@ -377,6 +377,22 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
         help="greedy rules or NPV-maximising MILP (with --plant)",
     )
     opt.add_argument("--time-limit", type=float, default=60.0, help="MILP time limit, s")
+    opt.add_argument("--mining-factor", help="attribute multiplying the mining cost (MCAF)")
+    opt.add_argument("--processing-factor", help="attribute multiplying the processing cost (PCAF)")
+    opt.add_argument(
+        "--concentrate-grade",
+        type=float,
+        default=0.0,
+        help="main metal fraction in the concentrate, e.g. 0.25 (enables TC and penalties)",
+    )
+    opt.add_argument("--treatment-charge", type=float, default=0.0, help="per concentrate tonne")
+    opt.add_argument(
+        "--penalty",
+        action="append",
+        default=[],
+        metavar="ATTR:REC:LIMIT:STEP:RATE",
+        help="penalty element in the concentrate, e.g. as:30:2000:1000:3; repeat",
+    )
     opt.add_argument(
         "--period-years",
         default="",
@@ -1009,6 +1025,11 @@ def pit_optimise(project: Project, args: argparse.Namespace, out: TextIO) -> int
         args.payable,
         args.royalty,
         parse_products(";".join(args.coproduct)),
+        mining_factor=args.mining_factor or "",
+        processing_factor=args.processing_factor or "",
+        concentrate_grade=args.concentrate_grade,
+        treatment_charge=args.treatment_charge,
+        penalties=parse_penalties(";".join(args.penalty)),
     )
     terms = FinancialTerms(
         parse_capital(args.capex),

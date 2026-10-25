@@ -61,6 +61,10 @@ GUIDE = """
    yüksek marjlı yola gider) desteklenir. Çizelgede stok tenör sınıfları (ör. `1; 2`),
    stok kapasitesi ve geri yükleme maliyeti verilebilir: tesis önce yüksek tenörlü
    cevherle beslenir, düşük tenör stokta bekler, dolu stoktan taşan cevher döküme gider.
+   "Kazı/İşleme maliyet çarpanı" bir blok özniteliğiyle (ör. sert kayada 1.2) maliyeti
+   blok blok çarpar (MCAF/PCAF). "Konsantre tenörü" girilirse ana yoldaki metal konsantre
+   tonuna çevrilir; TC konsantre tonu başına düşülür, "Cezalı öğeler" (ör.
+   `as:30:2000:1000:3`) serbest sınırı aşan her adım için ceza keser.
    "Pushback'leri NPV'ye göre seç" işaretlenirse kabuklar, çizelge NPV'sini en büyütecek
    şekilde gruplanır (her pushback en az cevher hedefini taşır; az kabukta tüm
    gruplamalar denenir, çokta yerel arama yapılır).

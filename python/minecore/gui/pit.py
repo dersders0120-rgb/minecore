@@ -67,7 +67,12 @@ from minecore.pitopt.cashflow import (
 )
 from minecore.pitopt.cutoff import LaneResult, cutoffs_from_model
 from minecore.pitopt.design import edge_blocks
-from minecore.pitopt.economics import PitOptError, parse_products, parse_routes
+from minecore.pitopt.economics import (
+    PitOptError,
+    parse_penalties,
+    parse_products,
+    parse_routes,
+)
 from minecore.pitopt.fleet import Fleet, FleetRow, fleet_by_period, period_lifts
 from minecore.pitopt.milp import OptimisedSchedule, schedule_optimised
 from minecore.pitopt.optimise import route_tonnes, store
@@ -216,6 +221,29 @@ class PitDialog(QDialog):
             "(örn. ag:24:ozt:70:95:0:20). Blok geliri tüm metallerin toplamıdır."
         )
         ef.addRow("Yan ürünler", self.coproducts)
+        self.mcaf = QComboBox()
+        self.pcaf = QComboBox()
+        for box in (self.mcaf, self.pcaf):
+            box.setToolTip(
+                "Blok başına maliyet çarpanı (MCAF/PCAF), örn. sert kaya 1.2, uzak taşıma 1.1. "
+                "Boş değerler 1 sayılır."
+            )
+        ef.addRow("Kazı maliyet çarpanı (öznitelik)", self.mcaf)
+        ef.addRow("İşleme maliyet çarpanı (öznitelik)", self.pcaf)
+        self.conc_grade = _spin(0.0, 0.0, 100.0, 1.0, 2)
+        self.conc_grade.setToolTip(
+            "Konsantrede ana metal oranı (%), örn. bakır konsantresi için 25. 0: konsantre "
+            "şartları yok. Yalnız ana işleme yoluna uygulanır."
+        )
+        self.tc = _spin(0.0, 0.0, 1e4, 5.0, 2)
+        ef.addRow("Konsantre tenörü (%) / TC ($/t kons.)", _row(self.conc_grade, self.tc))
+        self.penalties = QLineEdit()
+        self.penalties.setPlaceholderText("örn. as:30:2000:1000:3 (öğe:kazanım%:serbest:adım:$)")
+        self.penalties.setToolTip(
+            "Konsantrede cezalı öğeler: öğe özniteliği, konsantreye geçen oran, serbest sınır "
+            "ve adım (özniteliğin biriminde), her adım için konsantre tonu başına ceza."
+        )
+        ef.addRow("Cezalı öğeler", self.penalties)
         self.route_label = QLabel()
         self.route_label.setWordWrap(True)
         ef.addRow(self.route_label)
@@ -420,6 +448,10 @@ class PitDialog(QDialog):
             a for a in attrs if not a.endswith(("_n", "_dist", "_kv")) and not a.startswith("pit_")
         ]
         self.grade.addItems([g for g in grades if g != "kaya"])
+        for box in (self.mcaf, self.pcaf):
+            box.clear()
+            box.addItem("(yok)")
+            box.addItems(grades)
         self.density_attr.addItems(grades)
         self.rock.addItems(grades)
         if "kaya" in grades:
@@ -461,6 +493,11 @@ class PitDialog(QDialog):
             payable=self.payable.value() / 100.0,
             royalty=self.royalty.value() / 100.0,
             coproducts=() if self.nsr.isChecked() else parse_products(self.coproducts.text()),
+            mining_factor="" if self.mcaf.currentIndex() <= 0 else self.mcaf.currentText(),
+            processing_factor="" if self.pcaf.currentIndex() <= 0 else self.pcaf.currentText(),
+            concentrate_grade=0.0 if self.nsr.isChecked() else self.conc_grade.value() / 100.0,
+            treatment_charge=self.tc.value() if self.conc_grade.value() > 0 else 0.0,
+            penalties=parse_penalties(self.penalties.text()) if self.conc_grade.value() else (),
         )
 
     def limits(self) -> Limits:
