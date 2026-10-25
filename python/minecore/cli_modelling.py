@@ -29,6 +29,7 @@ from minecore.blockmodel import BlockModel, BlockModelError, Grid
 from minecore.blockmodel.calc import calculate
 from minecore.blockmodel.classify import Criteria, classify
 from minecore.blockmodel.importer import import_block_csv, parse_units
+from minecore.blockmodel.reblock import reblock
 from minecore.blockmodel.workflow import (
     estimate_blocks,
     interval_samples,
@@ -136,6 +137,12 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     rep.add_argument("--density", default="2.7", help="t/m3 or a density attribute")
     rep.add_argument("--json", action="store_true")
     rep.add_argument("--filter", nargs=3, metavar=("ATTR", "MIN", "MAX"), help="report subset")
+    reb = bm_cmds.add_parser("reblock", help="combine blocks into larger blocks")
+    reb.add_argument("project")
+    reb.add_argument("model")
+    reb.add_argument("name")
+    reb.add_argument("--factors", type=int, nargs=3, required=True, metavar=("FX", "FY", "FZ"))
+    reb.add_argument("--density", default="2.7")
     calc = bm_cmds.add_parser("calc", help="new attribute from an expression")
     calc.add_argument("project")
     calc.add_argument("model")
@@ -394,6 +401,12 @@ def bm_command(args: argparse.Namespace, out: TextIO) -> int:
                 top_cut=args.top_cut,
             )
             out.write(f"{args.attribute}: estimated; {missed} blocks without enough samples\n")
+            return 0
+        if args.bm_command == "reblock":
+            new = reblock(
+                project, model, args.name, tuple(args.factors), density=_density(args.density)
+            )
+            out.write(f"{args.name}: {new.grid.count} blocks of {new.grid.size}\n")
             return 0
         if args.bm_command in ("calc", "classify"):
             return _bm_derive(model, args, out)

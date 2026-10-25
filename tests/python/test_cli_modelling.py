@@ -149,3 +149,4 @@ def test_csv_to_pit_schedule(tmp_path: Path) -> None:
         str(tmp_path / "ug.dxf"),
     )
     assert "stopes" in ug
+    assert "blocks of" in _run("bm", "reblock", p, "BM", "BM2", "--factors", "2", "2", "1")

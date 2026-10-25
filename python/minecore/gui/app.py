@@ -288,6 +288,7 @@ class MainWindow(QMainWindow):
         action(bm, "Kestirim doğrulama (swath, çapraz doğrulama)...", self.validate_estimate)
         action(bm, "Güven kategorileri (mesafe, örnek sayısı, KV)...", self.categorise)
         action(bm, "Hesaplayıcı (ifade ile yeni öznitelik)...", self.calculator)
+        action(bm, "Yeniden bloklama (SMU / büyük blok)...", self.reblock_model)
         bm.addSeparator()
         action(bm, "Tenör-tonaj raporu...", self.grade_tonnage)
         action(bm, "Blok modelini CSV olarak dışa aktar...", self.export_block_model)
@@ -730,6 +731,38 @@ class MainWindow(QMainWindow):
         if r.skipped_columns:
             lines.append(f"Atlanan metin sütunları: {', '.join(r.skipped_columns)}")
         QMessageBox.information(self, "Blok modeli", "\n".join(lines))
+
+    def reblock_model(self) -> None:
+        from minecore.blockmodel.reblock import reblock  # noqa: PLC0415
+
+        project = self._need_project()
+        models = block_models(project)
+        if not models:
+            raise RuntimeError("Projede blok modeli yok.")
+        name, ok = QInputDialog.getItem(self, "Yeniden bloklama", "Blok modeli:", models, 0, False)
+        if not ok:
+            return
+        text, ok = QInputDialog.getText(
+            self, "Yeniden bloklama", "Birleştirme katsayıları X Y Z (örn. 2 2 1):", text="2 2 1"
+        )
+        if not ok:
+            return
+        parts = [int(v) for v in text.replace(",", " ").split()]
+        if len(parts) != 3:
+            raise RuntimeError("Üç tam sayı girin, örn. 2 2 1.")
+        model = BlockModel.open(project, name)
+        density: float | str = "yogunluk" if "yogunluk" in model.attributes else 2.7
+        target = f"{name}_{parts[0]}x{parts[1]}x{parts[2]}"
+        new = reblock(project, model, target, (parts[0], parts[1], parts[2]), density=density)
+        self.refresh()
+        g = new.grid
+        QMessageBox.information(
+            self,
+            "Yeniden bloklama",
+            f"'{target}': {g.count[0]} x {g.count[1]} x {g.count[2]} blok, "
+            f"{g.size[0]:g} x {g.size[1]:g} x {g.size[2]:g} m. Tenörler tonaj ağırlıklı "
+            f"(yoğunluk: {density}).",
+        )
 
     def sample_stats(self) -> None:
         from minecore.gui.resource import StatisticsDialog  # noqa: PLC0415
