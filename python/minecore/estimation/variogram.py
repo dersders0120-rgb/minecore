@@ -23,6 +23,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 from enum import StrEnum
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
@@ -174,6 +175,7 @@ def experimental(  # noqa: PLR0913 - options are keyword-only
     tolerance_deg: float = 22.5,
     max_pairs: int = 5_000_000,
     seed: int = 0,
+    holes: npt.NDArray[np.int64] | None = None,
 ) -> ExperimentalVariogram:
     """Semivariogram ``0.5 * mean((v_i - v_j)^2)`` per lag class.
 
@@ -183,6 +185,10 @@ def experimental(  # noqa: PLR0913 - options are keyword-only
     whose separation is within ``tolerance_deg`` of the direction (either
     sense) are used. When there are more than ``max_pairs`` pairs, a random
     subset of pairs is used (reported via ``pairs``).
+
+    ``holes`` (one hole index per sample) gives the *downhole* variogram: only
+    pairs within the same hole are used, the usual way to read the nugget
+    effect and short-range behaviour along closely spaced samples.
     """
     if not (lag > 0 and nlags > 0):
         raise EstimationError("lag must be > 0 and nlags >= 1")
@@ -192,7 +198,9 @@ def experimental(  # noqa: PLR0913 - options are keyword-only
     total = n * (n - 1) // 2
     if n < 2:
         raise EstimationError("an experimental variogram needs at least two samples")
-    if total <= max_pairs:
+    if holes is not None:
+        i, j = _same_hole_pairs(np.asarray(holes)[ok])
+    elif total <= max_pairs:
         i, j = np.triu_indices(n, k=1)
     else:
         rng = np.random.default_rng(seed)
@@ -220,6 +228,22 @@ def experimental(  # noqa: PLR0913 - options are keyword-only
     return ExperimentalVariogram(
         np.arange(1, nlags + 1, dtype=np.float64) * lag, gamma, pairs.astype(np.int64), mean_d
     )
+
+
+def _same_hole_pairs(holes: npt.NDArray[Any]) -> tuple[npt.NDArray[np.int64], ...]:
+    order = np.argsort(holes, kind="stable")
+    sorted_holes = holes[order]
+    starts = np.flatnonzero(np.r_[True, sorted_holes[1:] != sorted_holes[:-1]])
+    ends = np.r_[starts[1:], len(order)]
+    parts_i, parts_j = [], []
+    for a, b in zip(starts.tolist(), ends.tolist(), strict=True):
+        if b - a > 1:
+            ii, jj = np.triu_indices(b - a, k=1)
+            parts_i.append(order[a + ii])
+            parts_j.append(order[a + jj])
+    if not parts_i:
+        raise EstimationError("no hole has two or more samples")
+    return np.concatenate(parts_i), np.concatenate(parts_j)
 
 
 def fit_spherical(exp: ExperimentalVariogram, *, nugget: float | None = None) -> VariogramModel:

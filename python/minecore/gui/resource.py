@@ -243,7 +243,9 @@ class VariogramDialog(QDialog):
         form.addRow("Veri", self.source)
         form.addRow("Adım (lag) m", self.lag)
         form.addRow("Adım sayısı", self.nlags)
+        self.downhole = QCheckBox("Kuyu içi (yalnız aynı kuyudaki çiftler; nugget için)")
         form.addRow(self.directional)
+        form.addRow(self.downhole)
         form.addRow("Azimut / eğim °", _row(self.az, self.dip))
         form.addRow("Açı toleransı °", self.tol)
         form.addRow(run)
@@ -263,6 +265,18 @@ class VariogramDialog(QDialog):
         left.addWidget(model)
         self.ranges = EllipsoidBox("Erişim (range) elipsoidi")
         left.addWidget(self.ranges)
+        second = QGroupBox("2. yapı (iç içe model)")
+        sform = QFormLayout(second)
+        self.second = QCheckBox("Kullan")
+        self.mtype2 = QComboBox()
+        for t in ModelType:
+            self.mtype2.addItem(MODEL_TR[t], t)
+        self.sill2 = _spin(0.5, 1e-9, 1e9, 0.01, 4)
+        sform.addRow(self.second)
+        sform.addRow("Tip / eşik (C2)", _row(self.mtype2, self.sill2))
+        left.addWidget(second)
+        self.ranges2 = EllipsoidBox("2. yapı erişim elipsoidi", 300.0)
+        left.addWidget(self.ranges2)
         fit = QPushButton("Otomatik uydur (küresel, izotrop)")
         fit.clicked.connect(self.fit)
         save = QPushButton("Modeli projeye kaydet...")
@@ -277,21 +291,31 @@ class VariogramDialog(QDialog):
         self.figure = Figure(figsize=(6, 5))
         self.canvas = FigureCanvasQTAgg(self.figure)  # type: ignore[no-untyped-call]
         layout.addWidget(self.canvas, 1)
-        for w in (self.nugget, self.sill, *_ellipsoid_boxes(self.ranges)):
+        for w in (
+            self.nugget,
+            self.sill,
+            self.sill2,
+            *_ellipsoid_boxes(self.ranges),
+            *_ellipsoid_boxes(self.ranges2),
+        ):
             w.valueChanged.connect(self.plot)
         self.mtype.currentIndexChanged.connect(self.plot)
+        self.mtype2.currentIndexChanged.connect(self.plot)
+        self.second.toggled.connect(self.plot)
         if self.source.count():
             self.compute()
 
     def model(self) -> VariogramModel:
-        return VariogramModel(
-            self.nugget.value(),
-            (
+        structures = [
+            Structure(ModelType(self.mtype.currentData()), self.sill.value(), self.ranges.value())
+        ]
+        if self.second.isChecked():
+            structures.append(
                 Structure(
-                    ModelType(self.mtype.currentData()), self.sill.value(), self.ranges.value()
-                ),
-            ),
-        )
+                    ModelType(self.mtype2.currentData()), self.sill2.value(), self.ranges2.value()
+                )
+            )
+        return VariogramModel(self.nugget.value(), tuple(structures))
 
     def compute(self) -> None:
         if not self.source.currentText():
@@ -310,6 +334,7 @@ class VariogramDialog(QDialog):
             azimuth=self.az.value() if self.directional.isChecked() else None,
             dip=self.dip.value(),
             tolerance_deg=self.tol.value(),
+            holes=s.hole_index if self.downhole.isChecked() else None,
         )
         var = float(np.var(s.values))
         self.stats.setText(
@@ -372,6 +397,7 @@ class VariogramDialog(QDialog):
             "nlags": self.nlags.value(),
             "azimuth": self.az.value() if self.directional.isChecked() else None,
             "dip": self.dip.value(),
+            "downhole": self.downhole.isChecked(),
         }
         save_variogram(self.project, name.strip(), self.model(), source)
         QMessageBox.information(self, "Variogram", f"'{name.strip()}' projeye kaydedildi.")

@@ -233,3 +233,19 @@ def test_native_kriging_matches_a_direct_numpy_solve() -> None:
         sol = np.linalg.solve(a, b)
         assert res.value[t] == pytest.approx(sol[:n] @ val, rel=1e-9)
         assert res.variance[t] == pytest.approx(cbb - sol[:n] @ b[:n] - sol[n], rel=1e-7, abs=1e-10)
+
+
+def test_downhole_variogram_uses_only_same_hole_pairs() -> None:
+    from minecore.estimation import experimental  # noqa: PLC0415
+
+    # Two vertical holes 100 m apart; values alternate down hole A, constant in B.
+    z = np.arange(10, dtype=float)
+    xyz = np.concatenate([np.column_stack([np.zeros(10), np.zeros(10), z])] * 2)
+    xyz[10:, 0] = 100.0
+    values = np.concatenate([z % 2, np.full(10, 5.0)])
+    holes = np.repeat([0, 1], 10)
+    exp = experimental(xyz, values, 1.0, 3, holes=holes)
+    # Lag 1: 9 pairs in A (squared diff 1) and 9 in B (0): gamma = 0.5 * 9 / 18.
+    assert exp.pairs.tolist() == [18, 16, 14]
+    assert exp.gamma[0] == pytest.approx(0.25)
+    assert exp.gamma[1] == pytest.approx(0.0)
