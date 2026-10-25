@@ -89,7 +89,16 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
   is not re-chosen when a route is full. Lane cut-off uses the main route only.
   Mining recovery and dilution are global factors applied to ore blocks
   (dilution at zero grade); no edge-dilution or regularisation model.
-- Pushbacks group whole shells by ore tonnage. Minimum mining width
+- Pushbacks group whole shells by ore tonnage, or by NPV
+  (`pitopt.phases.best_pushbacks`, CLI `--best-pushbacks`, GUI "Pushback'leri
+  NPV'ye göre seç"): each grouping of consecutive shells that gives every
+  pushback the ore target is valued by its greedy constrained schedule NPV.
+  All groupings are tried when they number at most 300 (exact for that
+  schedule); otherwise a local search (move, merge, split one boundary)
+  starts from the ore-target grouping and never returns a worse one, but
+  may stop at a local optimum. Whole shells only (no split shells), the MILP
+  schedule is not used in the search, and the minimum width is applied after
+  the choice, so the NPV after width repair can differ. Minimum mining width
   (`pitopt.width`) reworks pushbacks so each bench increment is at least the
   given width (morphological opening; thin parts join the previous pushback,
   slope precedence is restored by propagation). The final pit itself is not

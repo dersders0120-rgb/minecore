@@ -284,6 +284,26 @@ def test_pit_dialog_milp_schedule(qapp: QApplication, tmp_path: Path) -> None:
     project.close()
 
 
+def test_pit_dialog_pushbacks_by_npv(qapp: QApplication, tmp_path: Path) -> None:
+    notes: list[str] = []
+    project, dialog, _parent = _gold_silver_dialog(tmp_path, notes)
+    dialog.price.setValue(1800.0)
+    dialog.coproducts.setText("ag:25:ozt:70:95")
+    dialog.run()
+    dialog.plant.setValue(0.02)
+    dialog.min_ore.setValue(0.02)
+    dialog.make_phases()
+    assert dialog.sched is not None
+    plain = dialog.sched.npv
+    dialog.by_npv.setChecked(True)
+    dialog.max_phases.setValue(4)
+    dialog.make_phases()
+    assert dialog.sched.npv >= plain - 1e-6 * abs(plain)
+    assert 1 <= int(dialog.phase.max()) <= 4
+    assert any("NPV'ye göre seçildi" in n for n in notes)
+    project.close()
+
+
 def test_pit_dialog_values_co_products(qapp: QApplication, tmp_path: Path) -> None:
     project, dialog, _parent = _gold_silver_dialog(tmp_path, [])
     dialog.price.setValue(1800.0)

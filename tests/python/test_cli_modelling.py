@@ -348,3 +348,7 @@ def test_project_cash_flow_from_the_cli(tmp_path: Path) -> None:
     assert milp["npv"] >= milp["milp"]["greedy_npv"] - 1e-6 * abs(milp["milp"]["greedy_npv"])
     assert milp["milp"]["greedy_npv"] == pytest.approx(plain["npv"])
     assert main([*no_plant, "--schedule", "milp"], io.StringIO()) == 1
+    # Pushbacks chosen by NPV: never below the ore-target grouping.
+    best = json.loads(_run(*econ, "--best-pushbacks", "--max-pushbacks", "4"))
+    assert best["npv"] >= plain["npv"] - 1e-6 * abs(plain["npv"])
+    assert main([*no_plant, "--best-pushbacks"], io.StringIO()) == 1

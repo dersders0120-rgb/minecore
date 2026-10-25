@@ -65,6 +65,7 @@ from minecore.pitopt.design import edge_blocks
 from minecore.pitopt.economics import PitOptError, parse_products, parse_routes
 from minecore.pitopt.milp import OptimisedSchedule, schedule_optimised
 from minecore.pitopt.optimise import route_tonnes, store
+from minecore.pitopt.phases import best_pushbacks
 from minecore.pitopt.scheduling import (
     ConstrainedSchedule,
     InventoryRow,
@@ -236,6 +237,15 @@ class PitDialog(QDialog):
         export.clicked.connect(self._guard(self.export))
         pf.addRow("Nihai ocak kabuğu", self.final)
         pf.addRow("Pushback başına en az cevher (Mt)", self.min_ore)
+        self.by_npv = QCheckBox("Pushback'leri NPV'ye göre seç")
+        self.by_npv.setToolTip(
+            "Kabukları pushback'lere, çizelge NPV'sini en büyütecek şekilde gruplar "
+            "(her pushback en az yukarıdaki cevheri taşır). Az kabukta tüm gruplamalar "
+            "denenir, çok kabukta yerel arama yapılır."
+        )
+        self.max_phases = QSpinBox(minimum=0, maximum=30, value=0)
+        self.max_phases.setSpecialValueText("sınırsız")
+        pf.addRow(_row(self.by_npv, QLabel("en çok"), self.max_phases))
         self.min_width = _spin(0.0, 0.0, 1000.0, 5.0, 1)
         self.min_width.setToolTip("Her basamaktaki pushback dilimi için en az genişlik; 0 = yok")
         pf.addRow("Minimum kazı genişliği (m)", self.min_width)
@@ -568,15 +578,32 @@ class PitDialog(QDialog):
         if self.pit is None:
             raise RuntimeError("Önce kabukları hesaplayın.")
         final = int(self.final.currentData())
-        self.phase = pushbacks(self.pit, final, self.min_ore.value() * 1e6)
         width_note = ""
+        if self.by_npv.isChecked():
+            pit, limits, ore = self.pit, self.limits(), self.min_ore.value() * 1e6
+            most = self.max_phases.value() or None
+            choice = _with_progress(
+                self,
+                "Pushback'ler NPV'ye göre seçiliyor...",
+                lambda progress: best_pushbacks(
+                    pit, final, limits, min_ore_t=ore, max_pushbacks=most, progress=progress.update
+                ),
+            )
+            self.phase = choice.phase
+            width_note = (
+                f"\nPushback'ler NPV'ye göre seçildi ({choice.evaluations} tasarım, "
+                + ("tümü denendi" if choice.exhaustive else "yerel arama")
+                + f"): çizelge NPV {choice.start_npv / 1e6:,.1f} → {choice.npv / 1e6:,.1f} M$."
+            )
+        else:
+            self.phase = pushbacks(self.pit, final, self.min_ore.value() * 1e6)
         if self.min_width.value() > 0:
             grid = BlockModel.open(self.project, self.model.currentText()).grid
             fixed = apply_mining_width(
                 grid, self.phase, self.slope_profile(), self.min_width.value()
             )
             self.phase = fixed.phase
-            width_note = f"\nMinimum genişlik: {fixed.moved:,} blok başka pushback'e alındı" + (
+            width_note += f"\nMinimum genişlik: {fixed.moved:,} blok başka pushback'e alındı" + (
                 f"; {fixed.remaining_slivers:,} dar blok kaldı." if fixed.remaining_slivers else "."
             )
         limits = self.limits()

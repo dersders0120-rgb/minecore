@@ -52,6 +52,7 @@ from minecore.pitopt.design import edge_blocks, export_pit, period_surfaces
 from minecore.pitopt.economics import PitOptError, parse_products, parse_routes
 from minecore.pitopt.milp import OptimisedSchedule, schedule_optimised
 from minecore.pitopt.optimise import PitResult, Schedule, route_tonnes, store
+from minecore.pitopt.phases import best_pushbacks
 from minecore.pitopt.scheduling import ConstrainedSchedule, Limits, schedule_constrained
 from minecore.pitopt.sensitivity import (
     Case,
@@ -350,6 +351,12 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
         help="greedy rules or NPV-maximising MILP (with --plant)",
     )
     opt.add_argument("--time-limit", type=float, default=60.0, help="MILP time limit, s")
+    opt.add_argument(
+        "--best-pushbacks",
+        action="store_true",
+        help="group the shells into pushbacks by schedule NPV (with --plant)",
+    )
+    opt.add_argument("--max-pushbacks", type=int, help="at most this many pushbacks")
     opt.add_argument(
         "--sensitivity",
         nargs="*",
@@ -928,28 +935,25 @@ def pit_optimise(project: Project, args: argparse.Namespace, out: TextIO) -> int
     )
     final = factors.index(args.final_rf) + 1
     phase_ore = args.phase_ore or max(result.rows[final - 1].ore_t / 3, 1.0)
-    phase = pushbacks(result, final, phase_ore)
+    limits = _limits(args)
+    if limits is not None and args.best_pushbacks:
+        choice = best_pushbacks(
+            result, final, limits, min_ore_t=phase_ore, max_pushbacks=args.max_pushbacks
+        )
+        phase = choice.phase
+        sys.stderr.write(
+            f"pushbacks by NPV: shells grouped at {list(choice.boundaries)} "
+            f"({choice.evaluations} designs, {'all' if choice.exhaustive else 'local search'}); "
+            f"NPV {choice.start_npv:,.0f} -> {choice.npv:,.0f}\n"
+        )
+    else:
+        phase = pushbacks(result, final, phase_ore)
     if args.min_width > 0:
         phase = apply_mining_width(model.grid, phase, slope, args.min_width).phase
     sched: Schedule | ConstrainedSchedule
     flow: CashFlow | None = None
     sens: Sensitivity | None = None
-    if args.schedule == "milp" and not args.plant:
-        raise PitOptError("the MILP schedule needs the plant capacity: give --plant")
-    if args.sensitivity is not None and not args.plant:
-        raise PitOptError("the sensitivity analysis needs the constrained schedule: give --plant")
-    if args.plant:
-        limits = Limits(
-            args.rate,
-            args.plant,
-            args.lag,
-            args.sinking,
-            args.discount,
-            route_capacities=tuple(args.route_capacity),
-            grade_bins=tuple(args.grade_bins),
-            stockpile_capacities=tuple(args.stockpile_capacity),
-            rehandle_cost=args.rehandle_cost,
-        )
+    if limits is not None:
         if args.schedule == "milp":
             sched = schedule_optimised(result, phase, limits, time_limit=args.time_limit)
         else:
@@ -991,6 +995,31 @@ def pit_optimise(project: Project, args: argparse.Namespace, out: TextIO) -> int
         return 0
     _write_optimise(result, econ, final, phase, sched, flow, sens, out)
     return 0
+
+
+def _limits(args: argparse.Namespace) -> Limits | None:
+    """Schedule limits when a plant capacity is given; options that need them otherwise fail."""
+    needs = {
+        "--schedule milp": args.schedule == "milp",
+        "--sensitivity": args.sensitivity is not None,
+        "--best-pushbacks": args.best_pushbacks,
+    }
+    if not args.plant:
+        for option, used in needs.items():
+            if used:
+                raise PitOptError(f"{option} needs the constrained schedule: give --plant")
+        return None
+    return Limits(
+        args.rate,
+        args.plant,
+        args.lag,
+        args.sinking,
+        args.discount,
+        route_capacities=tuple(args.route_capacity),
+        grade_bins=tuple(args.grade_bins),
+        stockpile_capacities=tuple(args.stockpile_capacity),
+        rehandle_cost=args.rehandle_cost,
+    )
 
 
 def _optimise_json(
