@@ -135,7 +135,9 @@ def test_g_production_and_stockpile_balance(project: Project) -> None:
     grid = Grid((0.0, 0.0, 0.0), (10.0, 10.0, 10.0), (12, 8, 6))
     model = BlockModel.create(project, "g", grid)
     c = grid.centroids()
-    grade = np.where(np.hypot(c[:, 0] - 60, c[:, 1] - 40) < 30, rng.uniform(0.5, 4.0, grid.blocks), 0)
+    grade = np.where(
+        np.hypot(c[:, 0] - 60, c[:, 1] - 40) < 30, rng.uniform(0.5, 4.0, grid.blocks), 0
+    )
     model.set_attributes({"au": grade}, {"au": {"unit": "g/t"}}, "grades")
     econ = Economics(60.0, PriceUnit.GRAM, 0.9, 2.0, 15.0, density=2.7)
     result = optimise_pit(model, "au", econ, SlopeProfile(45.0), [0.6, 0.8, 1.0])
@@ -191,9 +193,7 @@ def test_h_error_conditions(project: Project, tmp_path: Path) -> None:
     full = optimise_pit(rich, "g", Economics(10_000.0, PriceUnit.TONNE, 0.9, 1.0, 1.0, density=2.7),
                         SlopeProfile(45.0), [1.0])  # fmt: skip
     assert (full.shell == 1).all()
-    short = schedule_constrained(
-        full, pushbacks(full, 1, 0.0), Limits(100.0, 100.0, max_periods=2)
-    )
+    short = schedule_constrained(full, pushbacks(full, 1, 0.0), Limits(100.0, 100.0, max_periods=2))
     assert short.unmined_t == pytest.approx(2700.0 - 200.0)
     # Broken import files fail with a message, and nothing is created.
     bad = tmp_path / "bad.csv"
