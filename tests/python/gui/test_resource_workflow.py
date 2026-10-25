@@ -436,6 +436,30 @@ def test_stope_dialog(qapp: QApplication, tmp_path: Path) -> None:
     project.close()
 
 
+def test_implicit_dialog(qapp: QApplication, tmp_path: Path) -> None:
+    from minecore.blockmodel import Grid  # noqa: PLC0415
+    from minecore.gui.geology import ImplicitDialog  # noqa: PLC0415
+    from minecore.solids import solid_names  # noqa: PLC0415
+
+    project, db, field = _project(tmp_path)
+    samples = resource._samples(db, f"komp / {field}")
+    BlockModel.create(project, "BM", Grid.covering(samples.xyz, (10.0, 10.0, 5.0)))
+    parent = QWidget()
+    dialog = ImplicitDialog(project, db, parent)
+    dialog.source.setCurrentText(f"komp / {field}")
+    dialog.threshold.setValue(0.1)
+    dialog.use_aniso.setChecked(True)
+    dialog.aniso.major.setValue(3.0)
+    dialog.aniso.semi.setValue(3.0)
+    dialog.aniso.minor.setValue(1.0)
+    dialog.run()
+    assert dialog.result_ is not None
+    assert dialog.result_.solid.open_edges() == 0
+    assert "cevher" in solid_names(project)
+    assert "dom_cevher" in BlockModel.open(project, "BM").attributes
+    project.close()
+
+
 def test_guide_dialog(qapp: QApplication) -> None:
     from minecore.gui.guide import GuideDialog  # noqa: PLC0415
 

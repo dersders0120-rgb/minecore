@@ -42,6 +42,7 @@ from minecore.drillholes import DrillholeDatabase, Severity, validate
 from minecore.drillholes.importer import import_folder
 from minecore.drillholes.workflow import composite_table, hole_geometry, save_composites
 from minecore.estimation import Ellipsoid, Method, Search, experimental, fit_spherical
+from minecore.geology.implicit import interval_contacts, model_domain
 from minecore.pitopt import Economics, PriceUnit, SlopeProfile, optimise_pit, pushbacks, schedule
 from minecore.pitopt.benchdesign import BenchGeometry, Ramp, design_from_model
 from minecore.pitopt.cutoff import cutoffs_from_model
@@ -109,6 +110,24 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     so_flag.add_argument("solid")
     so_flag.add_argument("model")
     so_flag.add_argument("--subdivisions", type=int, default=1, help="partial blocks: n^3 samples")
+
+    geo = commands.add_parser("geo", help="implicit domain modelling")
+    geo_cmds = geo.add_subparsers(dest="geo_command", metavar="ACTION", required=True)
+    imp_dom = geo_cmds.add_parser("implicit", help="domain solid from drillhole intervals (RBF)")
+    imp_dom.add_argument("project")
+    imp_dom.add_argument("source", help="table/field")
+    imp_dom.add_argument("model", help="block model giving the grid")
+    imp_dom.add_argument("name")
+    imp_dom.add_argument("--threshold", type=float, help="numeric field: inside if >= threshold")
+    imp_dom.add_argument("--codes", nargs="+", default=[], help="category field: inside codes")
+    imp_dom.add_argument("--max-distance", type=float, default=10.0)
+    imp_dom.add_argument("--smoothing", type=float, default=0.0)
+    imp_dom.add_argument(
+        "--anisotropy",
+        type=float,
+        nargs=6,
+        metavar=("MAJOR", "SEMI", "MINOR", "AZ", "DIP", "RAKE"),
+    )
 
     bm = commands.add_parser("bm", help="block models, variograms, estimation, reports")
     bm_cmds = bm.add_subparsers(dest="bm_command", metavar="ACTION", required=True)
@@ -317,6 +336,31 @@ def solid_command(args: argparse.Namespace, out: TextIO) -> int:
         if args.subdivisions > 1:
             pct = model.values(f"{attribute}_pct")
             out.write(f"{attribute}_pct: volume {pct.sum() * model.grid.block_volume:,.0f} m3\n")
+    return 0
+
+
+def geo_command(args: argparse.Namespace, out: TextIO) -> int:
+    with Project.open(args.project) as project:
+        data = interval_contacts(
+            _db(project),
+            *_source(args.source),
+            threshold=args.threshold,
+            codes=tuple(args.codes),
+            max_distance=args.max_distance,
+        )
+        r = model_domain(
+            BlockModel.open(project, args.model),
+            data,
+            args.name,
+            anisotropy=Ellipsoid(*args.anisotropy) if args.anisotropy else None,
+            smoothing=args.smoothing,
+        )
+        save_solid(project, args.name, r.solid)
+        out.write(
+            f"{args.name}: {data.contacts} contacts, volume {r.solid.volume():,.0f} m3, "
+            f"open edges {r.solid.open_edges()}, {r.blocks_inside} blocks inside "
+            f"(dom_{args.name}, imp_{args.name})\n"
+        )
     return 0
 
 
@@ -710,4 +754,5 @@ HANDLERS = {
     "ug": ug_command,
     "strings": strings_command,
     "solid": solid_command,
+    "geo": geo_command,
 }
