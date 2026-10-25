@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from pathlib import Path
 from typing import Any, TextIO
@@ -42,6 +43,7 @@ from minecore.drillholes.workflow import composite_table, hole_geometry, save_co
 from minecore.estimation import Ellipsoid, Method, Search, experimental, fit_spherical
 from minecore.pitopt import Economics, PriceUnit, SlopeProfile, optimise_pit, pushbacks, schedule
 from minecore.pitopt.benchdesign import BenchGeometry, design_from_model
+from minecore.pitopt.cutoff import cutoffs_from_model
 from minecore.pitopt.design import edge_blocks, export_pit
 from minecore.pitopt.economics import PitOptError
 from minecore.pitopt.optimise import Schedule, store
@@ -217,6 +219,26 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     exp.add_argument("--topography", help="surface to complete the mined-out surface")
     exp.add_argument("--save-surface", help="store the mined-out surface under this name")
     opt.add_argument("--json", action="store_true")
+    cut = pit_cmds.add_parser("cutoff", help="Lane cut-off grades per year inside the pit")
+    cut.add_argument("project")
+    cut.add_argument("model")
+    cut.add_argument("grade")
+    cut.add_argument("--price", type=float)
+    cut.add_argument("--price-unit", choices=[u.value for u in PriceUnit])
+    cut.add_argument("--recovery", type=float)
+    cut.add_argument("--nsr", action="store_true", help="GRADE is an NSR value per tonne")
+    cut.add_argument("--mining-cost", type=float, required=True)
+    cut.add_argument("--processing-cost", type=float, required=True)
+    cut.add_argument("--selling-cost", type=float, default=0.0)
+    cut.add_argument("--fixed-cost", type=float, default=0.0, help="fixed cost per year")
+    cut.add_argument("--mine", type=float, required=True, help="mining capacity, t/year")
+    cut.add_argument("--mill", type=float, required=True, help="plant capacity, ore t/year")
+    cut.add_argument("--market", type=float, help="sales capacity, metal units/year")
+    cut.add_argument("--discount", type=float, default=0.10)
+    cut.add_argument("--density", default="2.7")
+    cut.add_argument("--shell", type=int, help="last shell of the pit (default: all)")
+    cut.add_argument("--rock", help="rock/air attribute (kaya)")
+    cut.add_argument("--json", action="store_true")
 
 
 def _db(project: Project) -> DrillholeDatabase:
@@ -486,6 +508,8 @@ def pit_command(args: argparse.Namespace, out: TextIO) -> int:
             return pit_export(project, args, out)
         if args.pit_command == "design":
             return pit_design(project, args, out)
+        if args.pit_command == "cutoff":
+            return pit_cutoff(project, args, out)
         model = BlockModel.open(project, args.model)
         if not args.nsr and None in (args.price, args.price_unit, args.recovery):
             raise PitOptError("--price, --price-unit and --recovery are required without --nsr")
@@ -557,6 +581,49 @@ def pit_command(args: argparse.Namespace, out: TextIO) -> int:
             f"pushbacks: {int(phase.max())}; schedule: {len(sched.rows)} years; "
             f"NPV {sched.npv:,.0f}\n"
         )
+    return 0
+
+
+def pit_cutoff(project: Project, args: argparse.Namespace, out: TextIO) -> int:
+    model = BlockModel.open(project, args.model)
+    if not args.nsr and None in (args.price, args.price_unit, args.recovery):
+        raise PitOptError("--price, --price-unit and --recovery are required without --nsr")
+    econ = Economics(
+        args.price or 1.0,
+        PriceUnit(args.price_unit or "t"),
+        args.recovery or 1.0,
+        args.mining_cost,
+        args.processing_cost,
+        0.0 if args.nsr else args.selling_cost,
+        density=_density(args.density),
+        nsr=args.nsr,
+    )
+    result = cutoffs_from_model(
+        model,
+        args.grade,
+        econ,
+        mine_capacity=args.mine,
+        mill_capacity=args.mill,
+        fixed=args.fixed_cost,
+        market_capacity=args.market or math.inf,
+        discount=args.discount,
+        last_shell=args.shell,
+        rock_attribute=args.rock,
+    )
+    if args.json:
+        json.dump({"years": [y.__dict__ for y in result.years], "npv": result.npv}, out, indent=2)
+        out.write("\n")
+        return 0
+    out.write(
+        f"{'year':>4} {'cut-off':>8} {'material t':>13} {'ore t':>13} {'grade':>8} "
+        f"{'metal':>12} {'cash flow':>14} {'limit':>6}\n"
+    )
+    for y in result.years:
+        out.write(
+            f"{y.year:4d} {y.cutoff:8.3f} {y.material_t:13,.0f} {y.ore_t:13,.0f} {y.grade:8.3f} "
+            f"{y.metal:12,.1f} {y.cash:14,.0f} {y.limit:>6}\n"
+        )
+    out.write(f"NPV {result.npv:,.0f} ({result.iterations} iterations)\n")
     return 0
 
 

@@ -87,6 +87,17 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
   optimised (MILP) schedule; no blending targets, no cut-off optimisation, no
   equipment or haulage model; periods are years of equal capacity.
 
+## Cut-off grade optimisation (Lane)
+
+- `pitopt.cutoff`: Lane's method with mine, mill and market capacities, fixed
+  cost and opportunity cost d·V, iterated to convergence. The best cut-off
+  per year is searched over every block grade (exact for the discrete
+  grade-tonnage curve), not via the closed-form limiting/balancing cut-offs.
+- Lane's depletion assumption: the remaining reserve keeps the pit's grade
+  distribution every year (no link to the pushback/bench sequence). Mining
+  recovery, dilution and bench-dependent costs are not applied; stockpiles
+  are not modelled. Single element (or NSR).
+
 ## Pit design outputs
 
 - `pitopt.design`: bench crest/toe loops of the block pit (block edges, no

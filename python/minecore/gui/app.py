@@ -306,6 +306,7 @@ class MainWindow(QMainWindow):
         pit = self.menuBar().addMenu("&Açık Ocak")
         action(pit, "Ocak optimizasyonu, pushback ve çizelge...", self.optimise_pit)
         action(pit, "Basamak tasarımı (şev açısı, basamak yüksekliği, berm)...", self.bench_design)
+        action(pit, "Cut-off optimizasyonu (Lane, yıllara göre)...", self.lane_cutoff)
         action(pit, "Ocağı DXF olarak dışa aktar, ocak yüzeyi oluştur...", self.export_pit)
         ug = self.menuBar().addMenu("Yer&altı")
         action(ug, "Pano zarfı (floating stope) ve pano seçimi...", self.stopes)
@@ -861,6 +862,14 @@ class MainWindow(QMainWindow):
             raise RuntimeError("Önce ocak optimizasyonunu çalıştırıp sonuçları kaydedin.")
         dialog.exec()
         self.refresh()
+
+    def lane_cutoff(self) -> None:
+        from minecore.gui.pit import CutoffDialog  # noqa: PLC0415
+
+        dialog = CutoffDialog(self._need_project(), self)
+        if dialog.model.count() == 0:
+            raise RuntimeError("Önce ocak optimizasyonunu çalıştırıp sonuçları kaydedin.")
+        dialog.exec()
 
     def optimise_pit(self) -> None:
         from minecore.gui.pit import PitDialog  # noqa: PLC0415

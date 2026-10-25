@@ -132,6 +132,14 @@ def test_csv_to_pit_schedule(tmp_path: Path) -> None:
     common = ["--mining-cost", "2.5", "--processing-cost", "15", "--rock", "kaya", "--json"]
     nsr = json.loads(_run("pit", "optimise", p, "BM", "nsr", "--nsr", *common))
     assert nsr["shells"][-1]["ore_t"] > 0
+    lane = json.loads(
+        _run(
+            "pit", "cutoff", p, "BM", "nsr", "--nsr", "--mine", "1e6", "--mill", "3e5",
+            "--fixed-cost", "1e6", *common,
+        )
+    )  # fmt: skip
+    assert lane["years"]
+    assert all(y["ore_t"] <= 3e5 * (1 + 1e-9) for y in lane["years"])
     ug = _run(
         "ug",
         p,
