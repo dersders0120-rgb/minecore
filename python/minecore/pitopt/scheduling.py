@@ -208,3 +208,35 @@ def schedule_constrained(  # noqa: PLR0915 - one simulation loop
         )
     unmined = sum((1.0 - i.done) * i.tonnes for i in incs)
     return ConstrainedSchedule(tuple(rows), period_of, unmined)
+
+
+@dataclass(frozen=True)
+class InventoryRow:
+    phase: int
+    bench_toe: float  # elevation of the bench floor, m
+    ore_t: float  # plant feed tonnes (after mining recovery and dilution)
+    grade: float  # feed grade
+    metal: float
+    waste_t: float
+    value: float
+
+
+def bench_inventory(
+    result: PitResult, phase: Ints, origin_z: float, bench_height: float, benches: int
+) -> list[InventoryRow]:
+    """Mineable inventory per pushback and bench (top bench first within a pushback)."""
+    rows = []
+    for inc in _increments(result, phase):
+        ore = inc.ore_t
+        rows.append(
+            InventoryRow(
+                inc.phase,
+                origin_z + (benches - 1 - inc.bench) * bench_height,
+                ore,
+                inc.grade_t / ore if ore > 0 else math.nan,
+                inc.metal,
+                inc.tonnes - ore,
+                float(result.value[inc.blocks].sum()),
+            )
+        )
+    return rows

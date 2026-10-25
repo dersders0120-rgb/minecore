@@ -149,6 +149,7 @@ def test_pit_dialog_shells_pushbacks_and_save(qapp: QApplication, tmp_path: Path
     dialog.make_phases()
     assert dialog.sched is not None
     assert dialog.sched_table.rowCount() == len(dialog.sched.rows) + 1
+    assert dialog.inv_table.rowCount() == len(dialog.inventory) > 0
     dialog.save()
     assert len([n for n in notes if not n.startswith("Uyarı")]) == 2
     assert "pit_period" in BlockModel.open(project, "BM").attributes
@@ -157,7 +158,7 @@ def test_pit_dialog_shells_pushbacks_and_save(qapp: QApplication, tmp_path: Path
     assert out.read_text(encoding="utf-8-sig").startswith("shell;")
     from minecore.gui.pit import write_pit_reports_xlsx  # noqa: PLC0415
 
-    write_pit_reports_xlsx(tmp_path / "pit.xlsx", dialog.pit, dialog.sched)
+    write_pit_reports_xlsx(tmp_path / "pit.xlsx", dialog.pit, dialog.sched, dialog.inventory)
     assert (tmp_path / "pit.xlsx").stat().st_size > 0
     project.close()
     _export_pit_from_main_window(tmp_path / "pit.mcproj", tmp_path / "ocak.dxf")

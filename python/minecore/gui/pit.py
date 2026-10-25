@@ -45,7 +45,13 @@ from minecore.pitopt import (
 from minecore.pitopt.benchdesign import BenchGeometry, DesignReport, design_from_model
 from minecore.pitopt.design import edge_blocks
 from minecore.pitopt.optimise import store
-from minecore.pitopt.scheduling import ConstrainedSchedule, Limits, schedule_constrained
+from minecore.pitopt.scheduling import (
+    ConstrainedSchedule,
+    InventoryRow,
+    Limits,
+    bench_inventory,
+    schedule_constrained,
+)
 from minecore.pitopt.width import apply_mining_width
 from minecore.project import Project
 
@@ -221,6 +227,10 @@ class PitDialog(QDialog):
             ]
         )
         right.addTab(self.sched_table, "Üretim çizelgesi")
+        self.inv_table = QTableWidget(0, len(INVENTORY_HEADERS))
+        self.inv_table.setHorizontalHeaderLabels(INVENTORY_HEADERS)
+        right.addTab(self.inv_table, "Pushback-basamak envanteri")
+        self.inventory: list[InventoryRow] = []
         self.tabs = right
         self.note = QLabel(
             "Kabuklar Lerchs-Grossmann ile aynı sonucu veren en büyük kapanış (max-flow) ile "
@@ -431,6 +441,16 @@ class PitDialog(QDialog):
         _cell(self.sched_table, total, 7, _m(sum(p.cash for p in rows)))
         _cell(self.sched_table, total, 8, _m(self.sched.npv))
         self.sched_table.resizeColumnsToContents()
+        grid = BlockModel.open(self.project, self.model.currentText()).grid
+        self.inventory = bench_inventory(
+            self.pit, self.phase, grid.origin[2], grid.size[2], grid.count[2]
+        )
+        self.inv_table.setRowCount(len(self.inventory))
+        for i, row in enumerate(self.inventory):
+            for j, value in enumerate(_inventory_cells(row)):
+                text = "" if value is None else value if isinstance(value, str) else f"{value:,.4g}"
+                _cell(self.inv_table, i, j, text)
+        self.inv_table.resizeColumnsToContents()
         self.tabs.setCurrentIndex(1)
         self.inform(
             "Pushback",
@@ -469,11 +489,32 @@ class PitDialog(QDialog):
             write_pit_reports(Path(path), self.pit, self.sched)
         else:
             target = Path(path if path.lower().endswith(".xlsx") else path + ".xlsx")
-            write_pit_reports_xlsx(target, self.pit, self.sched)
+            write_pit_reports_xlsx(target, self.pit, self.sched, self.inventory)
+
+
+INVENTORY_HEADERS = [
+    "Pushback",
+    "Basamak tabanı (m)",
+    "Cevher t",
+    "Tenör",
+    "Metal",
+    "Pasa t",
+    "Dekapaj",
+    "Değer",
+]
+
+
+def _inventory_cells(r: InventoryRow) -> list[Any]:
+    strip = r.waste_t / r.ore_t if r.ore_t > 0 else None
+    grade = None if math.isnan(r.grade) else r.grade
+    return [r.phase, r.bench_toe, r.ore_t, grade, r.metal, r.waste_t, strip, r.value]
 
 
 def write_pit_reports_xlsx(
-    path: Path, result: PitResult, sched: ConstrainedSchedule | None
+    path: Path,
+    result: PitResult,
+    sched: ConstrainedSchedule | None,
+    inventory: list[InventoryRow] | None = None,
 ) -> None:
     from minecore.io.excel import write_workbook  # noqa: PLC0415
 
@@ -538,6 +579,8 @@ def write_pit_reports_xlsx(
                 for p in sched.rows
             ],
         )
+    if inventory:
+        sheets["Envanter"] = (INVENTORY_HEADERS, [_inventory_cells(r) for r in inventory])
     write_workbook(path, sheets)
 
 

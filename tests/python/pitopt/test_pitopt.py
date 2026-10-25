@@ -246,3 +246,18 @@ def test_constrained_schedule_respects_limits(project: Project) -> None:
         needed = bench + limits.bench_lag
         if needed <= max(prev_benches):
             assert starts[(p - 1, needed)] <= period
+
+
+def test_bench_inventory_balances(project: Project) -> None:
+    from minecore.pitopt.scheduling import bench_inventory  # noqa: PLC0415
+
+    model, econ = _ore_body(project)
+    result = optimise_pit(model, "au", econ, SlopeProfile(45.0), [0.6, 1.0])
+    phase = pushbacks(result, 2, 1.0)
+    g = model.grid
+    rows = bench_inventory(result, phase, g.origin[2], g.size[2], g.count[2])
+    inside = phase > 0
+    assert sum(r.ore_t + r.waste_t for r in rows) == pytest.approx(result.tonnes[inside].sum())
+    assert sum(r.value for r in rows) == pytest.approx(result.value[inside].sum())
+    tops = [r.bench_toe for r in rows if r.phase == 1]
+    assert tops == sorted(tops, reverse=True)
