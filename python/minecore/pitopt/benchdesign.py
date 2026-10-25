@@ -27,6 +27,14 @@ cells then act as extra floor points at the road elevation, so the same
 envelope cuts the road into the wall and sets the benches above it back (the
 road is excavated, not placed on the wall). The road surface is flat across
 its width; no switchbacks or road-specific batters are designed.
+
+Geotechnical sectors (optional): the wall geometry may change with the wall
+position. A sector starts at an azimuth (degrees from north, clockwise, seen
+from the pit: 0 is the north wall) and runs to the next sector's start. Each
+raster cell takes the sector of the direction from its nearest floor cell at
+that level (the Euclidean distance transform returns it), i.e. of the wall's
+outward normal. All sectors share the bench height so bench levels line up;
+face angle and berm may differ. Sector changes are abrupt (no blending).
 """
 
 from __future__ import annotations
@@ -78,6 +86,39 @@ class BenchGeometry:
 
 
 @dataclass(frozen=True)
+class Sector:
+    azimuth: float  # degrees from north, clockwise; where this sector starts
+    geometry: BenchGeometry
+
+
+def _check_sectors(sectors: tuple[Sector, ...], geometry: BenchGeometry) -> tuple[Sector, ...]:
+    if not sectors:
+        return ()
+    if any(abs(s.geometry.bench_height - geometry.bench_height) > 1e-9 for s in sectors):
+        raise PitOptError("all geotechnical sectors must use the design bench height")
+    ordered = tuple(sorted(sectors, key=lambda s: s.azimuth % 360.0))
+    starts = [s.azimuth % 360.0 for s in ordered]
+    if len(set(starts)) != len(starts):
+        raise PitOptError("two geotechnical sectors start at the same azimuth")
+    return ordered
+
+
+def parse_sectors(text: str, bench_height: float) -> tuple[Sector, ...]:
+    """Sectors from ``"azimuth:face:berm"`` items separated by ``;`` or ``,``."""
+    out = []
+    for item in text.replace(",", ";").split(";"):
+        if not item.strip():
+            continue
+        parts = item.split(":")
+        try:
+            az, face, berm = (float(v) for v in parts)
+        except ValueError:
+            raise PitOptError(f"sector {item.strip()!r} is not azimuth:face:berm") from None
+        out.append(Sector(az, BenchGeometry(face, bench_height, berm)))
+    return tuple(out)
+
+
+@dataclass(frozen=True)
 class Ramp:
     width: float  # m
     gradient: float  # rise over run, e.g. 0.10 for 10 %
@@ -99,6 +140,7 @@ class DesignedPit:
     reaches_edge: bool  # design meets the raster border below the original surface
     on_model: Mask  # ny x nx raster cells over the block model area
     ramp: Floats | None = None  # road centreline, n x 3, from the exit down to the floor
+    sectors: tuple[Sector, ...] = ()  # geotechnical sectors, sorted by start azimuth
 
     @property
     def ramp_length(self) -> float:
@@ -170,15 +212,18 @@ def design_pit(  # noqa: PLR0913 - options are keyword-only
     resolution: float | None = None,
     margin: float | None = None,
     ramp: Ramp | None = None,
+    sectors: tuple[Sector, ...] = (),
 ) -> DesignedPit:
     nx, ny, nz = grid.count
+    sectors = _check_sectors(tuple(sectors), geometry)
+    flattest = min([geometry, *(s.geometry for s in sectors)], key=lambda g: g.overall_angle)
     cube = np.asarray(mined, bool).reshape(nz, ny, nx)
     if not cube.any():
         raise PitOptError("no mined blocks")
     (ox, oy, oz), (sx, sy, sz) = grid.origin, grid.size
     res = resolution or min(sx, sy) / 2.0
     depth = nz * sz
-    pad = margin if margin is not None else depth / math.tan(math.radians(geometry.overall_angle))
+    pad = margin if margin is not None else depth / math.tan(math.radians(flattest.overall_angle))
     x = np.arange(ox - pad + res / 2, ox + nx * sx + pad, res)
     y = np.arange(oy - pad + res / 2, oy + ny * sy + pad, res)
     xx, yy = np.meshgrid(x, y)
@@ -190,23 +235,41 @@ def design_pit(  # noqa: PLR0913 - options are keyword-only
     on_grid = (ci >= 0) & (ci < nx) & (cj >= 0) & (cj < ny)
     floor = np.full(xx.shape, np.inf)
     floor[on_grid] = floor_col[cj[on_grid], ci[on_grid]]
-    design = _envelope(floor, geometry, res)
+    design = _envelope(floor, geometry, res, sectors)
     top = _original_surface(grid, xx, yy, topography, rock, cube)
     road = None
     if ramp is not None:
-        road, road_floor = _trace_ramp(x, y, design, top, floor, ramp, geometry, res)
-        design = _envelope(np.minimum(floor, road_floor), geometry, res)
+        road, road_floor = _trace_ramp(x, y, design, top, floor, ramp, geometry, res, sectors)
+        design = _envelope(np.minimum(floor, road_floor), geometry, res, sectors)
     z = np.minimum(design, top)
     below = design < top - 1e-6
     edge = bool(below[0, :].any() or below[-1, :].any() or below[:, 0].any() or below[:, -1].any())
-    return DesignedPit(x, y, z, top, geometry, edge, on_grid, road)
+    return DesignedPit(x, y, z, top, geometry, edge, on_grid, road, sectors)
 
 
-def _envelope(floor: Floats, geometry: BenchGeometry, res: float) -> Floats:
+def _envelope(
+    floor: Floats, geometry: BenchGeometry, res: float, sectors: tuple[Sector, ...] = ()
+) -> Floats:
     design = np.full(floor.shape, np.inf)
+    if sectors:
+        starts = np.array([s.azimuth % 360.0 for s in sectors])
+        jj, ii = np.indices(floor.shape)
     for level in np.unique(floor[np.isfinite(floor)]):
-        dist = distance_transform_edt(floor > level, sampling=res)
-        design = np.minimum(design, level + geometry.rise(np.asarray(dist, np.float64)))
+        if not sectors:
+            dist = distance_transform_edt(floor > level, sampling=res)
+            design = np.minimum(design, level + geometry.rise(np.asarray(dist, np.float64)))
+            continue
+        dist, (nj, ni) = distance_transform_edt(floor > level, sampling=res, return_indices=True)
+        d = np.asarray(dist, np.float64)
+        az = np.degrees(np.arctan2(ii - ni, jj - nj)) % 360.0
+        # Sector k covers [start_k, start_k+1); azimuths before the first start
+        # belong to the last sector (wrap-around).
+        which = (np.searchsorted(starts, az, side="right") - 1) % len(sectors)
+        rise = np.empty_like(d)
+        for k, sector in enumerate(sectors):
+            sel = which == k
+            rise[sel] = sector.geometry.rise(d[sel])
+        design = np.minimum(design, level + rise)
     return design
 
 
@@ -219,6 +282,7 @@ def _trace_ramp(  # noqa: PLR0913, PLR0917, PLR0915 - raster inputs, one tracing
     ramp: Ramp,
     geometry: BenchGeometry,
     res: float,
+    sectors: tuple[Sector, ...] = (),
 ) -> tuple[Floats, Floats]:
     """Road centreline (n x 3, exit first) and a raster of road elevations (+inf off road).
 
@@ -235,12 +299,18 @@ def _trace_ramp(  # noqa: PLR0913, PLR0917, PLR0915 - raster inputs, one tracing
     reach = float(np.hypot(x[-1] - x[0], y[-1] - y[0]))
     radii = np.arange(0.0, reach, res / 2)
     xx, yy = np.meshgrid(x, y)
+
     # Laps are placed on the wall at the overall slope (no stairs), so the wall
     # contour moves smoothly; the stair wall is never outside it, which keeps the
-    # whole road width in rock.
-    smooth = BenchGeometry(geometry.overall_angle, geometry.bench_height, 0.0)
-    slope = math.tan(math.radians(geometry.overall_angle))
-    design = _envelope(floor, smooth, res)
+    # whole road width in rock. The cut behind a section uses the flattest sector.
+    def smooth_of(g: BenchGeometry) -> BenchGeometry:
+        return BenchGeometry(g.overall_angle, g.bench_height, 0.0)
+
+    smooth_sectors = tuple(Sector(s.azimuth, smooth_of(s.geometry)) for s in sectors)
+    flattest = min([geometry, *(s.geometry for s in sectors)], key=lambda g: g.overall_angle)
+    smooth = smooth_of(flattest)
+    slope = math.tan(math.radians(flattest.overall_angle))
+    design = _envelope(floor, smooth_of(geometry), res, smooth_sectors)
     up = -1.0 if ramp.clockwise else 1.0  # clockwise going down = anticlockwise going up
 
     def lookup(grid: Floats, px: Floats, py: Floats) -> Floats:
@@ -363,6 +433,7 @@ def design_from_model(  # noqa: PLR0913 - options are keyword-only
     flag_attribute: str | None = None,
     dxf: Path | None = None,
     ramp: Ramp | None = None,
+    sectors: tuple[Sector, ...] = (),
 ) -> DesignReport:
     """Design benches around shells ``1..last_shell`` of a stored pit optimisation."""
     if "pit_shell" not in model.attributes:
@@ -372,7 +443,9 @@ def design_from_model(  # noqa: PLR0913 - options are keyword-only
     mined = (shell >= 1) & (shell <= last)
     topo = surfaces.load_surface(project, topography) if topography else None
     rock = model.values("kaya") > 0.5 if "kaya" in model.attributes else None
-    pit = design_pit(model.grid, mined, geometry, topography=topo, rock=rock, ramp=ramp)
+    pit = design_pit(
+        model.grid, mined, geometry, topography=topo, rock=rock, ramp=ramp, sectors=sectors
+    )
     inside = pit.inside(model.grid.centroids())
     if rock is not None:
         inside &= rock
@@ -382,7 +455,14 @@ def design_from_model(  # noqa: PLR0913 - options are keyword-only
     if flag_attribute:
         model.set_attributes(
             {flag_attribute: inside.astype(np.float64)},
-            {flag_attribute: {"unit": None, "design": geometry.__dict__, "shell": last}},
+            {
+                flag_attribute: {
+                    "unit": None,
+                    "design": geometry.__dict__,
+                    "sectors": [[s.azimuth, s.geometry.__dict__] for s in sectors],
+                    "shell": last,
+                }
+            },
             "Flag blocks inside the bench design",
         )
     if dxf is not None:

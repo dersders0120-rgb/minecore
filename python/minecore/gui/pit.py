@@ -42,7 +42,15 @@ from minecore.pitopt import (
     optimise_pit,
     pushbacks,
 )
-from minecore.pitopt.benchdesign import BenchGeometry, DesignReport, Ramp, design_from_model
+from minecore.pitopt.benchdesign import (
+    BenchGeometry,
+    DesignReport,
+    Ramp,
+    design_from_model,
+)
+from minecore.pitopt.benchdesign import (
+    parse_sectors as parse_bench_sectors,
+)
 from minecore.pitopt.cutoff import LaneResult, cutoffs_from_model
 from minecore.pitopt.design import edge_blocks
 from minecore.pitopt.optimise import store
@@ -684,6 +692,14 @@ class BenchDesignDialog(QDialog):
         form.addRow("Berm genişliği (m)", self.berm)
         form.addRow("Arazi yüzeyi", self.topography)
         form.addRow("Genel şev açısı", self.overall)
+        self.sectors = QLineEdit()
+        self.sectors.setPlaceholderText("örn. 0:70:6; 120:55:8; 240:60:8 (boş: tek geometri)")
+        self.sectors.setToolTip(
+            "Geoteknik sektörler: başlangıç azimutu (° kuzeyden, 0 = kuzey şevi) : "
+            "basamak şev açısı : berm. Her sektör bir sonrakinin başlangıcına kadar sürer; "
+            "basamak yüksekliği tümünde aynıdır."
+        )
+        form.addRow("Geoteknik sektörler", self.sectors)
         self.ramp_on = QCheckBox("Spiral rampa (nakliye yolu) tasarla")
         self.ramp_w = _spin(25.0, 3.0, 80.0, 1.0, 1)
         self.ramp_g = _spin(10.0, 1.0, 25.0, 0.5, 1)
@@ -748,6 +764,7 @@ class BenchDesignDialog(QDialog):
             )
             if self.ramp_on.isChecked()
             else None,
+            sectors=parse_bench_sectors(self.sectors.text(), self.bench_h.value()),
         )
 
     def run(self) -> None:

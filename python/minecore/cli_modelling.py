@@ -44,7 +44,7 @@ from minecore.drillholes.workflow import composite_table, hole_geometry, save_co
 from minecore.estimation import Ellipsoid, Method, Search, experimental, fit_spherical
 from minecore.geology.implicit import interval_contacts, model_domain
 from minecore.pitopt import Economics, PriceUnit, SlopeProfile, optimise_pit, pushbacks, schedule
-from minecore.pitopt.benchdesign import BenchGeometry, Ramp, design_from_model
+from minecore.pitopt.benchdesign import BenchGeometry, Ramp, design_from_model, parse_sectors
 from minecore.pitopt.cutoff import cutoffs_from_model
 from minecore.pitopt.design import edge_blocks, export_pit, period_surfaces
 from minecore.pitopt.economics import PitOptError
@@ -286,6 +286,13 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     des.add_argument("--ramp-gradient", type=float, default=0.10, help="e.g. 0.10 for 10 %%")
     des.add_argument("--ramp-exit", type=float, default=0.0, help="exit azimuth, degrees")
     des.add_argument("--ramp-ccw", action="store_true", help="spiral counter-clockwise going down")
+    des.add_argument(
+        "--sector",
+        action="append",
+        default=[],
+        metavar="AZ:FACE:BERM",
+        help="geotechnical sector from azimuth AZ (0 = north wall); repeat for each sector",
+    )
     per = pit_cmds.add_parser("periods", help="end-of-period surfaces from the schedule")
     per.add_argument("project")
     per.add_argument("model")
@@ -691,7 +698,13 @@ def pit_design(project: Project, args: argparse.Namespace, out: TextIO) -> int:
         ramp=Ramp(args.ramp_width, args.ramp_gradient, args.ramp_exit, not args.ramp_ccw)
         if args.ramp_width
         else None,
+        sectors=parse_sectors(";".join(args.sector), args.height),
     )
+    for s in r.pit.sectors:
+        out.write(
+            f"sector from {s.azimuth % 360.0:.0f} deg: face {s.geometry.face_angle:g}, "
+            f"berm {s.geometry.berm:g}, overall {s.geometry.overall_angle:.1f} deg\n"
+        )
     if r.pit.ramp is not None:
         out.write(
             f"ramp {r.pit.ramp_length:,.0f} m from {r.pit.ramp[0, 2]:.1f} "

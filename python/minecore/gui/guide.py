@@ -50,7 +50,8 @@ GUIDE = """
    pushback-basamak envanteri, Excel raporu. Kazanım, seyrelme ve NSR modu desteklenir.
 2. **Basamak tasarımı**: şev açısı, basamak yüksekliği ve berm ile tasarım yüzeyi,
    tasarım içindeki bloklar ve değer karşılaştırması; isteğe bağlı spiral rampa
-   (genişlik, eğim, çıkış yönü); DXF.
+   (genişlik, eğim, çıkış yönü); geoteknik sektörler (ör. `0:70:6; 180:55:8`:
+   kuzey şevinden başlayarak azimut:basamak açısı:berm); DXF.
 3. **Cut-off optimizasyonu (Lane)**: maden, tesis ve pazar kapasitesine göre yıllara
    göre en uygun sınır tenör ve NPV.
 4. **Ocağı DXF olarak dışa aktar**: basamak üst/alt çizgileri, ocak katısı, kazı sonrası yüzey.

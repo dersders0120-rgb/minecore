@@ -421,6 +421,7 @@ def test_calculator_dialog(qapp: QApplication, tmp_path: Path) -> None:
 def test_bench_design_dialog(qapp: QApplication, tmp_path: Path) -> None:
     from minecore.blockmodel import Grid  # noqa: PLC0415
     from minecore.gui.pit import BenchDesignDialog  # noqa: PLC0415
+    from minecore.pitopt.economics import PitOptError  # noqa: PLC0415
     from minecore.surfaces import surface_names  # noqa: PLC0415
 
     project = Project.create(tmp_path / "d.mcproj", "d")
@@ -442,6 +443,13 @@ def test_bench_design_dialog(qapp: QApplication, tmp_path: Path) -> None:
     dialog.run()
     assert dialog.report.pit.ramp is not None
     assert "Rampa" in dialog.result_label.text()
+    dialog.ramp_on.setChecked(False)
+    dialog.sectors.setText("0:75:4; 180:50:8")
+    dialog.run()
+    assert len(dialog.report.pit.sectors) == 2
+    dialog.sectors.setText("0:75")
+    with pytest.raises(PitOptError, match="azimuth:face:berm"):
+        dialog._design(None)
     project.close()
 
 

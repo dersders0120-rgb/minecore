@@ -147,8 +147,10 @@ def test_csv_to_pit_schedule(tmp_path: Path) -> None:  # noqa: PLR0915 - one end
     ramp = _run(
         "pit", "design", p, "BM", "--face", "65", "--height", "10", "--berm", "5",
         "--ramp-width", "15", "--ramp-gradient", "0.1",
+        "--sector", "0:70:5", "--sector", "180:55:8",
     )  # fmt: skip
     assert "ramp " in ramp
+    assert "sector from 180 deg: face 55" in ramp
     assert "DESIGN_TOE" in (tmp_path / "d.dxf").read_text()
     pdf = tmp_path / "kesit.pdf"
     text = _run(
