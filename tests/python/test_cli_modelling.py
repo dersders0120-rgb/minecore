@@ -173,6 +173,18 @@ def test_csv_to_pit_schedule(tmp_path: Path) -> None:  # noqa: PLR0915 - one end
     )  # fmt: skip
     assert lane["years"]
     assert all(y["ore_t"] <= 3e5 * (1 + 1e-9) for y in lane["years"])
+    routes = _run(
+        "pit", "optimise", p, "BM", "au_ok", "--price", "2000", "--price-unit", "ozt",
+        "--recovery", "0.9", "--mining-cost", "2.5", "--processing-cost", "15",
+        "--rock", "kaya", "--route", "liç:0.6:4",
+    )  # fmt: skip
+    assert "route main:" in routes
+    assert "route liç:" in routes
+    from minecore.blockmodel import BlockModel  # noqa: PLC0415
+    from minecore.project import Project  # noqa: PLC0415
+
+    with Project.open(Path(p)) as project:
+        assert "pit_route" in BlockModel.open(project, "BM").attributes
     ug = _run(
         "ug",
         p,

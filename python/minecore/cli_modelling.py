@@ -47,8 +47,8 @@ from minecore.pitopt import Economics, PriceUnit, SlopeProfile, optimise_pit, pu
 from minecore.pitopt.benchdesign import BenchGeometry, Ramp, design_from_model, parse_sectors
 from minecore.pitopt.cutoff import cutoffs_from_model
 from minecore.pitopt.design import edge_blocks, export_pit, period_surfaces
-from minecore.pitopt.economics import PitOptError
-from minecore.pitopt.optimise import Schedule, store
+from minecore.pitopt.economics import PitOptError, parse_routes
+from minecore.pitopt.optimise import PitResult, Schedule, route_tonnes, store
 from minecore.pitopt.scheduling import ConstrainedSchedule, Limits, schedule_constrained
 from minecore.pitopt.width import apply_mining_width
 from minecore.plots import SectionSpec, section_plot
@@ -271,6 +271,13 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     opt.add_argument("--lag", type=int, default=2, help="bench lag between pushbacks")
     opt.add_argument("--sinking", type=int, default=6, help="max benches per pushback per year")
     opt.add_argument("--min-width", type=float, default=0.0, help="minimum mining width, m")
+    opt.add_argument(
+        "--route",
+        action="append",
+        default=[],
+        metavar="NAME:RECOVERY:COST",
+        help="extra process route (e.g. leach:0.6:4); repeat for each route",
+    )
     des = pit_cmds.add_parser("design", help="bench design around the optimised pit")
     des.add_argument("project")
     des.add_argument("model")
@@ -723,6 +730,12 @@ def pit_design(project: Project, args: argparse.Namespace, out: TextIO) -> int:
     return 0
 
 
+def _write_routes(result: PitResult, econ: Economics, final: int, out: TextIO) -> None:
+    if econ.routes:
+        for name, feed_t, metal in route_tonnes(result, econ, final):
+            out.write(f"route {name}: {feed_t:,.0f} t feed, {metal:,.1f} metal\n")
+
+
 def pit_command(args: argparse.Namespace, out: TextIO) -> int:
     with Project.open(args.project) as project:
         if args.pit_command == "export":
@@ -757,6 +770,7 @@ def pit_command(args: argparse.Namespace, out: TextIO) -> int:
             args.mining_recovery,
             args.dilution,
             args.nsr,
+            parse_routes(";".join(args.route)),
         )
         slope = SlopeProfile(args.slope)
         factors = sorted(set(args.revenue_factors) | {args.final_rf})
@@ -809,6 +823,7 @@ def pit_command(args: argparse.Namespace, out: TextIO) -> int:
                 f"{r.shell:5d} {r.revenue_factor:5.2f} {r.ore_t:14,.0f} {r.waste_t:14,.0f} "
                 f"{r.best_npv:14,.0f} {r.worst_npv:14,.0f}\n"
             )
+        _write_routes(result, econ, final, out)
         out.write(
             f"pushbacks: {int(phase.max())}; schedule: {len(sched.rows)} years; "
             f"NPV {sched.npv:,.0f}\n"

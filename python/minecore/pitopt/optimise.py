@@ -66,6 +66,7 @@ class PitResult:
     mining: Floats  # mining cost per block at revenue factor 1
     feed: Floats  # plant feed tonnes of ore blocks (after mining recovery, dilution)
     feed_grade: Floats  # diluted feed grade
+    route: Ints  # process route of each block at revenue factor 1 (0 = waste)
 
 
 def _discounted(order: Ints, tonnes: Floats, value: Floats, rate: float, discount: float) -> float:
@@ -175,7 +176,19 @@ def optimise_pit(  # noqa: PLR0913 - options are keyword-only
         base.mining,
         base.feed,
         base.feed_grade,
+        base.route,
     )
+
+
+def route_tonnes(result: PitResult, econ: Economics, shell: int) -> list[tuple[str, float, float]]:
+    """(route name, feed t, recovered metal) of the ore inside shells ``1..shell``."""
+    inside = (result.shell > 0) & (result.shell <= shell)
+    names = ["main", *(r.name for r in econ.routes)]
+    out = []
+    for k, name in enumerate(names, start=1):
+        sel = inside & (result.route == k)
+        out.append((name, float(result.feed[sel].sum()), float(result.metal[sel].sum())))
+    return out
 
 
 def pushbacks(result: PitResult, final_shell: int, min_ore_t: float) -> Ints:
@@ -284,6 +297,10 @@ def store(  # noqa: PLR0913, PLR0917 - optional result parts
         "pit_value": {"unit": None, **params},
         "pit_shell": {"unit": None},
     }
+    if econ.routes:
+        values["pit_route"] = result.route.astype(np.float64)
+        names = ["main", *(r.name for r in econ.routes)]
+        info["pit_route"] = {"unit": None, "routes": {str(k): n for k, n in enumerate(names, 1)}}
     if phase is not None:
         values["pit_phase"] = phase.astype(np.float64)
         info["pit_phase"] = {"unit": None}

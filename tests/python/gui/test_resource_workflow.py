@@ -160,6 +160,11 @@ def test_pit_dialog_shells_pushbacks_and_save(qapp: QApplication, tmp_path: Path
     dialog.run()
     assert dialog.pit is not None
     assert dialog.shells.rowCount() == len(dialog.pit.rows)
+    assert dialog.route_label.text() == ""
+    dialog.routes.setText("liç:60:4")
+    dialog.run()
+    assert "liç" in dialog.route_label.text()
+    assert (dialog.pit.route == 2).any()
     dialog.min_ore.setValue(0.05)
     dialog.min_width.setValue(30.0)
     dialog.make_phases()

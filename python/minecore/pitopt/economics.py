@@ -22,6 +22,14 @@ costs, e.g. computed for several elements with the block calculator). Then
 revenue = ``t * MR * nsr * revenue_factor``; price, price unit, recovery and
 selling cost are not used, and "metal" is the recovered value at factor 1.
 
+Process routes (optional ``routes``): alternative destinations, e.g. a heap
+leach next to the mill, each with its own metallurgical recovery and
+processing cost per feed tonne. The main recovery and processing cost are
+route 1; extra routes are 2, 3, ... Each block goes to the route with the
+largest margin ``revenue_r - processing_r`` and is ore when that margin is
+positive (``route`` = 0 marks waste). Routes are not available in NSR mode
+(the NSR already contains a recovery).
+
 Currency is whatever the user enters (e.g. USD); all values are in that unit.
 """
 
@@ -58,6 +66,39 @@ class PriceUnit(StrEnum):
 
 
 @dataclass(frozen=True)
+class Route:
+    name: str
+    recovery: float
+    processing_cost: float  # per feed tonne
+
+    def __post_init__(self) -> None:
+        if not 0 < self.recovery <= 1:
+            raise PitOptError(f"route {self.name!r}: recovery must be in (0, 1]")
+        if self.processing_cost < 0:
+            raise PitOptError(f"route {self.name!r}: processing cost must be >= 0")
+
+
+def parse_routes(text: str) -> tuple[Route, ...]:
+    """Routes from ``"name:recovery:cost"`` items separated by ``;``.
+
+    Recovery may be a fraction (0.6) or a percentage (60).
+    """
+    out = []
+    for item in text.split(";"):
+        if not item.strip():
+            continue
+        parts = item.split(":")
+        try:
+            name, rec, cost = parts[0].strip(), float(parts[1]), float(parts[2])
+        except (IndexError, ValueError):
+            raise PitOptError(f"route {item.strip()!r} is not name:recovery:cost") from None
+        if len(parts) != 3 or not name:
+            raise PitOptError(f"route {item.strip()!r} is not name:recovery:cost")
+        out.append(Route(name, rec / 100.0 if rec > 1 else rec, cost))
+    return tuple(out)
+
+
+@dataclass(frozen=True)
 class Economics:
     price: float
     price_unit: PriceUnit
@@ -70,8 +111,11 @@ class Economics:
     mining_recovery: float = 1.0
     dilution: float = 0.0
     nsr: bool = False
+    routes: tuple[Route, ...] = ()  # extra process routes (route 1 is the main one)
 
     def __post_init__(self) -> None:
+        if self.routes and self.nsr:
+            raise PitOptError("process routes are not available in NSR mode")
         if not (self.price > 0 and math.isfinite(self.price)):
             raise PitOptError("metal price must be > 0")
         if not 0 < self.recovery <= 1:
@@ -89,11 +133,13 @@ class Economics:
     def to_json(self) -> dict[str, Any]:
         data = asdict(self)
         data["price_unit"] = self.price_unit.value
+        data["routes"] = [asdict(r) for r in self.routes]
         return data
 
     @classmethod
     def from_json(cls, data: dict[str, Any]) -> Economics:
-        return cls(**{**data, "price_unit": PriceUnit(data["price_unit"])})
+        routes = tuple(Route(**r) for r in data.get("routes", ()))
+        return cls(**{**data, "price_unit": PriceUnit(data["price_unit"]), "routes": routes})
 
 
 @dataclass(frozen=True)
@@ -105,6 +151,7 @@ class BlockEconomics:
     mining: Floats  # mining cost of each block (always paid)
     feed: Floats  # plant feed tonnes if the block is ore (0 for waste)
     feed_grade: Floats  # diluted grade of the feed
+    route: npt.NDArray[np.int64]  # 0 waste, 1 main route, 2.. extra routes
 
 
 def block_values(  # noqa: PLR0913, PLR0917 - one value per input array
@@ -125,13 +172,26 @@ def block_values(  # noqa: PLR0913, PLR0917 - one value per input array
         if grade_unit is None:
             raise PitOptError("the grade attribute has no unit; set % or g/t to value metal")
         fraction = Unit(grade_unit).si_factor
-        metal = tonnes * 1000.0 * g * fraction * mr * econ.recovery / econ.price_unit.kilograms
+        contained = tonnes * 1000.0 * g * fraction * mr / econ.price_unit.kilograms
+        metal = contained * econ.recovery
         revenue = metal * (econ.price * revenue_factor - econ.selling_cost)
     mining = tonnes * (econ.mining_cost + econ.mining_cost_per_bench * bench_from_top)
     feed = tonnes * mr * (1.0 + dil)
     processing = feed * econ.processing_cost
-    ore = revenue > processing
-    value = np.where(ore, revenue - processing - mining, -mining)
+    margin = revenue - processing
+    route = np.ones(np.shape(margin), np.int64)
+    for k, r in enumerate(econ.routes, start=2):
+        metal_r = contained * r.recovery
+        margin_r = (
+            metal_r * (econ.price * revenue_factor - econ.selling_cost) - feed * r.processing_cost
+        )
+        better = margin_r > margin
+        margin = np.where(better, margin_r, margin)
+        metal = np.where(better, metal_r, metal)
+        route[better] = k
+    ore = margin > 0
+    route[~ore] = 0
+    value = np.where(ore, margin - mining, -mining)
     return BlockEconomics(
         tonnes,
         metal,
@@ -140,4 +200,5 @@ def block_values(  # noqa: PLR0913, PLR0917 - one value per input array
         mining,
         np.where(ore, feed, 0.0),
         g / (1.0 + dil),
+        route,
     )
