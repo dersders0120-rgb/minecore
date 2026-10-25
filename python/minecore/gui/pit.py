@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
 
 from minecore import surfaces
 from minecore.blockmodel import BlockModel
+from minecore.gui.layout import fit_to_screen, scroll_panel
 from minecore.gui.resource import _row, _spin, _with_progress, block_models
 from minecore.pitopt import (
     Economics,
@@ -105,7 +106,7 @@ class PitDialog(QDialog):
     def __init__(self, project: Project, parent: QWidget) -> None:  # noqa: PLR0915 - one form
         super().__init__(parent)
         self.setWindowTitle("Açık ocak optimizasyonu")
-        self.resize(1400, 860)
+        fit_to_screen(self, 1400, 860)
         self.project = project
         self.pit: PitResult | None = None
         self.phase: Any = None
@@ -113,7 +114,7 @@ class PitDialog(QDialog):
 
         layout = QHBoxLayout(self)
         left = QVBoxLayout()
-        layout.addLayout(left, 0)
+        scroll_panel(layout, left)
         model_box = QGroupBox("Model")
         form = QFormLayout(model_box)
         self.model = QComboBox()
@@ -846,7 +847,7 @@ class CutoffDialog(QDialog):
     def __init__(self, project: Project, parent: QWidget) -> None:
         super().__init__(parent)
         self.setWindowTitle("Cut-off optimizasyonu (Lane)")
-        self.resize(820, 560)
+        fit_to_screen(self, 820, 560)
         self.project = project
         self.lane: LaneResult | None = None
         layout = QVBoxLayout(self)

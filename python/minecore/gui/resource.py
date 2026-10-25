@@ -68,6 +68,7 @@ from minecore.estimation.statistics import (
     summary,
     top_cut_effect,
 )
+from minecore.gui.layout import fit_to_screen, scroll_panel
 from minecore.jobs import CancelledError, Progress, ProgressEvent
 from minecore.project import Project
 from minecore.solids import load_solid, solid_names
@@ -223,7 +224,7 @@ class VariogramDialog(QDialog):
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Variogram")
-        self.resize(1100, 720)
+        fit_to_screen(self, 1100, 720)
         self.db = db
         self.project = project
         self.samples: SampleSet | None = None
@@ -231,7 +232,7 @@ class VariogramDialog(QDialog):
 
         layout = QHBoxLayout(self)
         left = QVBoxLayout()
-        layout.addLayout(left, 0)
+        scroll_panel(layout, left)
 
         data = QGroupBox("Deneysel variogram")
         form = QFormLayout(data)
@@ -583,12 +584,12 @@ class GradeTonnageDialog(QDialog):
     def __init__(self, project: Project, parent: QWidget) -> None:
         super().__init__(parent)
         self.setWindowTitle("Tenör-tonaj raporu")
-        self.resize(1200, 720)
+        fit_to_screen(self, 1200, 720)
         self.project = project
         self.report: GradeTonnage | None = None
         layout = QHBoxLayout(self)
         left = QVBoxLayout()
-        layout.addLayout(left, 0)
+        scroll_panel(layout, left)
         form = QFormLayout()
         left.addLayout(form)
         self.model = QComboBox()
@@ -861,13 +862,13 @@ class ValidationDialog(QDialog):
     def __init__(self, db: DrillholeDatabase, project: Project, parent: QWidget) -> None:
         super().__init__(parent)
         self.setWindowTitle("Kestirim doğrulama")
-        self.resize(1200, 760)
+        fit_to_screen(self, 1200, 760)
         self.db = db
         self.project = project
         self.variograms = load_variograms(project)
         layout = QHBoxLayout(self)
         left = QFormLayout()
-        layout.addLayout(left, 0)
+        scroll_panel(layout, left)
         self.source = QComboBox()
         self.source.addItems(numeric_interval_fields(db))
         self.model = QComboBox()
@@ -1068,7 +1069,7 @@ class CalculatorDialog(QDialog):
     def __init__(self, project: Project, parent: QWidget) -> None:
         super().__init__(parent)
         self.setWindowTitle("Blok modeli hesaplayıcı")
-        self.resize(640, 420)
+        fit_to_screen(self, 640, 420)
         self.project = project
         form = QFormLayout(self)
         self.model = QComboBox()
@@ -1132,11 +1133,11 @@ class StatisticsDialog(QDialog):
     def __init__(self, db: DrillholeDatabase, parent: QWidget) -> None:
         super().__init__(parent)
         self.setWindowTitle("Örnek istatistikleri ve üst kesme")
-        self.resize(1200, 640)
+        fit_to_screen(self, 1200, 640)
         self.db = db
         layout = QHBoxLayout(self)
         form = QFormLayout()
-        layout.addLayout(form, 0)
+        scroll_panel(layout, form)
         self.source = QComboBox()
         self.source.addItems(numeric_interval_fields(db))
         self.cap = _spin(0.0, 0.0, 1e9, 1.0, 4)

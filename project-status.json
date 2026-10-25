@@ -19,7 +19,7 @@
       "id": "M2",
       "title": "Drillhole data",
       "status": "DONE",
-      "evidence": "PR #8 merged: import, validation, desurvey, composites, 3D view, Windows build"
+      "evidence": "PR #8 merged: import, validation, desurvey, composites, 3D view, Windows build; PR #26: Turkish validation report with grouped overlap cascades, easier project create/open"
     },
     {
       "id": "M3",

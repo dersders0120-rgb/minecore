@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from minecore.blockmodel import BlockModel
+from minecore.gui.layout import fit_to_screen, scroll_panel
 from minecore.gui.resource import _row, _spin, block_models
 from minecore.project import Project
 from minecore.underground.development import (
@@ -37,12 +38,12 @@ class StopeDialog(QDialog):
     def __init__(self, project: Project, parent: QWidget) -> None:
         super().__init__(parent)
         self.setWindowTitle("Yeraltı: pano zarfı ve pano seçimi")
-        self.resize(1000, 600)
+        fit_to_screen(self, 1000, 600)
         self.project = project
         self.stopes: StopeResult | None = None
         layout = QHBoxLayout(self)
         form = QFormLayout()
-        layout.addLayout(form, 0)
+        scroll_panel(layout, form)
         self.model = QComboBox()
         self.model.addItems(block_models(project))
         self.grade = QComboBox()

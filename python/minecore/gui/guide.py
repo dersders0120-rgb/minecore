@@ -4,11 +4,15 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import QDialog, QTextBrowser, QVBoxLayout, QWidget
 
+from minecore.gui.layout import fit_to_screen
+
 GUIDE = """
 # MineCore: adım adım kullanım
 
 ## 1. Proje ve sondaj verisi
-1. **Proje > Yeni proje**: bir `.mcproj` klasörü oluşturur. Tüm veriler burada saklanır,
+1. **Proje > Yeni proje**: önce kaydedilecek klasörü (ör. Masaüstü), sonra proje adını
+   sorar ve orada `<ad>.mcproj` klasörünü oluşturur. **Proje aç** için bu klasörü ya da
+   onu içeren klasörü seçmeniz yeterli. Tüm veriler burada saklanır,
    **Geri al / Yinele** her işlemde çalışır.
 2. **Sondaj > Klasörden içe aktar**: kuyu ağzı (collar), sapma (survey) ve analiz/litoloji
    dosyaları (CSV, TXT, XLSX). Sütunlar ve ayraçlar otomatik tanınır.
@@ -82,7 +86,7 @@ class GuideDialog(QDialog):
     def __init__(self, parent: QWidget) -> None:
         super().__init__(parent)
         self.setWindowTitle("MineCore kullanım kılavuzu")
-        self.resize(820, 760)
+        fit_to_screen(self, 820, 760)
         layout = QVBoxLayout(self)
         self.text = QTextBrowser()
         self.text.setMarkdown(GUIDE)

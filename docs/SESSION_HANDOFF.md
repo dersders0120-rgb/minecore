@@ -1,6 +1,7 @@
 # Session handoff
 
-Updated: 2026-10-25 ~05:00 UTC (architect, thread "Build block model and estimation", overnight run)
+Updated: 2026-10-25 ~07:20 UTC (architect, thread "Build block model and estimation", end of thread;
+new work continues in a fresh thread)
 
 ## Owner direction (binding)
 - Windows 11 only. Wants a usable program fast, accepts some bugs, tests the GUI
@@ -12,9 +13,21 @@ Updated: 2026-10-25 ~05:00 UTC (architect, thread "Build block model and estimat
 - Open-source libraries welcome if permissive (MIT/BSD/Apache); no GPL.
 
 ## State
-- `main`: PRs #1-#24 merged (PR #21-#22: process routes in pit optimisation
+- `main`: PRs #1-#26 merged (PR #21-#22: process routes in pit optimisation
   and per-route plant capacity in the scheduler; PR #23: ore drives; PR #24:
-  self-test covers routes, Lane cut-off, sectors and the decline).
+  self-test covers routes, Lane cut-off, sectors and the decline; PR #26:
+  fixes from the owner's first hands-on Windows test, see below).
+- Owner's first hands-on test (2026-10-25 morning) and PR #26 fixes: the
+  new-project save dialog looked like it wanted an existing file (now folder,
+  then name; open accepts the containing folder); about 5 s "not responding" on
+  the first import (libraries now warmed up at start, wait cursor); no app
+  icon (`tools/make_icon.py` draws it; exe, window and taskbar); tall dialogs
+  (variogram, pit optimisation) did not fit the screen (`gui/layout.py`
+  scroll panels and `fit_to_screen`); a second block model with the default
+  name crashed (free default name, clear message); user messages showed a
+  traceback (plain `RuntimeError` now shows as a warning); the validation
+  report mixed English and showed 150 rows for about 10 causes (`gui/issues_tr.py`:
+  Turkish wording, one row per interval that overlaps many others).
 - Overnight additions (PR #15-#20): string import and section linking, user
   guide (F1), re-blocking, Lane cut-off optimisation, partial-block solid
   fractions and weighted reports, solid CLI, CLI swath, spiral haul ramp in
@@ -42,11 +55,15 @@ Updated: 2026-10-25 ~05:00 UTC (architect, thread "Build block model and estimat
   `minecore.surfaces`, `minecore.solids`, `minecore.strings`, `minecore.plots`,
   `minecore.selftest`, `minecore.io` (`excel`, `dxf`), `minecore.cli_modelling`.
 - GUI: `gui/app.py` (main window, section view, print), `gui/resource.py`,
-  `gui/pit.py`, `gui/underground.py`, `gui/geology.py`, `gui/guide.py`.
+  `gui/pit.py`, `gui/underground.py`, `gui/geology.py`, `gui/guide.py`,
+  `gui/layout.py` (scroll panels), `gui/issues_tr.py` (report wording), `gui/assets/` (icon).
 - Limits: `docs/KNOWN_LIMITATIONS.md` (kept current).
 
 ## Next actions
-1. Owner feedback on the Windows build with real data comes first.
+1. Owner feedback on the Windows build with real data comes first. Owner
+   workflow tip: auto-fit variogram is a starting point only (owner asked; told
+   him to check nugget with downhole variogram and ranges with directions).
+   Consider a sill default from the data variance in the variogram dialog.
 2. Rotated block models and sub-cells (contract change in mc-core: needs an ADR).
 3. Pit design: switchback ramps, multiple pit bottoms, blended sector changes.
 4. Routes and stockpiles in Lane; re-routing ore when a route is full.
