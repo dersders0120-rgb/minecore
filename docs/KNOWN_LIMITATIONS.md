@@ -57,5 +57,12 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
 
 - 2.5D DTMs only (one z per x, y): Delaunay in plan, linear interpolation;
   outside the hull the nearest point's elevation is used (counted, reported).
-- Import from x, y, z text files only; no DXF/string files, no breaklines,
-  no 3D solids (wireframes) yet.
+- DTM import from x, y, z text files only; no DXF/string files, no breaklines.
+
+## Solids
+
+- Import OBJ, STL (ASCII/binary) and ASCII DXF 3DFACE; no DXF POLYFACE/MESH,
+  no binary DXF, no Datamine/Surpac native formats (undocumented, rule 7).
+- No solid editing, sections/strings to solid linking, or boolean operations.
+- Inside test is by block centroid (no partial-block percentages yet).
+- Grade shells: marching cubes over block centres (VTK), not an implicit model.

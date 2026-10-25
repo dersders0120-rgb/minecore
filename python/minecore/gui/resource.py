@@ -61,6 +61,7 @@ from minecore.estimation import (
 )
 from minecore.jobs import CancelledError, Progress, ProgressEvent
 from minecore.project import Project
+from minecore.solids import load_solid, solid_names
 
 METHOD_TR = {
     Method.NEAREST: "En yakın komşu (NN)",
@@ -414,6 +415,9 @@ class EstimationDialog(QDialog):
         self.disc = QSpinBox(minimum=1, maximum=6, value=2)
         self.output = QLineEdit()
         self.rock_only = QCheckBox("Yalnız kaya bloklarını kestir ('kaya' özniteliği)")
+        self.domain = QComboBox()
+        self.domain.addItem("(yok)")
+        self.domain.addItems(solid_names(project))
         form.addRow("Blok modeli", self.model)
         form.addRow("Veri (kompozit önerilir)", self.source)
         form.addRow("Yöntem", self.method)
@@ -426,6 +430,7 @@ class EstimationDialog(QDialog):
         form.addRow("Blok ayrıklaştırma (n x n x n)", self.disc)
         form.addRow("Sonuç özniteliği", self.output)
         form.addRow(self.rock_only)
+        form.addRow("Domen katısı (örnek ve bloklar içeride)", self.domain)
         self.model.currentTextChanged.connect(self._sync_rock)
         self._sync_rock(self.model.currentText())
         form.addRow(_buttons(self))
@@ -466,6 +471,15 @@ class EstimationDialog(QDialog):
             if variogram is None:
                 raise RuntimeError("Kriging için önce Variogram penceresinden bir model kaydedin.")
         samples = _samples(self.db, self.source.currentText())
+        domain = self.domain.currentText()
+        if self.domain.currentIndex() > 0:
+            solid = load_solid(self.project, domain)
+            keep = solid.inside(samples.xyz)
+            if not keep.any():
+                raise RuntimeError(f"'{domain}' katısının içinde örnek yok.")
+            samples = SampleSet(
+                samples.xyz[keep], samples.values[keep], samples.hole_index[keep], samples.unit
+            )
         search = Search(
             self.search.value(), self.min_s.value(), self.max_s.value(), self.per_hole.value()
         )
@@ -476,6 +490,9 @@ class EstimationDialog(QDialog):
         mask = None
         if self.rock_only.isChecked() and "kaya" in model.attributes:
             mask = model.values("kaya") > 0.5
+        if self.domain.currentIndex() > 0:
+            inside = load_solid(self.project, domain).inside(model.grid.centroids())
+            mask = inside if mask is None else mask & inside
         unestimated = _with_progress(
             self.parent(),  # type: ignore[arg-type]
             "Kestirim yapılıyor...",

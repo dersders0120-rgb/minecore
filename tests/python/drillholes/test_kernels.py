@@ -140,3 +140,43 @@ def test_import_validate_composite_end_to_end(tmp_path: Path, dialect: str, head
     grade_field = next(f.name for f in db.table_info("assay").fields if f.unit == "ppm")
     result = composite_table(db, "assay", [grade_field], 2.0, report=report)
     assert result.table.num_rows > 0
+
+
+def test_excel_workbook_imports_like_csv(tmp_path: Path) -> None:
+    """Each sheet of an .xlsx is a table; values match the CSV import exactly."""
+    from openpyxl import Workbook  # noqa: PLC0415
+
+    from minecore.drillholes import DrillholeDatabase  # noqa: PLC0415
+    from minecore.drillholes.importer import import_folder  # noqa: PLC0415
+    from minecore.project import Project  # noqa: PLC0415
+
+    book = Workbook()
+    collar = book.active
+    assert collar is not None
+    collar.title = "collar"
+    collar.append(["KUYU_NO", "DOĞU", "KUZEY", "KOT", "DERİNLİK"])
+    collar.append(["H1", 500000.5, 4400000.25, 1200.0, 50.0])
+    collar.append(["H2", 500050.0, 4400010.0, 1201.5, 40.0])
+    survey = book.create_sheet("survey")
+    survey.append(["KUYU_NO", "DERİNLİK", "AZİMUT", "EĞİM"])
+    survey.append(["H1", 0, 90, -60])
+    survey.append(["H2", 0, 0, -90])
+    assay = book.create_sheet("assay")
+    assay.append(["KUYU_NO", "BAŞLANGIÇ", "BİTİŞ", "AU_PPM"])
+    assay.append(["H1", 0, 2, 0.35])
+    assay.append(["H1", 2, 4.5, 1.2])
+    assay.append(["H2", 0, 3, 0.01])
+    folder = tmp_path / "data"
+    folder.mkdir()
+    book.save(folder / "sondaj.xlsx")
+    (folder / "~$sondaj.xlsx").write_bytes(b"lock")
+    project = Project.create(tmp_path / "x.mcproj", "x")
+    db = DrillholeDatabase.create(project, "db")
+    results = import_folder(db, folder)
+    assert [r.table.name for r in results] == ["collar", "survey", "assay"]
+    a = db.table("assay")
+    assert a.column("to").to_pylist() == [2.0, 4.5, 3.0]
+    assert a.column("AU_PPM").to_pylist() == [0.35, 1.2, 0.01]
+    c = db.table("collar")
+    assert c.column("x").to_pylist() == [500000.5, 500050.0]
+    project.close()

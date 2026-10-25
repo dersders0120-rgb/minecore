@@ -182,3 +182,34 @@ def test_validation_dialog(qapp: QApplication, tmp_path: Path) -> None:
     dialog.run_cv()
     assert "Korelasyon" in dialog.summary.text()
     project.close()
+
+
+def test_estimation_restricted_to_a_solid(qapp: QApplication, tmp_path: Path) -> None:
+    from minecore.blockmodel import Grid  # noqa: PLC0415
+    from minecore.solids import Solid, save_solid  # noqa: PLC0415
+
+    project, db, field = _project(tmp_path)
+    samples = resource._samples(db, f"komp / {field}")
+    grid = Grid.covering(samples.xyz, (25.0, 25.0, 10.0))
+    BlockModel.create(project, "BM", grid)
+    lo = samples.xyz.min(axis=0)
+    hi = (samples.xyz.min(axis=0) + samples.xyz.max(axis=0)) / 2
+    corners = np.array(
+        [[x, y, z] for z in (lo[2], hi[2]) for y in (lo[1], hi[1]) for x in (lo[0], hi[0])]
+    )
+    quads = [(0, 2, 3, 1), (4, 5, 7, 6), (0, 1, 5, 4), (1, 3, 7, 5), (3, 2, 6, 7), (2, 0, 4, 6)]
+    tris = [t for a, b, c, d in quads for t in ((a, b, c), (a, c, d))]
+    box = Solid(corners, np.array(tris, np.int64))
+    assert box.open_edges() == 0
+    save_solid(project, "kutu", box)
+    parent = QWidget()
+    est = resource.EstimationDialog(db, project, parent)
+    est.source.setCurrentText(f"komp / {field}")
+    est.method.setCurrentIndex(list(Method).index(Method.INVERSE_DISTANCE))
+    est.domain.setCurrentText("kutu")
+    est.run()
+    values = BlockModel.open(project, "BM").values(est.output.text())
+    inside = box.inside(grid.centroids())
+    assert np.isnan(values[~inside]).all()
+    assert np.isfinite(values[inside]).any()
+    project.close()
