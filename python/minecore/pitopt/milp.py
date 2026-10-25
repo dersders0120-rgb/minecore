@@ -43,8 +43,9 @@ time. Blending targets (``Limits.blends``) add, per period and route,
     sum_j (a_j - hi)(d + r) <= 0   and   sum_j (a_j - lo)(d + r) >= 0
 
 with ``a_j`` the feed-tonne weighted mean of the attribute in source j. The
-greedy schedule ignores blending, so with targets the greedy NPV is only a
-reference and the MILP solution is kept even when it is lower.
+greedy schedule keeps the bounds only by holding ore back (it cannot
+re-sequence), so with targets its NPV is only a reference and the MILP
+solution is kept even when it is lower.
 
 Solved with HiGHS through ``scipy.optimize.milp``.
 """

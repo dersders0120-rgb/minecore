@@ -160,3 +160,14 @@ def test_half_year_periods_scale_capacity_and_discounting() -> None:
     assert first.discounted == pytest.approx(first.cash / 1.1**0.5)
     m = schedule_optimised(pit, phase, _limits(period_years=(0.5,)))
     assert m.rows[0].years == pytest.approx(0.5)
+
+
+def test_greedy_schedule_caps_the_feed_to_the_blend() -> None:
+    # Both benches mined in period 1; the 3.0 ore is fed only as far as the mean stays
+    # at 1.5 with the 1.0 ore: 1000 t of 1.0 + 333 t of 3.0; the rest is stockpiled.
+    pit, phase = _pit([3.0, 1.0])
+    limits = _limits(plant_capacity=2000.0, grade_bins=(2.0,), blends=parse_blends("grade:-:1.5"))
+    first = schedule_constrained(pit, phase, limits).rows[0]
+    assert first.ore_fed_t == pytest.approx(4000.0 / 3.0)
+    assert first.blend_values[0] == pytest.approx(1.5)
+    assert first.stockpile_t == pytest.approx(2000.0 / 3.0)

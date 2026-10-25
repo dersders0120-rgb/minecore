@@ -347,7 +347,7 @@ class PitDialog(QDialog):
             "Harmanlama hedefleri: her dönem tesis beslemesinin ortalaması bu aralıkta kalır. "
             "'tenör' ana besleme tenörüdür; başka bir öznitelik (ör. zararlı element) de "
             "yazılabilir. '-' sınır yok demektir; 4. alan yol numarasıdır (varsayılan 1). "
-            "Yalnız NPV optimizasyonu (MILP) uygular."
+            "MILP tam uygular; kurallı çizelge cevheri bekleterek uygular."
         )
         pf.addRow("Harmanlama hedefleri", self.blends)
         self.method = QComboBox()
@@ -709,10 +709,6 @@ class PitDialog(QDialog):
                 f"; {fixed.remaining_slivers:,} dar blok kaldı." if fixed.remaining_slivers else "."
             )
         limits = self.limits()
-        if limits.blends and self.method.currentIndex() != 1:
-            raise RuntimeError(
-                "Harmanlama hedefleri yalnız 'NPV optimizasyonu (MILP)' yöntemiyle uygulanır."
-            )
         if self.method.currentIndex() == 1:
             pit, phase, seconds = self.pit, self.phase, self.time_limit.value()
             self.sched = _with_progress(

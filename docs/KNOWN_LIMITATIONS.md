@@ -119,7 +119,9 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
   lengths (`--period-years`, GUI "Dönem uzunlukları", e.g. quarters then
   years) and capacities per year (`--mining-rates`, `--plant-rates`); the
   sinking rate stays benches per period whatever its length, and depreciation
-  is straight line in years. The greedy rules ignore blending targets.
+  is straight line in years. The greedy rules keep blending targets by
+  capping each source's feed (three passes); they never re-sequence mining to
+  reach a target, so the plant can run short where the MILP would not.
 - MILP schedule (`pitopt.milp`, CLI `--schedule milp`, GUI "NPV
   optimizasyonu"): maximises the NPV under the same rules with HiGHS
   (scipy). Mining units stay increments (pushback x bench), so it is not a
@@ -131,7 +133,7 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
   route; an attribute other than the grade is the in-situ value weighted by
   feed tonnes (no dilution applied to it) and unestimated blocks count as
   zero. With targets the greedy NPV is only a reference (the greedy schedule
-  may break them); when no feasible schedule is found in the time limit the
+  holds ore back instead of re-sequencing); when no feasible schedule is found in the time limit the
   run stops with a message. Smoke-tested only. Time
   limit (default 60 s) and MIP gap (0.5 %) apply; when the solver stops
   without beating the greedy schedule, the greedy one is kept and the
