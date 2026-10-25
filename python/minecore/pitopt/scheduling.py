@@ -38,8 +38,14 @@ benches per period.
 
 Blending targets (``blends``) bound the tonne-weighted mean of the main feed
 grade or of any block attribute (e.g. a deleterious element) in the feed of
-one route each period. Only the MILP schedule (``milp``) enforces them; the
-greedy rules ignore them.
+one route each period. The MILP schedule (``milp``) enforces them exactly.
+The greedy rules enforce them while feeding: each source (bin, fresh or
+stock) is fed only as far as the running feed mean stays inside the bounds,
+in three passes so that a later source with a better attribute can make
+room for a capped one; ore held back goes to the stockpile like any other
+unfed ore. This keeps the bounds when a feasible mix exists in the period's
+material, but it can leave the plant short where the MILP would re-sequence
+the pit to reach the target.
 
 Cash per period = processing margin of the ore fed (revenue - processing cost)
 - mining cost of everything mined - rehandling. Stockpiled ore pays its
@@ -165,7 +171,7 @@ class Limits:
     period_years: tuple[float, ...] = ()  # length of each period; the last repeats; empty = 1
     mining_rates: tuple[float, ...] = ()  # t/year by period; the last repeats
     plant_rates: tuple[float, ...] = ()  # main-route ore t/year by period; the last repeats
-    blends: tuple[Blend, ...] = ()  # feed blending targets (MILP schedule only)
+    blends: tuple[Blend, ...] = ()  # feed blending targets
 
     def length(self, period: int) -> float:
         """Length of a period (1-based) in years."""
@@ -227,7 +233,7 @@ class PeriodRow:
     discarded_t: float = 0.0  # ore sent to waste because the stockpile was full
     stock_by_bin: tuple[float, ...] = ()  # stockpile t per grade bin (lowest first), all routes
     years: float = math.nan  # time at the end of the period, years (NaN: = period)
-    blend_values: tuple[float, ...] = ()  # feed mean of each blending target (MILP)
+    blend_values: tuple[float, ...] = ()  # feed mean of each blending target
 
 
 @dataclass(frozen=True)
@@ -252,7 +258,7 @@ class _Increment:
     mining: float
     metal: float
     grade_t: float  # sum(tonnes * grade) of its ore
-    by_route: Floats  # routes x bins x (ore t, margin, metal, grade t, revenue)
+    by_route: Floats  # routes x bins x (ore t, margin, metal, grade t, revenue, blend attr t...)
     done: float = 0.0  # fraction mined
 
 
@@ -260,8 +266,27 @@ def _routes(result: PitResult) -> int:
     return max(int(result.route.max(initial=1)), 1)
 
 
+def _blend_columns(result: PitResult, blends: tuple[Blend, ...]) -> list[Floats]:
+    """Per blending target, the attribute value of each block (grade when unnamed)."""
+    out = []
+    n_routes = _routes(result)
+    for b in blends:
+        if b.route > n_routes:
+            raise PitOptError(f"blend {b.label} is for route {b.route}; there are {n_routes}")
+        if not b.attribute:
+            out.append(np.asarray(result.feed_grade, np.float64))
+            continue
+        if b.values is None or len(b.values) != len(result.tonnes):
+            raise PitOptError(f"blend {b.label}: block values are missing (resolve_blends)")
+        out.append(np.nan_to_num(np.asarray(b.values, np.float64), nan=0.0))
+    return out
+
+
 def _increments(
-    result: PitResult, phase: Ints, grade_bins: tuple[float, ...] = ()
+    result: PitResult,
+    phase: Ints,
+    grade_bins: tuple[float, ...] = (),
+    blend_columns: list[Floats] | None = None,
 ) -> list[_Increment]:
     out: list[_Increment] = []
     inside = np.flatnonzero(phase > 0)
@@ -273,11 +298,12 @@ def _increments(
     cut = np.flatnonzero(np.any(np.diff(keys, axis=0) != 0, axis=1)) + 1
     n_routes = _routes(result)
     n_bins = len(grade_bins) + 1
+    extra = blend_columns or []
     bin_of = np.searchsorted(np.asarray(grade_bins, np.float64), result.feed_grade, side="right")
     for blocks in np.split(inside, cut):
         ore = blocks[result.ore[blocks]]
         t = result.tonnes
-        by_route = np.zeros((n_routes, n_bins, 5))
+        by_route = np.zeros((n_routes, n_bins, 5 + len(extra)))
         route_of = np.where(result.route[ore] > 0, result.route[ore], 1)
         for r in range(n_routes):
             for b in range(n_bins):
@@ -288,6 +314,7 @@ def _increments(
                     result.metal[sel].sum(),
                     (result.feed[sel] * result.feed_grade[sel]).sum(),
                     result.revenue[sel].sum(),
+                    *((result.feed[sel] * v[sel]).sum() for v in extra),
                 )
         out.append(
             _Increment(
@@ -309,21 +336,23 @@ def _increments(
 def schedule_constrained(  # noqa: PLR0915 - one simulation loop
     result: PitResult, phase: Ints, limits: Limits
 ) -> ConstrainedSchedule:
-    incs = _increments(result, phase, limits.grade_bins)
+    incs = _increments(result, phase, limits.grade_bins, _blend_columns(result, limits.blends))
     phases = sorted({i.phase for i in incs})
     by_phase = {p: [i for i in incs if i.phase == p] for p in phases}
     finished_benches = dict.fromkeys(phases, -1)  # deepest fully mined bench index
     period_of = np.zeros(len(phase), np.int64)
     n_routes, n_bins = _routes(result), len(limits.grade_bins) + 1
     room = _per_route(list(limits.stockpile_capacities), n_routes)
-    stock = np.zeros((n_routes, n_bins, 5))  # ore t, margin, metal, grade t, revenue
+    width = 5 + len(limits.blends)
+    stock = np.zeros((n_routes, n_bins, width))  # ore t, margin, metal, grade t, revenue, attr t
+    bounds = [(b.route - 1, 5 + k, b.lo, b.hi) for k, b in enumerate(limits.blends)]
     rows: list[PeriodRow] = []
     for period in range(1, limits.max_periods + 1):
         capacity = limits.mining_cap(period)
         plant = limits.plant_caps(period, n_routes)
         mined = ore_mined = 0.0
         cost = 0.0
-        fresh = np.zeros((n_routes, n_bins, 5))
+        fresh = np.zeros((n_routes, n_bins, width))
         touched: dict[int, set[int]] = {p: set() for p in phases}
         progress = True
         while capacity > 1e-9 and progress:
@@ -357,8 +386,11 @@ def schedule_constrained(  # noqa: PLR0915 - one simulation loop
                 fresh += frac * inc.by_route
                 progress = True
                 break  # re-evaluate from the first pushback
-        fed, reclaimed, discarded = _feed(fresh, stock, plant, room)
-        feed, margin, metal, grade_t, revenue = (float(v) for v in fed.sum(axis=0))
+        fed, reclaimed, discarded = _feed(fresh, stock, plant, room, bounds)
+        feed, margin, metal, grade_t, revenue = (float(v) for v in fed.sum(axis=0)[:5])
+        blend_values = tuple(
+            float(fed[r, c] / fed[r, 0]) if fed[r, 0] > 0 else math.nan for r, c, _, _ in bounds
+        )
         if mined <= 1e-9 and feed <= 1e-9:
             break
         rehandle = limits.rehandle_cost * reclaimed
@@ -384,6 +416,7 @@ def schedule_constrained(  # noqa: PLR0915 - one simulation loop
                 discarded,
                 tuple(float(v) for v in stock[:, :, 0].sum(axis=0)),
                 limits.end_years(period),
+                blend_values,
             )
         )
     unmined = sum((1.0 - i.done) * i.tonnes for i in incs)
@@ -396,27 +429,53 @@ def _per_route(values: list[float], n_routes: int) -> Floats:
     return np.asarray(values[:n_routes], np.float64)
 
 
-def _feed(fresh: Floats, stock: Floats, plant: Floats, room: Floats) -> tuple[Floats, float, float]:
+def _blend_cap(fed: Floats, source: Floats, bounds: list[tuple[int, float, float]]) -> float:
+    """Largest fraction of ``source`` that keeps every bound on the feed mean."""
+    k = 1.0
+    t = source[0]
+    for col, lo, hi in bounds:
+        for bound, sign in ((hi, 1.0), (lo, -1.0)):
+            if not math.isfinite(bound):
+                continue
+            slack = sign * (bound * fed[0] - fed[col])  # >= 0 while inside the bound
+            excess = sign * (source[col] - bound * t)  # > 0 when the source pulls outwards
+            if excess > 1e-12:
+                k = min(k, max(slack, 0.0) / excess)
+    return k
+
+
+def _feed(
+    fresh: Floats,
+    stock: Floats,
+    plant: Floats,
+    room: Floats,
+    bounds: list[tuple[int, int, float, float]] | None = None,
+) -> tuple[Floats, float, float]:
     """Feed each route from the highest grade bin down, fresh ore before stock
-    within a bin; store the rest while there is room. ``stock`` is updated in
-    place. Returns (fed per route, t reclaimed, t sent to waste)."""
+    within a bin, keeping the feed mean inside the blending bounds
+    ``(route, column, lo, hi)``; store the rest while there is room. ``stock``
+    is updated in place. Returns (fed per route, t reclaimed, t sent to waste)."""
     n_routes, n_bins = fresh.shape[0], fresh.shape[1]
-    fed = np.zeros((n_routes, 5))
+    fed = np.zeros((n_routes, fresh.shape[2]))
     reclaimed = discarded = 0.0
     for r in range(n_routes):
         spare = plant[r]
         left = fresh[r].copy()
-        for b in range(n_bins - 1, -1, -1):
-            for from_stock, source in ((False, left), (True, stock[r])):
-                t = source[b, 0]
-                if spare <= 0 or t <= 0:
-                    continue
-                k = min(1.0, spare / t)
-                fed[r] += k * source[b]
-                spare -= k * t
-                if from_stock:
-                    reclaimed += k * t
-                source[b] *= 1.0 - k  # a view: updates the stockpile in place
+        mine = [(c, lo, hi) for route, c, lo, hi in bounds or [] if route == r]
+        for _ in range(3 if mine else 1):
+            for b in range(n_bins - 1, -1, -1):
+                for from_stock, source in ((False, left), (True, stock[r])):
+                    t = source[b, 0]
+                    if spare <= 1e-9 or t <= 1e-9:
+                        continue
+                    k = min(1.0, spare / t, _blend_cap(fed[r], source[b], mine))
+                    if k <= 1e-12:
+                        continue
+                    fed[r] += k * source[b]
+                    spare -= k * t
+                    if from_stock:
+                        reclaimed += k * t
+                    source[b] *= 1.0 - k  # a view: updates the stockpile in place
         space = room[r] - stock[r, :, 0].sum()
         for b in range(n_bins - 1, -1, -1):
             t = left[b, 0]

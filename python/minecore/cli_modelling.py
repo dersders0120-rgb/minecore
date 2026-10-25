@@ -457,7 +457,7 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
         action="append",
         default=[],
         metavar="ATTR:MIN:MAX[:ROUTE]",
-        help="feed blending target per period, e.g. grade:0.8:- or as:-:500 (needs milp)",
+        help="feed blending target per period, e.g. grade:0.8:- or as:-:500",
     )
     opt.add_argument(
         "--best-pushbacks",
@@ -1284,8 +1284,6 @@ def pit_optimise(project: Project, args: argparse.Namespace, out: TextIO) -> int
 def _limits(args: argparse.Namespace, model: BlockModel) -> Limits | None:
     """Schedule limits when a plant capacity is given; options that need them otherwise fail."""
     blends = parse_blends(";".join(args.blend))
-    if blends and args.schedule != "milp":
-        raise PitOptError("blending targets (--blend) need --schedule milp")
     needs = {
         "--schedule milp": args.schedule == "milp",
         "--period-years": bool(args.period_years),
