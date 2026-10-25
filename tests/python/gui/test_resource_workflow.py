@@ -806,3 +806,25 @@ def test_pit_dialog_scenarios(qapp: QApplication, tmp_path: Path) -> None:
     dialog.delete_scenario()
     assert [s.name for s in list_scenarios(project)] == ["yüksek fiyat"]
     project.close()
+
+
+def test_blast_dialog(qapp: QApplication, tmp_path: Path) -> None:
+    from minecore.gui.blast import BlastDialog  # noqa: PLC0415
+    from minecore.strings import String, load_strings, save_strings  # noqa: PLC0415
+
+    project = Project.create(tmp_path / "b.mcproj", "b")
+    square = np.array([[0, 0, 100], [60, 0, 100], [60, 40, 100], [0, 40, 100]], float)
+    save_strings(project, "sinir", [String(square, True)])
+    parent = QWidget()
+    dialog = BlastDialog(project, parent)
+    d = dialog.design()
+    assert d.b == pytest.approx(4.95)  # 30 x 165 mm
+    assert "Özgül şarj" in dialog.summary.text()
+    dialog.ask_path = lambda: str(tmp_path / "d.dxf")  # type: ignore[method-assign]
+    dialog.make_layout()
+    assert dialog.holes is not None
+    n = len(dialog.holes[0])
+    assert 60 * 40 / (d.b * d.s) * 0.6 < n <= 60 * 40 / (d.b * d.s) * 1.1
+    assert len(load_strings(project, "sinir_delikler")) == n
+    assert "BLAST_HOLES" in (tmp_path / "d.dxf").read_text()
+    project.close()

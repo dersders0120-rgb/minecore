@@ -89,6 +89,11 @@ GUIDE = """
 4. **Ocağı DXF olarak dışa aktar**: basamak üst/alt çizgileri, ocak katısı, kazı sonrası yüzey.
 5. **Dönem sonu yüzeyleri**: çizelgedeki her yılın sonundaki kazı yüzeyi ve DXF çizgileri.
 
+Delme-patlatma: **Açık Ocak > Delme-patlatma tasarımı** delik çapından dilim, aralık,
+taban delgisi ve sıkılamayı, delik başına şarjı, özgül şarjı (kg/m³, kg/t), maliyeti ve
+yıllık delik/patlayıcı ihtiyacını verir; kapalı bir sınır çizgisi içinde şaşırtmalı
+delik planı oluşturup DXF'e yazar.
+
 ## 5. Yeraltı
 - **Yeraltı > Pano zarfı**: sabit boyutlu pano ile yüzen pano zarfı ve çakışmasız pano
   seçimi; DXF.

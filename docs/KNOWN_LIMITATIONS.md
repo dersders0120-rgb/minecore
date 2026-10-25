@@ -161,6 +161,15 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
   or fuel model; the cost is reported, not added to the schedule cash flow.
   Smoke-tested only.
 
+## Drill and blast
+
+- `drillblast` (GUI "Delme-patlatma tasarımı"): rule-of-thumb bench blast
+  (burden from the diameter, spacing/subdrill/stemming ratios), fully coupled
+  bulk explosive, flat collar elevation, holes on a regular staggered/square
+  grid clipped to a closed outline. No fragmentation (Kuz-Ram), vibration,
+  air-blast or flyrock prediction, no timing design, no decking, no free-face
+  or crest-burden checks. Smoke-tested only.
+
 ## Pit scenarios
 
 - `pitopt.scenarios` (GUI "Senaryolar", CLI `pit optimise --save-scenario`,
