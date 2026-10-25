@@ -53,7 +53,7 @@ from minecore.pitopt.benchdesign import (
 )
 from minecore.pitopt.cutoff import LaneResult, cutoffs_from_model
 from minecore.pitopt.design import edge_blocks
-from minecore.pitopt.economics import parse_routes
+from minecore.pitopt.economics import PitOptError, parse_routes
 from minecore.pitopt.optimise import route_tonnes, store
 from minecore.pitopt.scheduling import (
     ConstrainedSchedule,
@@ -81,6 +81,14 @@ def parse_sectors(text: str) -> tuple[tuple[float, float], ...]:
             az, angle = part.split(":")
             out.append((float(az), float(angle)))
     return tuple(out)
+
+
+def parse_capacities(text: str) -> tuple[float, ...]:
+    """``"1.5; 0.8"`` Mt/year -> (1.5e6, 0.8e6) t/year."""
+    try:
+        return tuple(float(v) * 1e6 for v in text.replace(",", ";").split(";") if v.strip())
+    except ValueError:
+        raise PitOptError(f"route capacities {text!r} are not numbers") from None
 
 
 def _cell(table: QTableWidget, r: int, c: int, text: str) -> None:
@@ -199,6 +207,9 @@ class PitDialog(QDialog):
         self.lag = QSpinBox(minimum=0, maximum=50, value=2)
         self.sinking = QSpinBox(minimum=1, maximum=50, value=6)
         pf.addRow("Tesis kapasitesi (Mt cevher/yıl)", self.plant)
+        self.route_caps = QLineEdit()
+        self.route_caps.setPlaceholderText("örn. 1.5 (ek yolların sırasıyla, ; ile; boş: sınırsız)")
+        pf.addRow("Ek yol kapasiteleri (Mt/yıl)", self.route_caps)
         pf.addRow("Pushback'ler arası basamak gecikmesi", self.lag)
         pf.addRow("Batma hızı (basamak/yıl)", self.sinking)
         pf.addRow(make)
@@ -444,6 +455,7 @@ class PitDialog(QDialog):
             bench_lag=self.lag.value(),
             sinking_rate=self.sinking.value(),
             discount_rate=self.discount.value() / 100.0,
+            route_capacities=parse_capacities(self.route_caps.text()),
         )
         self.sched = schedule_constrained(self.pit, self.phase, limits)
         rows = self.sched.rows
@@ -453,7 +465,12 @@ class PitDialog(QDialog):
                 str(p.period),
                 _m(p.mined_t),
                 _m(p.ore_mined_t),
-                _m(p.ore_fed_t),
+                _m(p.ore_fed_t)
+                + (
+                    " (" + " + ".join(_m(f) for f in p.fed_by_route) + ")"
+                    if len(p.fed_by_route) > 1
+                    else ""
+                ),
                 "" if math.isnan(p.feed_grade) else f"{p.feed_grade:.3f}",
                 f"{p.metal:,.0f}",
                 _m(p.stockpile_t),

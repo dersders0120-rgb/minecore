@@ -1,6 +1,6 @@
 # Session handoff
 
-Updated: 2026-10-25 ~04:20 UTC (architect, thread "Build block model and estimation", overnight run)
+Updated: 2026-10-25 ~05:00 UTC (architect, thread "Build block model and estimation", overnight run)
 
 ## Owner direction (binding)
 - Windows 11 only. Wants a usable program fast, accepts some bugs, tests the GUI
@@ -12,17 +12,22 @@ Updated: 2026-10-25 ~04:20 UTC (architect, thread "Build block model and estimat
 - Open-source libraries welcome if permissive (MIT/BSD/Apache); no GPL.
 
 ## State
-- `main`: PRs #1-#19 merged. PR #20 (period surfaces, decline layout,
-  installation self-test) open on branch `claude/project-thread-3hc3k9`.
+- `main`: PRs #1-#22 merged (PR #21-#22: process routes in pit optimisation
+  and per-route plant capacity in the scheduler).
 - Overnight additions (PR #15-#20): string import and section linking, user
   guide (F1), re-blocking, Lane cut-off optimisation, partial-block solid
   fractions and weighted reports, solid CLI, CLI swath, spiral haul ramp in
   bench design, implicit RBF domains, section/plan PDF/PNG/SVG plots,
-  end-of-period surfaces, decline and level crosscuts, self-test.
+  end-of-period surfaces, decline and level crosscuts, self-test,
+  geotechnical sectors in bench design, process routes (mill + leach).
 - Bugs fixed overnight: saving a surface/solid/string set under an existing
   name failed (second bench design run crashed); plan plots of tall models.
 - Windows build: "Windows app" workflow, artifact `MineCore-windows`; from
   PR #20 on it runs `MineCore.exe --self-test` (whole chain on the sample).
+  Its first run found three packaging bugs that earlier exe builds had:
+  pyvista steps crashed (half-bundled mypy), the pit optimisation warning
+  crashed (no stderr in a windowed exe), PDF/SVG plots failed (matplotlib
+  backends not bundled). All fixed; the self-test passes in CI.
 - Local gates: run the scratch `gate.sh` equivalent (ruff check, ruff format
   --check, mypy, cargo fmt) and check for the text GATES-OK; piping through
   `tail` hides the exit status.
@@ -42,8 +47,8 @@ Updated: 2026-10-25 ~04:20 UTC (architect, thread "Build block model and estimat
 ## Next actions
 1. Merge PR #20 when CI (incl. the packaged self-test) is green.
 2. Rotated block models and sub-cells (contract change in mc-core: needs an ADR).
-3. Pit design: geotechnical sectors, switchback ramps, multiple pit bottoms.
-4. Multiple process routes / stockpile strategy in Lane and the scheduler.
+3. Pit design: switchback ramps, multiple pit bottoms, blended sector changes.
+4. Routes and stockpiles in Lane; re-routing ore when a route is full.
 5. Underground: ore drives, stope shapes beyond grid boxes, development schedule.
 6. Interoperability: OMF export (check licence of the `omf` package first).
 

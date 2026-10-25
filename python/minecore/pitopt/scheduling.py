@@ -11,7 +11,10 @@ first, subject to:
 * bench lag: pushback ``p`` may not start bench ``b`` until pushback ``p-1``
   has finished bench ``b - lag`` (or is finished);
 * plant capacity (ore t/period): ore beyond it goes to one blended stockpile;
-  periods with spare plant capacity reclaim from the stockpile.
+  periods with spare plant capacity reclaim from the stockpile. With process
+  routes (``PitResult.route``) the plant capacity is the main route's and
+  ``route_capacities`` give the extra routes theirs (unlimited when not
+  given); each route has its own stockpile.
 
 Cash per period = processing margin of the ore fed (revenue - processing cost)
 - mining cost of everything mined. Stockpiled ore pays its mining cost when
@@ -32,6 +35,7 @@ from minecore.pitopt.economics import PitOptError
 from minecore.pitopt.optimise import PitResult
 
 Ints = npt.NDArray[np.int64]
+Floats = npt.NDArray[np.float64]
 
 
 @dataclass(frozen=True)
@@ -42,10 +46,13 @@ class Limits:
     sinking_rate: int = 6  # max benches a pushback may advance per period
     discount_rate: float = 0.08
     max_periods: int = 200
+    route_capacities: tuple[float, ...] = ()  # ore t per period of routes 2, 3, ...
 
     def __post_init__(self) -> None:
         if self.mining_capacity <= 0 or self.plant_capacity <= 0:
             raise PitOptError("mining and plant capacities must be > 0")
+        if any(not c > 0 for c in self.route_capacities):
+            raise PitOptError("route capacities must be > 0")
         if self.bench_lag < 0:
             raise PitOptError("bench lag must be >= 0")
         if self.sinking_rate < 1:
@@ -63,6 +70,7 @@ class PeriodRow:
     stockpile_t: float
     cash: float
     discounted: float
+    fed_by_route: tuple[float, ...] = ()  # ore fed per process route (main first)
 
 
 @dataclass(frozen=True)
@@ -87,7 +95,12 @@ class _Increment:
     mining: float
     metal: float
     grade_t: float  # sum(tonnes * grade) of its ore
+    by_route: Floats  # routes x (ore t, margin, metal, grade t)
     done: float = 0.0  # fraction mined
+
+
+def _routes(result: PitResult) -> int:
+    return max(int(result.route.max(initial=1)), 1)
 
 
 def _increments(result: PitResult, phase: Ints) -> list[_Increment]:
@@ -99,9 +112,19 @@ def _increments(result: PitResult, phase: Ints) -> list[_Increment]:
     if len(inside) == 0:
         return out
     cut = np.flatnonzero(np.any(np.diff(keys, axis=0) != 0, axis=1)) + 1
+    n_routes = _routes(result)
     for blocks in np.split(inside, cut):
         ore = blocks[result.ore[blocks]]
         t = result.tonnes
+        by_route = np.zeros((n_routes, 4))
+        for r in range(n_routes):
+            sel = ore[np.where(result.route[ore] > 0, result.route[ore], 1) == r + 1]
+            by_route[r] = (
+                result.feed[sel].sum(),
+                (result.value[sel] + result.mining[sel]).sum(),
+                result.metal[sel].sum(),
+                (result.feed[sel] * result.feed_grade[sel]).sum(),
+            )
         out.append(
             _Increment(
                 int(phase[blocks[0]]),
@@ -113,6 +136,7 @@ def _increments(result: PitResult, phase: Ints) -> list[_Increment]:
                 float(result.mining[blocks].sum()),
                 float(result.metal[ore].sum()),
                 float((result.feed[ore] * result.feed_grade[ore]).sum()),
+                by_route,
             )
         )
     return out
@@ -126,13 +150,17 @@ def schedule_constrained(  # noqa: PLR0915 - one simulation loop
     by_phase = {p: [i for i in incs if i.phase == p] for p in phases}
     finished_benches = dict.fromkeys(phases, -1)  # deepest fully mined bench index
     period_of = np.zeros(len(phase), np.int64)
-    stock_t = stock_margin = stock_metal = stock_grade_t = 0.0
+    n_routes = _routes(result)
+    caps = [limits.plant_capacity, *limits.route_capacities]
+    caps += [math.inf] * (n_routes - len(caps))
+    plant = np.asarray(caps[:n_routes], np.float64)
+    stock = np.zeros((n_routes, 4))  # per route: ore t, margin, metal, grade t
     rows: list[PeriodRow] = []
     for period in range(1, limits.max_periods + 1):
         capacity = limits.mining_capacity
         mined = ore_mined = 0.0
         cost = 0.0
-        fresh_t = fresh_margin = fresh_metal = fresh_grade_t = 0.0
+        fresh = np.zeros((n_routes, 4))
         touched: dict[int, set[int]] = {p: set() for p in phases}
         progress = True
         while capacity > 1e-9 and progress:
@@ -163,33 +191,22 @@ def schedule_constrained(  # noqa: PLR0915 - one simulation loop
                 mined += take
                 cost += frac * inc.mining
                 ore_mined += frac * inc.ore_t
-                fresh_t += frac * inc.ore_t
-                fresh_margin += frac * inc.margin
-                fresh_metal += frac * inc.metal
-                fresh_grade_t += frac * inc.grade_t
+                fresh += frac * inc.by_route
                 progress = True
                 break  # re-evaluate from the first pushback
-        # Plant: fresh ore first, surplus to stockpile, spare capacity reclaims.
-        plant = limits.plant_capacity
-        feed = min(fresh_t, plant)
-        share = feed / fresh_t if fresh_t > 0 else 0.0
-        margin = share * fresh_margin
-        metal = share * fresh_metal
-        grade_t = share * fresh_grade_t
-        surplus = 1.0 - share
-        stock_t += surplus * fresh_t
-        stock_margin += surplus * fresh_margin
-        stock_metal += surplus * fresh_metal
-        stock_grade_t += surplus * fresh_grade_t
-        spare = plant - feed
-        if spare > 0 and stock_t > 0:
-            r = min(1.0, spare / stock_t)
-            feed += r * stock_t
-            margin += r * stock_margin
-            metal += r * stock_metal
-            grade_t += r * stock_grade_t
-            stock_t, stock_margin = stock_t * (1 - r), stock_margin * (1 - r)
-            stock_metal, stock_grade_t = stock_metal * (1 - r), stock_grade_t * (1 - r)
+        # Each route: fresh ore first, surplus to its stockpile, spare capacity reclaims.
+        fed = np.zeros((n_routes, 4))
+        for r in range(n_routes):
+            t = fresh[r, 0]
+            share = min(1.0, plant[r] / t) if t > 0 else 0.0
+            fed[r] = share * fresh[r]
+            stock[r] += (1.0 - share) * fresh[r]
+            spare = plant[r] - fed[r, 0]
+            if spare > 0 and stock[r, 0] > 0:
+                k = min(1.0, spare / stock[r, 0])
+                fed[r] += k * stock[r]
+                stock[r] *= 1.0 - k
+        feed, margin, metal, grade_t = (float(v) for v in fed.sum(axis=0))
         if mined <= 1e-9 and feed <= 1e-9:
             break
         cash = margin - cost
@@ -201,9 +218,10 @@ def schedule_constrained(  # noqa: PLR0915 - one simulation loop
                 feed,
                 grade_t / feed if feed > 0 else math.nan,
                 metal,
-                stock_t,
+                float(stock[:, 0].sum()),
                 cash,
                 cash / (1.0 + limits.discount_rate) ** period,
+                tuple(float(v) for v in fed[:, 0]),
             )
         )
     unmined = sum((1.0 - i.done) * i.tonnes for i in incs)

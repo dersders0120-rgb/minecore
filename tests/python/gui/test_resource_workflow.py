@@ -165,11 +165,16 @@ def test_pit_dialog_shells_pushbacks_and_save(qapp: QApplication, tmp_path: Path
     dialog.run()
     assert "liç" in dialog.route_label.text()
     assert (dialog.pit.route == 2).any()
+    dialog.route_caps.setText("0.01")
     dialog.min_ore.setValue(0.05)
     dialog.min_width.setValue(30.0)
     dialog.make_phases()
     assert dialog.sched is not None
     assert dialog.sched_table.rowCount() == len(dialog.sched.rows) + 1
+    assert all(r.fed_by_route[1] <= 0.01e6 * (1 + 1e-9) for r in dialog.sched.rows)
+    first_fed = dialog.sched_table.item(0, 3)
+    assert first_fed is not None
+    assert " + " in first_fed.text()
     assert dialog.inv_table.rowCount() == len(dialog.inventory) > 0
     dialog.save()
     assert len([n for n in notes if not n.startswith("Uyarı")]) == 2

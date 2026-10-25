@@ -49,13 +49,13 @@
       "id": "M7",
       "title": "Open-pit optimisation",
       "status": "IN_PROGRESS",
-      "evidence": "Max-closure pit in Rust, nested shells, best/worst NPV, pushbacks with minimum mining width, recovery/dilution, NSR, Lane cut-off optimisation (PR #10-#16)."
+      "evidence": "Max-closure pit in Rust, nested shells, best/worst NPV, pushbacks with minimum mining width, recovery/dilution, NSR, Lane cut-off optimisation, process routes (PR #10-#21)."
     },
     {
       "id": "M8",
       "title": "Open-pit design and scheduling",
       "status": "IN_PROGRESS",
-      "evidence": "Constrained schedule, bench inventory, bench design with spiral ramp, pit/design DXF, end-of-period surfaces, section/plan PDF plots (PR #11-#20). Geotechnical sectors and switchbacks pending."
+      "evidence": "Constrained schedule, bench inventory, bench design with spiral ramp, pit/design DXF, end-of-period surfaces, section/plan PDF plots, geotechnical sectors (PR #11-#20). Switchbacks pending."
     },
     {
       "id": "M9",

@@ -278,6 +278,13 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
         metavar="NAME:RECOVERY:COST",
         help="extra process route (e.g. leach:0.6:4); repeat for each route",
     )
+    opt.add_argument(
+        "--route-capacity",
+        type=float,
+        action="append",
+        default=[],
+        help="ore t/year of each extra route, in --route order (with --plant)",
+    )
     des = pit_cmds.add_parser("design", help="bench design around the optimised pit")
     des.add_argument("project")
     des.add_argument("model")
@@ -791,7 +798,14 @@ def pit_command(args: argparse.Namespace, out: TextIO) -> int:
             phase = apply_mining_width(model.grid, phase, slope, args.min_width).phase
         sched: Schedule | ConstrainedSchedule
         if args.plant:
-            limits = Limits(args.rate, args.plant, args.lag, args.sinking, args.discount)
+            limits = Limits(
+                args.rate,
+                args.plant,
+                args.lag,
+                args.sinking,
+                args.discount,
+                route_capacities=tuple(args.route_capacity),
+            )
             sched = schedule_constrained(result, phase, limits)
         else:
             sched = schedule(result, phase, args.rate, args.discount)

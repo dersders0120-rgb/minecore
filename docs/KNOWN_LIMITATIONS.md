@@ -75,9 +75,10 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
   each block goes to the route with the best margin at the shell's revenue
   factor (`pit_route` stores the choice at factor 1). Routes differ only in
   recovery and processing cost per tonne; mining recovery and dilution are
-  common. Not in NSR mode. The scheduler's plant capacity counts the feed of
-  all routes together (no capacity per route), and Lane cut-off uses the main
-  route only.
+  common. Not in NSR mode. The constrained scheduler gives each route its own
+  capacity (`--route-capacity`, GUI "Ek yol kapasiteleri"; unlimited when not
+  given) and stockpile; the route of a block is fixed by the optimisation and
+  is not re-chosen when a route is full. Lane cut-off uses the main route only.
   Mining recovery and dilution are global factors applied to ore blocks
   (dilution at zero grade); no edge-dilution or regularisation model.
 - Pushbacks group whole shells by ore tonnage. Minimum mining width
