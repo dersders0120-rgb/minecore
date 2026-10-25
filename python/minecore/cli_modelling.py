@@ -51,6 +51,7 @@ from minecore.pitopt.economics import PitOptError
 from minecore.pitopt.optimise import Schedule, store
 from minecore.pitopt.scheduling import ConstrainedSchedule, Limits, schedule_constrained
 from minecore.pitopt.width import apply_mining_width
+from minecore.plots import SectionSpec, section_plot
 from minecore.project import Project
 from minecore.solids import flag_blocks, load_solid, read_solid, save_solid
 from minecore.underground.stopes import stopes_from_model
@@ -128,6 +129,19 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
         nargs=6,
         metavar=("MAJOR", "SEMI", "MINOR", "AZ", "DIP", "RAKE"),
     )
+
+    plot = commands.add_parser("plot", help="printable section/plan plots (PDF, PNG, SVG)")
+    plot.add_argument("project")
+    plot.add_argument("out", help="output file: .pdf, .png or .svg")
+    plot.add_argument("--axis", choices=["x", "y", "z"], required=True, help="x: N-S section")
+    plot.add_argument("--at", type=float, required=True, help="plane coordinate, m")
+    plot.add_argument("--width", type=float, default=20.0, help="slab thickness, m")
+    plot.add_argument("--model")
+    plot.add_argument("--attribute")
+    plot.add_argument("--drill", help="table/field of samples to colour")
+    plot.add_argument("--surface", action="append", default=[])
+    plot.add_argument("--solid", action="append", default=[])
+    plot.add_argument("--title", default="")
 
     bm = commands.add_parser("bm", help="block models, variograms, estimation, reports")
     bm_cmds = bm.add_subparsers(dest="bm_command", metavar="ACTION", required=True)
@@ -360,6 +374,27 @@ def geo_command(args: argparse.Namespace, out: TextIO) -> int:
             f"{args.name}: {data.contacts} contacts, volume {r.solid.volume():,.0f} m3, "
             f"open edges {r.solid.open_edges()}, {r.blocks_inside} blocks inside "
             f"(dom_{args.name}, imp_{args.name})\n"
+        )
+    return 0
+
+
+def plot_command(args: argparse.Namespace, out: TextIO) -> int:
+    with Project.open(args.project) as project:
+        spec = SectionSpec(
+            "xyz".index(args.axis),
+            args.at,
+            args.width,
+            model=args.model,
+            attribute=args.attribute,
+            drill=_source(args.drill) if args.drill else None,
+            surfaces=tuple(args.surface),
+            solids=tuple(args.solid),
+            title=args.title,
+        )
+        r = section_plot(project, spec, Path(args.out))
+        out.write(
+            f"{args.out}: {r.blocks} blocks, {r.holes} holes, {r.samples} samples, "
+            f"surfaces {r.surface_lines}, solids {r.solid_segments}\n"
         )
     return 0
 
@@ -755,4 +790,5 @@ HANDLERS = {
     "strings": strings_command,
     "solid": solid_command,
     "geo": geo_command,
+    "plot": plot_command,
 }
