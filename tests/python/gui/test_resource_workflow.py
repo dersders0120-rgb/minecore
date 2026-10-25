@@ -329,6 +329,13 @@ def test_classification_dialog_and_filtered_report(qapp: QApplication, tmp_path:
     gt.compute()
     assert gt.report is not None
     assert gt.report.rows[0].blocks == 2
+    model.set_attributes({"dom_z_pct": np.array([0.5, 0.0, 1.0, 0.25])}, {}, "pct")
+    gt = resource.GradeTonnageDialog(project, parent)
+    gt.weight_attr.setCurrentText("dom_z_pct")
+    gt.c0.setValue(0.0)
+    gt.compute()
+    assert gt.report is not None
+    assert gt.report.rows[0].volume == pytest.approx(1.75 * 1000.0)
     project.close()
 
 
@@ -368,6 +375,35 @@ def test_bench_design_dialog(qapp: QApplication, tmp_path: Path) -> None:
     assert dialog.report.design_blocks >= 32
     assert "tasarim_1" in surface_names(project)
     assert "pit_tasarim" in BlockModel.open(project, "BM").attributes
+    project.close()
+
+
+def test_cutoff_dialog(qapp: QApplication, tmp_path: Path) -> None:
+    from minecore.blockmodel import Grid  # noqa: PLC0415
+    from minecore.gui.pit import CutoffDialog  # noqa: PLC0415
+    from minecore.pitopt import Economics, PriceUnit  # noqa: PLC0415
+
+    project = Project.create(tmp_path / "c.mcproj", "c")
+    grid = Grid((0.0, 0.0, 0.0), (10.0, 10.0, 10.0), (10, 10, 4))
+    model = BlockModel.create(project, "BM", grid)
+    au = np.linspace(0.0, 4.0, grid.blocks)
+    econ = Economics(1500.0, PriceUnit.TROY_OUNCE, 0.9, 2.0, 15.0)
+    model.set_attributes(
+        {"au": au, "pit_shell": np.ones(grid.blocks), "pit_value": np.zeros(grid.blocks)},
+        {"au": {"unit": "g/t"}, "pit_value": {"economics": econ.to_json()}},
+        "pit",
+    )
+    parent = QWidget()
+    dialog = CutoffDialog(project, parent)
+    dialog.mine.setValue(0.03)
+    dialog.mill.setValue(0.01)
+    dialog.fixed.setValue(0.1)
+    dialog.run()
+    assert dialog.lane is not None
+    assert dialog.lane.npv > 0
+    assert dialog.table.rowCount() == len(dialog.lane.years) > 1
+    cut = [y.cutoff for y in dialog.lane.years]
+    assert cut[0] >= cut[-1]
     project.close()
 
 

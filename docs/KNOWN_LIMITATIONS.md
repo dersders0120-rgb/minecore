@@ -21,18 +21,18 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
 
 - Regular, unrotated block models only; no sub-blocks, no rotation, no wireframe
   (solid) flagging or domain-restricted estimation yet.
-- Variogram GUI fits one structure; nested structures are supported by the
-  engine and JSON but are entered one structure at a time in the dialog.
+- Variogram GUI fits the first structure automatically; a second structure
+  is entered by hand (no joint automatic fit of nested structures).
 - Validation: swath plots and leave-one-hole-out cross-validation exist
   (isotropic search in the dialog); no kriging neighbourhood analysis,
-  no declustered statistics, no change-of-support checks yet.
+  no change-of-support checks yet. Swath sample means are not declustered.
 - Estimation kernels run in Rust (`mc-core::kriging`) on all cores; neighbour
   search is a SciPy KD-tree. Measured on 4 cores (3000 samples, 16 per block,
   2x2x2 discretisation, release build): IDW about 230k blocks/s, ordinary
   kriging about 143k blocks/s.
 - CLI covers the chain (`drillholes`, `surface`, `bm`, `pit` commands); the
-  CLI variogram is omnidirectional and isotropic only, and swath/cross-
-  validation are GUI and Python API only.
+  CLI variogram is omnidirectional and isotropic only; `bm swath` exists,
+  cross-validation is GUI and Python API only.
 - Grade-tonnage is a report, not a resource classification (rule 8).
 
 ## Block model import
@@ -87,6 +87,17 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
   optimised (MILP) schedule; no blending targets, no cut-off optimisation, no
   equipment or haulage model; periods are years of equal capacity.
 
+## Cut-off grade optimisation (Lane)
+
+- `pitopt.cutoff`: Lane's method with mine, mill and market capacities, fixed
+  cost and opportunity cost d·V, iterated to convergence. The best cut-off
+  per year is searched over every block grade (exact for the discrete
+  grade-tonnage curve), not via the closed-form limiting/balancing cut-offs.
+- Lane's depletion assumption: the remaining reserve keeps the pit's grade
+  distribution every year (no link to the pushback/bench sequence). Mining
+  recovery, dilution and bench-dependent costs are not applied; stockpiles
+  are not modelled. Single element (or NSR).
+
 ## Pit design outputs
 
 - `pitopt.design`: bench crest/toe loops of the block pit (block edges, no
@@ -121,7 +132,10 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
   twisted bands. No solid editing or boolean operations.
 - Strings import: ASCII DXF LWPOLYLINE (with elevation) and POLYLINE/VERTEX;
   no bulges (arcs) or splines.
-- Inside test is by block centroid (no partial-block percentages yet).
+- Block flags use the centroid; partial-block volume fractions (`_pct`) are
+  estimated by n³ sub-cell sampling of blocks near the surface (error about
+  one sub-cell layer), not by exact polyhedron clipping. Domain estimation
+  still selects blocks by centroid.
 - Grade shells: marching cubes over block centres (VTK), not an implicit model.
 
 ## Underground (M9 start)

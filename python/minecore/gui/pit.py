@@ -43,6 +43,7 @@ from minecore.pitopt import (
     pushbacks,
 )
 from minecore.pitopt.benchdesign import BenchGeometry, DesignReport, design_from_model
+from minecore.pitopt.cutoff import LaneResult, cutoffs_from_model
 from minecore.pitopt.design import edge_blocks
 from minecore.pitopt.optimise import store
 from minecore.pitopt.scheduling import (
@@ -753,3 +754,125 @@ class BenchDesignDialog(QDialog):
         if path:
             self.report = self._design(Path(path))
             self.result_label.setText(f"Tasarım yazıldı: {path}")
+
+
+LANE_HEADERS = (
+    "Yıl", "Cut-off", "Malzeme t", "Cevher t", "Tenör", "Metal", "Nakit akışı", "Kısıt",
+)  # fmt: skip
+LIMIT_NAMES = {"mine": "maden", "mill": "tesis", "market": "pazar"}
+
+
+class CutoffDialog(QDialog):
+    """Lane cut-off grades per year inside the optimised pit."""
+
+    def __init__(self, project: Project, parent: QWidget) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Cut-off optimizasyonu (Lane)")
+        self.resize(820, 560)
+        self.project = project
+        self.lane: LaneResult | None = None
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+        self.model = QComboBox()
+        self.model.addItems(
+            [
+                m
+                for m in block_models(project)
+                if "pit_value" in BlockModel.open(project, m).attributes
+            ]
+        )
+        self.grade = QComboBox()
+        self.rock = QComboBox()
+        self.shell = QSpinBox(minimum=1, maximum=1000, value=1)
+        self.mine = _spin(10.0, 0.01, 1000.0, 0.5, 2)
+        self.mill = _spin(2.0, 0.01, 1000.0, 0.1, 2)
+        self.fixed = _spin(10.0, 0.0, 1e5, 1.0, 2)
+        self.discount = _spin(10.0, 0.0, 50.0, 0.5, 1)
+        self.economics = QLabel()
+        self.economics.setWordWrap(True)
+        form.addRow("Blok modeli (optimize edilmiş)", self.model)
+        form.addRow("Tenör özniteliği", self.grade)
+        form.addRow("Kaya/hava özniteliği", self.rock)
+        form.addRow("Son kabuk (nihai ocak)", self.shell)
+        form.addRow("Madencilik kapasitesi (Mt/yıl)", self.mine)
+        form.addRow("Tesis kapasitesi (Mt cevher/yıl)", self.mill)
+        form.addRow("Sabit gider (M$/yıl)", self.fixed)
+        form.addRow("İskonto oranı %", self.discount)
+        form.addRow("Ekonomi (ocak optimizasyonundan)", self.economics)
+        layout.addLayout(form)
+        run = QPushButton("Yıllık cut-off'ları hesapla")
+        run.clicked.connect(self._guard)
+        layout.addWidget(run)
+        self.summary = QLabel()
+        self.summary.setWordWrap(True)
+        layout.addWidget(self.summary)
+        self.table = QTableWidget(0, len(LANE_HEADERS))
+        self.table.setHorizontalHeaderLabels(LANE_HEADERS)
+        layout.addWidget(self.table)
+        self.model.currentTextChanged.connect(self._fill)
+        self._fill(self.model.currentText())
+
+    def _guard(self) -> None:
+        try:
+            self.run()
+        except Exception as exc:
+            QMessageBox.critical(self, "Cut-off optimizasyonu", str(exc))
+
+    def _econ(self) -> Economics:
+        model = BlockModel.open(self.project, self.model.currentText())
+        return Economics.from_json(model.attributes["pit_value"]["economics"])
+
+    def _fill(self, name: str) -> None:
+        self.grade.clear()
+        self.rock.clear()
+        if not name:
+            return
+        model = BlockModel.open(self.project, name)
+        attrs = [a for a in model.attributes if not a.startswith(("pit_", "kat_", "ug_"))]
+        self.grade.addItems(attrs)
+        self.rock.addItem("(yok)")
+        self.rock.addItems(attrs)
+        if "kaya" in attrs:
+            self.rock.setCurrentText("kaya")
+        top = int(np.nanmax(model.values("pit_shell")))
+        self.shell.setMaximum(max(top, 1))
+        self.shell.setValue(max(top, 1))
+        e = self._econ()
+        self.economics.setText(
+            ("NSR" if e.nsr else f"fiyat {e.price:g}/{e.price_unit.value}, verim {e.recovery:g}")
+            + f"; madencilik {e.mining_cost:g}/t, işleme {e.processing_cost:g}/t"
+        )
+
+    def run(self) -> None:
+        rock = self.rock.currentText()
+        self.lane = lane = cutoffs_from_model(
+            BlockModel.open(self.project, self.model.currentText()),
+            self.grade.currentText(),
+            self._econ(),
+            mine_capacity=self.mine.value() * 1e6,
+            mill_capacity=self.mill.value() * 1e6,
+            fixed=self.fixed.value() * 1e6,
+            discount=self.discount.value() / 100.0,
+            last_shell=self.shell.value(),
+            rock_attribute=None if rock.startswith("(") else rock,
+        )
+        self.table.setRowCount(len(lane.years))
+        for r, y in enumerate(lane.years):
+            cells = (
+                str(y.year),
+                "tümü atık" if math.isinf(y.cutoff) else f"{y.cutoff:.3f}",
+                f"{y.material_t:,.0f}",
+                f"{y.ore_t:,.0f}",
+                "" if math.isnan(y.grade) else f"{y.grade:.3f}",
+                f"{y.metal:,.1f}",
+                f"{y.cash:,.0f}",
+                LIMIT_NAMES[y.limit],
+            )
+            for c, text in enumerate(cells):
+                _cell(self.table, r, c, text)
+        self.summary.setText(
+            f"NPV {lane.npv / 1e6:,.1f} M$, {len(lane.years)} yıl. Cut-off ilk yıllarda "
+            "yüksek tutulur (paranın zaman değeri), rezerv azaldıkça düşer. Lane modeli: "
+            "kalan rezervin tenör dağılımı değişmez varsayılır; seyrelme ve kazı kaybı "
+            "uygulanmaz."
+        )

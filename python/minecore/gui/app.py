@@ -288,6 +288,7 @@ class MainWindow(QMainWindow):
         action(bm, "Kestirim doğrulama (swath, çapraz doğrulama)...", self.validate_estimate)
         action(bm, "Güven kategorileri (mesafe, örnek sayısı, KV)...", self.categorise)
         action(bm, "Hesaplayıcı (ifade ile yeni öznitelik)...", self.calculator)
+        action(bm, "Yeniden bloklama (SMU / büyük blok)...", self.reblock_model)
         bm.addSeparator()
         action(bm, "Tenör-tonaj raporu...", self.grade_tonnage)
         action(bm, "Blok modelini CSV olarak dışa aktar...", self.export_block_model)
@@ -305,6 +306,7 @@ class MainWindow(QMainWindow):
         pit = self.menuBar().addMenu("&Açık Ocak")
         action(pit, "Ocak optimizasyonu, pushback ve çizelge...", self.optimise_pit)
         action(pit, "Basamak tasarımı (şev açısı, basamak yüksekliği, berm)...", self.bench_design)
+        action(pit, "Cut-off optimizasyonu (Lane, yıllara göre)...", self.lane_cutoff)
         action(pit, "Ocağı DXF olarak dışa aktar, ocak yüzeyi oluştur...", self.export_pit)
         ug = self.menuBar().addMenu("Yer&altı")
         action(ug, "Pano zarfı (floating stope) ve pano seçimi...", self.stopes)
@@ -664,12 +666,30 @@ class MainWindow(QMainWindow):
         model_name, ok = QInputDialog.getItem(self, "Domen", "Blok modeli:", models, 0, False)
         if not ok:
             return
+        n, ok = QInputDialog.getInt(
+            self,
+            "Domen",
+            "Kısmi blok örneklemesi (her eksende alt hücre; 1 = yalnız blok merkezi):",
+            4,
+            1,
+            10,
+        )
+        if not ok:
+            return
         model = BlockModel.open(project, model_name)
         attribute = f"dom_{solid}"
-        count = solids.flag_blocks(model, solids.load_solid(project, solid), attribute)
+        count = solids.flag_blocks(model, solids.load_solid(project, solid), attribute, n)
         self.refresh()
+        extra = (
+            f"\n'{attribute}_pct': blokların katı içindeki hacim oranı (0-1); tenör-tonaj "
+            "raporunda 'Kısmi blok oranı' olarak seçin."
+            if n > 1
+            else ""
+        )
         QMessageBox.information(
-            self, "Domen", f"'{attribute}': {count:,} blok katının içinde (1), diğerleri 0."
+            self,
+            "Domen",
+            f"'{attribute}': {count:,} blok merkezi katının içinde (1), diğerleri 0." + extra,
         )
 
     def make_grade_shell(self) -> None:
@@ -730,6 +750,38 @@ class MainWindow(QMainWindow):
         if r.skipped_columns:
             lines.append(f"Atlanan metin sütunları: {', '.join(r.skipped_columns)}")
         QMessageBox.information(self, "Blok modeli", "\n".join(lines))
+
+    def reblock_model(self) -> None:
+        from minecore.blockmodel.reblock import reblock  # noqa: PLC0415
+
+        project = self._need_project()
+        models = block_models(project)
+        if not models:
+            raise RuntimeError("Projede blok modeli yok.")
+        name, ok = QInputDialog.getItem(self, "Yeniden bloklama", "Blok modeli:", models, 0, False)
+        if not ok:
+            return
+        text, ok = QInputDialog.getText(
+            self, "Yeniden bloklama", "Birleştirme katsayıları X Y Z (örn. 2 2 1):", text="2 2 1"
+        )
+        if not ok:
+            return
+        parts = [int(v) for v in text.replace(",", " ").split()]
+        if len(parts) != 3:
+            raise RuntimeError("Üç tam sayı girin, örn. 2 2 1.")
+        model = BlockModel.open(project, name)
+        density: float | str = "yogunluk" if "yogunluk" in model.attributes else 2.7
+        target = f"{name}_{parts[0]}x{parts[1]}x{parts[2]}"
+        new = reblock(project, model, target, (parts[0], parts[1], parts[2]), density=density)
+        self.refresh()
+        g = new.grid
+        QMessageBox.information(
+            self,
+            "Yeniden bloklama",
+            f"'{target}': {g.count[0]} x {g.count[1]} x {g.count[2]} blok, "
+            f"{g.size[0]:g} x {g.size[1]:g} x {g.size[2]:g} m. Tenörler tonaj ağırlıklı "
+            f"(yoğunluk: {density}).",
+        )
 
     def sample_stats(self) -> None:
         from minecore.gui.resource import StatisticsDialog  # noqa: PLC0415
@@ -828,6 +880,14 @@ class MainWindow(QMainWindow):
             raise RuntimeError("Önce ocak optimizasyonunu çalıştırıp sonuçları kaydedin.")
         dialog.exec()
         self.refresh()
+
+    def lane_cutoff(self) -> None:
+        from minecore.gui.pit import CutoffDialog  # noqa: PLC0415
+
+        dialog = CutoffDialog(self._need_project(), self)
+        if dialog.model.count() == 0:
+            raise RuntimeError("Önce ocak optimizasyonunu çalıştırıp sonuçları kaydedin.")
+        dialog.exec()
 
     def optimise_pit(self) -> None:
         from minecore.gui.pit import PitDialog  # noqa: PLC0415

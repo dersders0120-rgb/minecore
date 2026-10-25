@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from pathlib import Path
 from typing import Any, TextIO
@@ -29,6 +30,8 @@ from minecore.blockmodel import BlockModel, BlockModelError, Grid
 from minecore.blockmodel.calc import calculate
 from minecore.blockmodel.classify import Criteria, classify
 from minecore.blockmodel.importer import import_block_csv, parse_units
+from minecore.blockmodel.reblock import reblock
+from minecore.blockmodel.validation import swath
 from minecore.blockmodel.workflow import (
     estimate_blocks,
     interval_samples,
@@ -41,13 +44,14 @@ from minecore.drillholes.workflow import composite_table, hole_geometry, save_co
 from minecore.estimation import Ellipsoid, Method, Search, experimental, fit_spherical
 from minecore.pitopt import Economics, PriceUnit, SlopeProfile, optimise_pit, pushbacks, schedule
 from minecore.pitopt.benchdesign import BenchGeometry, design_from_model
+from minecore.pitopt.cutoff import cutoffs_from_model
 from minecore.pitopt.design import edge_blocks, export_pit
 from minecore.pitopt.economics import PitOptError
 from minecore.pitopt.optimise import Schedule, store
 from minecore.pitopt.scheduling import ConstrainedSchedule, Limits, schedule_constrained
 from minecore.pitopt.width import apply_mining_width
 from minecore.project import Project
-from minecore.solids import save_solid
+from minecore.solids import flag_blocks, load_solid, read_solid, save_solid
 from minecore.underground.stopes import stopes_from_model
 
 METHODS = {"nn": Method.NEAREST, "idw": Method.INVERSE_DISTANCE, "ok": Method.ORDINARY_KRIGING}
@@ -94,6 +98,18 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     st_link.add_argument("name")
     st_link.add_argument("solid")
 
+    sol = commands.add_parser("solid", help="wireframe solids: import, flag blocks")
+    sol_cmds = sol.add_subparsers(dest="solid_command", metavar="ACTION", required=True)
+    so_imp = sol_cmds.add_parser("import", help="OBJ, STL or DXF 3DFACE")
+    so_imp.add_argument("project")
+    so_imp.add_argument("name")
+    so_imp.add_argument("file")
+    so_flag = sol_cmds.add_parser("flag", help="dom_<solid> (and _pct fractions) in a model")
+    so_flag.add_argument("project")
+    so_flag.add_argument("solid")
+    so_flag.add_argument("model")
+    so_flag.add_argument("--subdivisions", type=int, default=1, help="partial blocks: n^3 samples")
+
     bm = commands.add_parser("bm", help="block models, variograms, estimation, reports")
     bm_cmds = bm.add_subparsers(dest="bm_command", metavar="ACTION", required=True)
     create = bm_cmds.add_parser("create", help="regular model covering a data table")
@@ -128,6 +144,14 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     est.add_argument("--power", type=float, default=2.0)
     est.add_argument("--rock-only", action="store_true", help="only blocks with kaya=1")
     est.add_argument("--top-cut", type=float, help="cap sample values before estimation")
+    sw = bm_cmds.add_parser("swath", help="swath plot: block estimate vs samples per slice")
+    sw.add_argument("project")
+    sw.add_argument("model")
+    sw.add_argument("attribute")
+    sw.add_argument("source", help="table/field")
+    sw.add_argument("--axis", choices=["x", "y", "z"], default="x")
+    sw.add_argument("--width", type=float, required=True, help="slice width, m")
+    sw.add_argument("--json", action="store_true")
     rep = bm_cmds.add_parser("report", help="grade-tonnage table")
     rep.add_argument("project")
     rep.add_argument("model")
@@ -136,6 +160,13 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     rep.add_argument("--density", default="2.7", help="t/m3 or a density attribute")
     rep.add_argument("--json", action="store_true")
     rep.add_argument("--filter", nargs=3, metavar=("ATTR", "MIN", "MAX"), help="report subset")
+    rep.add_argument("--weight", help="block fraction attribute (e.g. dom_ore_pct)")
+    reb = bm_cmds.add_parser("reblock", help="combine blocks into larger blocks")
+    reb.add_argument("project")
+    reb.add_argument("model")
+    reb.add_argument("name")
+    reb.add_argument("--factors", type=int, nargs=3, required=True, metavar=("FX", "FY", "FZ"))
+    reb.add_argument("--density", default="2.7")
     calc = bm_cmds.add_parser("calc", help="new attribute from an expression")
     calc.add_argument("project")
     calc.add_argument("model")
@@ -210,6 +241,26 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     exp.add_argument("--topography", help="surface to complete the mined-out surface")
     exp.add_argument("--save-surface", help="store the mined-out surface under this name")
     opt.add_argument("--json", action="store_true")
+    cut = pit_cmds.add_parser("cutoff", help="Lane cut-off grades per year inside the pit")
+    cut.add_argument("project")
+    cut.add_argument("model")
+    cut.add_argument("grade")
+    cut.add_argument("--price", type=float)
+    cut.add_argument("--price-unit", choices=[u.value for u in PriceUnit])
+    cut.add_argument("--recovery", type=float)
+    cut.add_argument("--nsr", action="store_true", help="GRADE is an NSR value per tonne")
+    cut.add_argument("--mining-cost", type=float, required=True)
+    cut.add_argument("--processing-cost", type=float, required=True)
+    cut.add_argument("--selling-cost", type=float, default=0.0)
+    cut.add_argument("--fixed-cost", type=float, default=0.0, help="fixed cost per year")
+    cut.add_argument("--mine", type=float, required=True, help="mining capacity, t/year")
+    cut.add_argument("--mill", type=float, required=True, help="plant capacity, ore t/year")
+    cut.add_argument("--market", type=float, help="sales capacity, metal units/year")
+    cut.add_argument("--discount", type=float, default=0.10)
+    cut.add_argument("--density", default="2.7")
+    cut.add_argument("--shell", type=int, help="last shell of the pit (default: all)")
+    cut.add_argument("--rock", help="rock/air attribute (kaya)")
+    cut.add_argument("--json", action="store_true")
 
 
 def _db(project: Project) -> DrillholeDatabase:
@@ -242,6 +293,26 @@ def strings_command(args: argparse.Namespace, out: TextIO) -> int:
             f"{args.solid}: {len(ordered)} sections, volume {solid.volume():,.0f} m3, "
             f"open edges {solid.open_edges()}\n"
         )
+    return 0
+
+
+def solid_command(args: argparse.Namespace, out: TextIO) -> int:
+    with Project.open(args.project) as project:
+        if args.solid_command == "import":
+            solid = read_solid(Path(args.file))
+            save_solid(project, args.name, solid)
+            out.write(
+                f"{args.name}: {len(solid.triangles):,} triangles, volume "
+                f"{solid.volume():,.0f} m3, open edges {solid.open_edges()}\n"
+            )
+            return 0
+        model = BlockModel.open(project, args.model)
+        attribute = f"dom_{args.solid}"
+        n = flag_blocks(model, load_solid(project, args.solid), attribute, args.subdivisions)
+        out.write(f"{attribute}: {n:,} blocks inside\n")
+        if args.subdivisions > 1:
+            pct = model.values(f"{attribute}_pct")
+            out.write(f"{attribute}_pct: volume {pct.sum() * model.grid.block_volume:,.0f} m3\n")
     return 0
 
 
@@ -316,7 +387,31 @@ def surface_command(args: argparse.Namespace, out: TextIO) -> int:
     return 0
 
 
-def _bm_derive(model: BlockModel, args: argparse.Namespace, out: TextIO) -> int:
+def _bm_swath(project: Project, model: BlockModel, args: argparse.Namespace, out: TextIO) -> int:
+    samples = interval_samples(_db(project), *_source(args.source))
+    rows = swath(samples, model, args.attribute, "xyz".index(args.axis), args.width)
+    if args.json:
+        json.dump([r.__dict__ for r in rows], out, indent=2)
+        out.write("\n")
+        return 0
+    out.write(f"{'centre':>10} {'samples':>8} {'mean':>10} {'blocks':>8} {'estimate':>10}\n")
+    for r in rows:
+        out.write(
+            f"{r.centre:10.1f} {r.samples:8d} {r.sample_mean:10.4g} "
+            f"{r.blocks:8d} {r.block_mean:10.4g}\n"
+        )
+    return 0
+
+
+def _bm_derive(project: Project, model: BlockModel, args: argparse.Namespace, out: TextIO) -> int:
+    if args.bm_command == "swath":
+        return _bm_swath(project, model, args, out)
+    if args.bm_command == "reblock":
+        new = reblock(
+            project, model, args.name, tuple(args.factors), density=_density(args.density)
+        )
+        out.write(f"{args.name}: {new.grid.count} blocks of {new.grid.size}\n")
+        return 0
     if args.bm_command == "calc":
         values = calculate(model, args.attribute, args.expression, args.unit)
         known = int(np.isfinite(values).sum())
@@ -395,14 +490,17 @@ def bm_command(args: argparse.Namespace, out: TextIO) -> int:
             )
             out.write(f"{args.attribute}: estimated; {missed} blocks without enough samples\n")
             return 0
-        if args.bm_command in ("calc", "classify"):
-            return _bm_derive(model, args, out)
+        if args.bm_command in ("calc", "classify", "reblock", "swath"):
+            return _bm_derive(project, model, args, out)
         density: float | str = _density(args.density)
         mask = None
         if args.filter:
             f = model.values(args.filter[0])
             mask = np.isfinite(f) & (f >= float(args.filter[1])) & (f <= float(args.filter[2]))
-        gt = model.grade_tonnage(args.attribute, args.cutoffs, density=density, mask=mask)
+        weight = model.values(args.weight) if args.weight else None
+        gt = model.grade_tonnage(
+            args.attribute, args.cutoffs, density=density, mask=mask, weight=weight
+        )
         if args.json:
             json.dump([r.__dict__ for r in gt.rows], out, indent=2)
             out.write("\n")
@@ -473,6 +571,8 @@ def pit_command(args: argparse.Namespace, out: TextIO) -> int:
             return pit_export(project, args, out)
         if args.pit_command == "design":
             return pit_design(project, args, out)
+        if args.pit_command == "cutoff":
+            return pit_cutoff(project, args, out)
         model = BlockModel.open(project, args.model)
         if not args.nsr and None in (args.price, args.price_unit, args.recovery):
             raise PitOptError("--price, --price-unit and --recovery are required without --nsr")
@@ -547,6 +647,49 @@ def pit_command(args: argparse.Namespace, out: TextIO) -> int:
     return 0
 
 
+def pit_cutoff(project: Project, args: argparse.Namespace, out: TextIO) -> int:
+    model = BlockModel.open(project, args.model)
+    if not args.nsr and None in (args.price, args.price_unit, args.recovery):
+        raise PitOptError("--price, --price-unit and --recovery are required without --nsr")
+    econ = Economics(
+        args.price or 1.0,
+        PriceUnit(args.price_unit or "t"),
+        args.recovery or 1.0,
+        args.mining_cost,
+        args.processing_cost,
+        0.0 if args.nsr else args.selling_cost,
+        density=_density(args.density),
+        nsr=args.nsr,
+    )
+    result = cutoffs_from_model(
+        model,
+        args.grade,
+        econ,
+        mine_capacity=args.mine,
+        mill_capacity=args.mill,
+        fixed=args.fixed_cost,
+        market_capacity=args.market or math.inf,
+        discount=args.discount,
+        last_shell=args.shell,
+        rock_attribute=args.rock,
+    )
+    if args.json:
+        json.dump({"years": [y.__dict__ for y in result.years], "npv": result.npv}, out, indent=2)
+        out.write("\n")
+        return 0
+    out.write(
+        f"{'year':>4} {'cut-off':>8} {'material t':>13} {'ore t':>13} {'grade':>8} "
+        f"{'metal':>12} {'cash flow':>14} {'limit':>6}\n"
+    )
+    for y in result.years:
+        out.write(
+            f"{y.year:4d} {y.cutoff:8.3f} {y.material_t:13,.0f} {y.ore_t:13,.0f} {y.grade:8.3f} "
+            f"{y.metal:12,.1f} {y.cash:14,.0f} {y.limit:>6}\n"
+        )
+    out.write(f"NPV {result.npv:,.0f} ({result.iterations} iterations)\n")
+    return 0
+
+
 HANDLERS = {
     "drillholes": drillholes_command,
     "surface": surface_command,
@@ -554,4 +697,5 @@ HANDLERS = {
     "pit": pit_command,
     "ug": ug_command,
     "strings": strings_command,
+    "solid": solid_command,
 }
