@@ -8,16 +8,18 @@ block model, model variograms, estimate grades (NN, IDW, OK), view blocks in
 
 from __future__ import annotations
 
+import contextlib
 import csv
 import math
 import sys
 import traceback
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 import numpy as np
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction, QColor
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QAction, QColor, QIcon
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -77,6 +79,26 @@ from minecore.pitopt.design import export_pit
 from minecore.project import Project
 
 SAMPLE_DIR = Path(__file__).resolve().parent / "sample"
+ICON_PATH = Path(__file__).resolve().parent / "assets" / "minecore.png"
+
+
+def new_project_path(folder: Path, name: str) -> Path:
+    """Package path for a new project called ``name`` in ``folder`` (Windows-safe file name)."""
+    stem = "".join("_" if c in '<>:"/\\|?*' or ord(c) < 32 else c for c in name.strip())
+    stem = stem.rstrip(". ") or "Proje"
+    if stem.lower().endswith(".mcproj"):
+        stem = stem[: -len(".mcproj")] or "Proje"
+    return folder / f"{stem}.mcproj"
+
+
+def find_projects(folder: Path) -> list[Path]:
+    """Projects meant by a chosen folder: the package itself, one it is inside, or its children."""
+    for candidate in (folder, *folder.parents):
+        if candidate.suffix.lower() == ".mcproj" and candidate.is_dir():
+            return [candidate]
+    return sorted(p for p in folder.glob("*.mcproj") if p.is_dir())
+
+
 ROLE_TR = {
     Role.COLLAR: "Kuyu ağzı",
     Role.SURVEY: "Sapma",
@@ -328,20 +350,78 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             QMessageBox.critical(self, "MineCore", f"{exc}\n\n{traceback.format_exc(limit=3)}")
 
+    @contextlib.contextmanager
+    def _busy(self, message: str) -> Iterator[None]:
+        """Wait cursor and a status line while a long step runs on the GUI thread."""
+        self.statusBar().showMessage(message)
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        QApplication.processEvents()
+        try:
+            yield
+        finally:
+            QApplication.restoreOverrideCursor()
+
+    def warm_up(self) -> None:
+        """Load the 3D and table libraries once at start-up, not on the first import.
+
+        On Windows the first use of each VTK/Arrow DLL (plus the virus scan of a
+        freshly unpacked app) froze the window for seconds after the first import.
+        """
+        if not hasattr(self.view, "add_mesh"):
+            return
+        # A failed warm-up only costs speed later, so errors are suppressed.
+        with (
+            self._busy("Hazırlanıyor (3B ve tablo kütüphaneleri yükleniyor)..."),
+            contextlib.suppress(Exception),
+        ):
+            import pyarrow.parquet  # noqa: F401, PLC0415
+            import pyvista as pv  # noqa: PLC0415
+
+            pts = np.array([[0.0, 0.0, 0.0], [1.0, 1.0, -1.0], [2.0, 1.0, -3.0]])
+            lines = pv.merge([pv.lines_from_points(pts), pv.lines_from_points(pts + 1.0)])
+            self.view.add_mesh(lines, line_width=2)
+            tube = lines.tube(radius=0.1)
+            self.view.add_mesh(tube, scalars=tube.points[:, 2], cmap="viridis")
+            self.view.add_point_labels(pts[:1], ["x"], font_size=10, always_visible=True)
+            self.view.add_axes()
+            self.view.reset_camera()
+            self.view.render()
+            self.view.clear()
+            self.view.render()
+        self.statusBar().showMessage("Hazır", 3000)
+
     # -- project -------------------------------------------------------------
 
     def new_project(self) -> None:
-        path, _ = QFileDialog.getSaveFileName(self, "Yeni proje", "", "MineCore projesi (*.mcproj)")
-        if not path:
+        folder = QFileDialog.getExistingDirectory(self, "Yeni proje: kaydedileceği klasörü seçin")
+        if not folder:
             return
-        if not path.endswith(".mcproj"):
-            path += ".mcproj"
-        self._set_project(Project.create(path, Path(path).stem))
+        name, ok = QInputDialog.getText(self, "Yeni proje", "Proje adı:", text="Proje")
+        if not ok or not name.strip():
+            return
+        target = new_project_path(Path(folder), name)
+        if target.exists():
+            raise RuntimeError(f"Bu adla bir proje zaten var: {target}\nProje → Proje aç ile açın.")
+        self._set_project(Project.create(target, name.strip()))
+        self.statusBar().showMessage(f"Proje oluşturuldu: {target}")
 
     def open_project(self) -> None:
-        path = QFileDialog.getExistingDirectory(self, "Proje klasörü (.mcproj)")
-        if path:
-            self._set_project(Project.open(path))
+        folder = QFileDialog.getExistingDirectory(
+            self, "Proje aç: .mcproj klasörünü ya da onu içeren klasörü seçin"
+        )
+        if not folder:
+            return
+        found = find_projects(Path(folder))
+        if not found:
+            raise RuntimeError(f"Bu klasörde MineCore projesi (.mcproj) yok: {folder}")
+        target = found[0]
+        if len(found) > 1:
+            names = [p.name for p in found]
+            choice, ok = QInputDialog.getItem(self, "Proje aç", "Proje:", names, 0, False)
+            if not ok:
+                return
+            target = found[names.index(choice)]
+        self._set_project(Project.open(target))
 
     def _set_project(self, project: Project) -> None:
         if self.project is not None:
@@ -374,13 +454,14 @@ class MainWindow(QMainWindow):
         folder = QFileDialog.getExistingDirectory(self, "Sondaj dosyalarının klasörü")
         if not folder:
             return
-        results = import_folder(db, Path(folder))
+        with self._busy("Sondaj dosyaları içe aktarılıyor..."):
+            results = import_folder(db, Path(folder))
+            self.refresh()
         lines = [
             f"{r.table.name}: {ROLE_TR[r.table.role]}, {r.table.rows} satır, "
             f"ayraç '{r.dialect.delimiter}', ondalık '{r.dialect.decimal}'"
             for r in results
         ]
-        self.refresh()
         QMessageBox.information(self, "İçe aktarıldı", "\n".join(lines))
 
     def import_file(self) -> None:
@@ -391,8 +472,9 @@ class MainWindow(QMainWindow):
         if not path:
             return
         if Path(path).suffix.lower() in (".xlsx", ".xlsm"):
-            results = import_workbook(db, Path(path))
-            self.refresh()
+            with self._busy("Çalışma kitabı içe aktarılıyor..."):
+                results = import_workbook(db, Path(path))
+                self.refresh()
             QMessageBox.information(
                 self,
                 "İçe aktarıldı",
@@ -424,8 +506,9 @@ class MainWindow(QMainWindow):
             dip = "negative_down" if conv.startswith("Negatif") else "positive_down"
         name, ok = QInputDialog.getText(self, "Tablo adı", "Ad:", text=Path(path).stem)
         if ok and name.strip():
-            import_table(db, name.strip(), role, Path(path), ImportOptions(dip_convention=dip))
-            self.refresh()
+            with self._busy("Tablo içe aktarılıyor..."):
+                import_table(db, name.strip(), role, Path(path), ImportOptions(dip_convention=dip))
+                self.refresh()
 
     def revalidate(self) -> None:
         self.refresh()
@@ -993,9 +1076,10 @@ class MainWindow(QMainWindow):
         while target.exists():
             index += 1
             target = Path(folder) / f"Ornek{index}.mcproj"
-        self._set_project(Project.create(target, "Örnek"))
-        import_folder(self._need_db(), SAMPLE_DIR)
-        self.refresh()
+        with self._busy("Örnek proje oluşturuluyor..."):
+            self._set_project(Project.create(target, "Örnek"))
+            import_folder(self._need_db(), SAMPLE_DIR)
+            self.refresh()
         self.statusBar().showMessage(f"Örnek proje oluşturuldu: {target}")
 
     def guide(self) -> None:
@@ -1479,11 +1563,23 @@ def _fmt(value: object) -> str:
     return str(value)
 
 
+def _windows_taskbar_identity() -> None:
+    """Give the process its own taskbar identity so Windows shows the MineCore icon."""
+    if sys.platform == "win32":
+        import ctypes  # noqa: PLC0415
+
+        with contextlib.suppress(Exception):
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("MineCore.Workbench")
+
+
 def main() -> int:
+    _windows_taskbar_identity()
     app = QApplication.instance() or QApplication(sys.argv)
     app.setApplicationName("MineCore")
+    QApplication.setWindowIcon(QIcon(str(ICON_PATH)))
     window = MainWindow()
     window.show()
+    QTimer.singleShot(0, window.warm_up)
     if len(sys.argv) > 1 and sys.argv[1].endswith(".mcproj"):
         window._guard(lambda: window._set_project(Project.open(sys.argv[1])))
     return int(app.exec())

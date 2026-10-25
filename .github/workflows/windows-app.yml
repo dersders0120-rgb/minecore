@@ -47,6 +47,7 @@ jobs:
           --exclude-module mypy --exclude-module mypyc --exclude-module mypy_extensions
           --hidden-import matplotlib.backends.backend_pdf --hidden-import matplotlib.backends.backend_svg
           --hidden-import matplotlib.backends.backend_agg
+          --icon python/minecore/gui/assets/minecore.ico
 
       - name: Smoke test the packaged core
         shell: bash
@@ -64,6 +65,7 @@ jobs:
           $p = Start-Process -FilePath "dist/MineCore/MineCore.exe" -ArgumentList "--self-test", "`"$report`"" -Wait -PassThru
           if (Test-Path $report) { Get-Content $report } else { Write-Output "no report written" }
           if ($p.ExitCode -ne 0) { exit 1 }
+          if (-not (Test-Path "dist/MineCore/_internal/minecore/gui/assets/minecore.png")) { Write-Output "window icon not bundled"; exit 1 }
 
       - uses: actions/upload-artifact@v4
         with:
