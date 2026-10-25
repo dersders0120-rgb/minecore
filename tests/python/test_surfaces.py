@@ -98,4 +98,19 @@ def test_estimation_mask_leaves_air_empty(tmp_path: Path) -> None:
     assert np.isfinite(au[mask]).all()
     assert np.isnan(au[~mask]).all()
     assert (model.values("au_n")[~mask] == 0).all()
+    # A second domain estimated into the same attribute keeps the first one.
+    upper = SampleSet(xyz, np.full(60, 7.0), np.arange(60, dtype=np.int64), "g/t")
+    estimate_blocks(
+        model,
+        upper,
+        "au",
+        method=Method.NEAREST,
+        search=Search(Ellipsoid.isotropic(100.0)),
+        mask=~mask,
+    )
+    both = model.values("au")
+    assert np.array_equal(both[mask], au[mask])
+    assert (both[~mask] == 7.0).all()
+    assert len(model.attributes["au"]["domains"]) == 2
+    assert (model.values("au_n")[mask] > 0).all()
     project.close()
