@@ -236,6 +236,8 @@ class MainWindow(QMainWindow):
         bm.addSeparator()
         action(bm, "Tenör-tonaj raporu...", self.grade_tonnage)
         action(bm, "Blok modelini CSV olarak dışa aktar...", self.export_block_model)
+        pit = self.menuBar().addMenu("&Açık Ocak")
+        action(pit, "Ocak optimizasyonu, pushback ve çizelge...", self.optimise_pit)
         help_menu = self.menuBar().addMenu("&Yardım")
         action(help_menu, "Örnek sondaj projesini aç", self.open_sample)
         action(help_menu, "Hakkında", self.about)
@@ -434,6 +436,15 @@ class MainWindow(QMainWindow):
         if path:
             rows = export_block_model_csv(Path(path), BlockModel.open(project, name))
             self.statusBar().showMessage(f"{rows:,} blok {path} dosyasına yazıldı.")
+
+    def optimise_pit(self) -> None:
+        from minecore.gui.pit import PitDialog  # noqa: PLC0415
+
+        project = self._need_project()
+        if not block_models(project):
+            raise RuntimeError("Önce bir blok modeli oluşturup tenör kestirin.")
+        PitDialog(project, self).exec()
+        self.refresh()
 
     def open_sample(self) -> None:
         """Create a project from the bundled 30-hole sample (with deliberate errors)."""

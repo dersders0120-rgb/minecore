@@ -121,3 +121,37 @@ def test_block_model_variogram_estimate_report(  # noqa: PLR0915 - one end-to-en
     assert header[:6] == ["x", "y", "z", "i", "j", "k"]
     assert attr in header
     project.close()
+
+
+def test_pit_dialog_shells_pushbacks_and_save(qapp: QApplication, tmp_path: Path) -> None:
+    from minecore.blockmodel import Grid  # noqa: PLC0415
+    from minecore.gui.pit import PitDialog, parse_sectors, write_pit_reports  # noqa: PLC0415
+
+    assert parse_sectors("0:50; 90:38,180:50") == ((0.0, 50.0), (90.0, 38.0), (180.0, 50.0))
+    project = Project.create(tmp_path / "pit.mcproj", "pit")
+    grid = Grid((0.0, 0.0, 0.0), (10.0, 10.0, 10.0), (20, 12, 8))
+    model = BlockModel.create(project, "BM", grid)
+    c = grid.centroids()
+    grade = np.clip(3.0 - np.hypot(c[:, 0] - 100, (c[:, 2] - 40) * 2) / 20, 0, None)
+    model.set_attributes({"au": grade}, {"au": {"unit": "g/t"}}, "grades")
+    parent = QWidget()
+    dialog = PitDialog(project, parent)
+    notes: list[str] = []
+    dialog.inform = lambda title, text: notes.append(text)  # type: ignore[method-assign]
+    assert dialog.grade.currentText() == "au"
+    dialog.price.setValue(1800.0)
+    dialog.rate.setValue(1.0)
+    dialog.run()
+    assert dialog.pit is not None
+    assert dialog.shells.rowCount() == len(dialog.pit.rows)
+    dialog.min_ore.setValue(0.05)
+    dialog.make_phases()
+    assert dialog.sched is not None
+    assert dialog.sched_table.rowCount() == len(dialog.sched.rows) + 1
+    dialog.save()
+    assert len(notes) == 2
+    assert "pit_period" in BlockModel.open(project, "BM").attributes
+    out = tmp_path / "pit.csv"
+    write_pit_reports(out, dialog.pit, dialog.sched)
+    assert out.read_text(encoding="utf-8-sig").startswith("shell;")
+    project.close()

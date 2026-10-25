@@ -30,3 +30,18 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
 - No CLI commands for import, block model, estimation or reporting yet (rule 5
   debt): the workbench calls the public Python API, which scripts can call.
 - Grade-tonnage is a report, not a resource classification (rule 8).
+
+## Open-pit optimisation (M7 alpha)
+
+- Ultimate pit by maximum closure (Dinic max-flow in `mc-core::pitopt`, same
+  optimum as Lerchs-Grossmann); verified against exhaustive search. Measured:
+  256k blocks, 6.8 M arcs, 3 shells in 19 s (release build). Each shell is a
+  separate solve; no warm start or pseudoflow yet.
+- No topography/air blocks: the top of the block model is taken as the surface;
+  unestimated blocks are valued as waste rock.
+- Single element, single process route; no cut-off optimisation (Lane), no
+  stockpiles, no mining dilution/recovery factors on the block model.
+- Pushbacks group whole shells by ore tonnage; minimum mining width and ramp
+  access are not enforced.
+- Schedule: fixed total mining rate, phases in order bench by bench, no bench
+  lag between phases, no plant capacity, no blending. A first pass, not a plan.

@@ -129,3 +129,9 @@ def fit_local_grid(
     z_offset: float | None = None,
 ) -> GridFit:
     """Fit a local grid to control points by least squares."""
+
+class OptimisationError(MineCoreError):
+    """Invalid input to an optimisation solver."""
+
+def max_closure(values: npt.ArrayLike, precedence: npt.ArrayLike) -> npt.NDArray[np.bool_]:
+    """Smallest maximum-weight closure: True for nodes inside the ultimate pit."""

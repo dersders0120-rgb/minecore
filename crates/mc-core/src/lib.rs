@@ -9,6 +9,7 @@
 //! crate; this crate never depends on them.
 
 pub mod coords;
+pub mod pitopt;
 pub mod units;
 
 /// Version of the core engine, taken from the workspace manifest.
