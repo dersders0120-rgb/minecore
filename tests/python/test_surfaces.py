@@ -17,6 +17,7 @@ from minecore.surfaces import (
     load_surface,
     read_points_csv,
     save_surface,
+    surface_names,
 )
 
 
@@ -113,4 +114,14 @@ def test_estimation_mask_leaves_air_empty(tmp_path: Path) -> None:
     assert (both[~mask] == 7.0).all()
     assert len(model.attributes["au"]["domains"]) == 2
     assert (model.values("au_n")[mask] > 0).all()
+    project.close()
+
+
+def test_saving_under_an_existing_name_replaces(tmp_path: Path) -> None:
+    project = Project.create(tmp_path / "r.mcproj", "r")
+    pts = np.array([[0.0, 0.0, 1.0], [10.0, 0.0, 1.0], [0.0, 10.0, 1.0]])
+    save_surface(project, "s", Surface(pts))
+    save_surface(project, "s", Surface(pts + np.array([0.0, 0.0, 5.0])))
+    assert surface_names(project) == ["s"]
+    assert load_surface(project, "s").points[:, 2].tolist() == [6.0, 6.0, 6.0]
     project.close()

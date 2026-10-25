@@ -107,9 +107,14 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
 - Bench design (`pitopt.benchdesign`): face angle, bench height and berm
   around the optimised pit by a distance-transform envelope on a raster
   (rounded corners, raster resolution half a block by default). Toe/crest
-  strings are contours of that surface. No ramps or haul roads, no
-  geotechnical sectors in the design (one geometry for the whole pit), no
-  string editing. Because the optimiser treats the block model edge as
+  strings are contours of that surface. No geotechnical sectors in the
+  design (one geometry for the whole pit), no string editing.
+- Ramp: one spiral haul road per pit, traced bottom-up around the pit
+  centroid at constant gradient and cut into the wall (benches above are set
+  back). No switchbacks, no multiple pit bottoms/exits, no road batters or
+  safety bunds, and the road is not checked against a minimum curve radius;
+  it starts at the deepest floor cell nearest its traced start, so a
+  multi-bottom pit gets one road around the centroid only. Because the optimiser treats the block model edge as
   unconstrained, a design can need ground outside the model; the volume
   outside is reported (create the model with padding).
 - DXF export writes R12 ASCII `POLYLINE` (3D) and `3DFACE` entities only, no

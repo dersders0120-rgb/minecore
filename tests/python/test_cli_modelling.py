@@ -130,6 +130,11 @@ def test_csv_to_pit_schedule(tmp_path: Path) -> None:
         "tasarim",
     )
     assert "overall slope" in des
+    ramp = _run(
+        "pit", "design", p, "BM", "--face", "65", "--height", "10", "--berm", "5",
+        "--ramp-width", "15", "--ramp-gradient", "0.1",
+    )  # fmt: skip
+    assert "ramp " in ramp
     assert "DESIGN_TOE" in (tmp_path / "d.dxf").read_text()
     _run("bm", "calc", p, "BM", "nsr", "au_ok * 55")
     common = ["--mining-cost", "2.5", "--processing-cost", "15", "--rock", "kaya", "--json"]

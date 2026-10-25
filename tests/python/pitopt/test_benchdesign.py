@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from minecore.blockmodel import Grid
-from minecore.pitopt.benchdesign import BenchGeometry, design_pit
+from minecore.pitopt.benchdesign import BenchGeometry, Ramp, design_pit
 from minecore.pitopt.economics import PitOptError
 
 
@@ -57,3 +57,49 @@ def test_design_contains_every_mined_block() -> None:
     c = grid.centroids()[mined.ravel()]
     assert pit.inside(c).all()
     assert pit.volume() >= mined.sum() * grid.block_volume * 0.99
+
+
+def _cone_pit() -> tuple[Grid, np.ndarray]:
+    grid = Grid((0.0, 0.0, 0.0), (10.0, 10.0, 10.0), (40, 40, 12))
+    c = grid.centroids()
+    r = np.hypot(c[:, 0] - 200.0, c[:, 1] - 200.0)
+    return grid, (r < 60.0 + c[:, 2]) & (c[:, 2] > 0.0)
+
+
+@pytest.mark.parametrize("clockwise", [True, False])
+def test_spiral_ramp_reaches_the_floor_at_its_gradient(clockwise: bool) -> None:
+    grid, mined = _cone_pit()
+    g = BenchGeometry(70.0, 10.0, 6.0)
+    plain = design_pit(grid, mined, g)
+    ramp = Ramp(width=25.0, gradient=0.10, exit_azimuth=90.0, clockwise=clockwise)
+    pit = design_pit(grid, mined, g, ramp=ramp)
+    road = pit.ramp
+    assert road is not None
+    run = np.linalg.norm(np.diff(road[:, :2], axis=0), axis=1)
+    # Constant gradient from the crest (model top 120 m) down to the floor (0 m).
+    assert road[0, 2] == pytest.approx(120.0, abs=0.6)  # within one 5 m road step
+    assert road[-1, 2] == pytest.approx(0.0, abs=0.5)
+    assert -np.diff(road[:, 2]).sum() / run.sum() == pytest.approx(0.10, rel=1e-3)
+    assert pit.ramp_length == pytest.approx(run.sum() * math.sqrt(1 + 0.01), rel=1e-3)
+    # The road leaves the pit on the east side and winds in the requested direction.
+    assert road[0, 0] > 330.0
+    assert abs(road[0, 1] - 200.0) < 20.0
+    first_turn = road[min(20, len(road) - 1)]
+    assert (first_turn[1] < 200.0) == clockwise  # clockwise from east heads south
+    # The road is cut into the wall: the design surface follows the road elevation.
+    i = np.clip(np.round((road[:, 0] - pit.x[0]) / (pit.x[1] - pit.x[0])).astype(int), 0, None)
+    j = np.clip(np.round((road[:, 1] - pit.y[0]) / (pit.y[1] - pit.y[0])).astype(int), 0, None)
+    gap = pit.z[j, i] - road[:, 2]
+    assert gap.max() <= 0.5
+    assert np.median(np.abs(gap)) <= 0.5
+    # A ramp only adds excavation, and pushes the walls above it back.
+    assert (pit.z <= plain.z + 1e-9).all()
+    assert pit.volume() > plain.volume() * 1.05
+    assert any(line.layer == "DESIGN_RAMP" for line in pit.strings())
+
+
+def test_ramp_validation() -> None:
+    with pytest.raises(PitOptError):
+        Ramp(width=0.0, gradient=0.1)
+    with pytest.raises(PitOptError):
+        Ramp(width=20.0, gradient=0.5)

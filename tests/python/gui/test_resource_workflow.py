@@ -375,6 +375,11 @@ def test_bench_design_dialog(qapp: QApplication, tmp_path: Path) -> None:
     assert dialog.report.design_blocks >= 32
     assert "tasarim_1" in surface_names(project)
     assert "pit_tasarim" in BlockModel.open(project, "BM").attributes
+    dialog.ramp_on.setChecked(True)
+    dialog.ramp_w.setValue(8.0)
+    dialog.run()
+    assert dialog.report.pit.ramp is not None
+    assert "Rampa" in dialog.result_label.text()
     project.close()
 
 

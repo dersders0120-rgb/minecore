@@ -174,7 +174,11 @@ def read_solid(path: Path) -> Solid:
 
 
 def save_solid(project: Project, name: str, solid: Solid) -> None:
-    record = project.register_object(KIND, name, metadata={"format": 1})
+    # Saving under an existing name replaces it (new bulk file, same object).
+    existing = [r for r in project.objects(KIND) if r.name == name]
+    record = (
+        existing[0] if existing else project.register_object(KIND, name, metadata={"format": 1})
+    )
     v = bulk.write_table(
         project.path,
         record.object_id,

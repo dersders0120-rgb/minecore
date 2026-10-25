@@ -14,12 +14,24 @@ columns whose floor is at or below ``L``, and the surface is the minimum of
 is cut by the topography (or the top of rock).
 
 Corners are rounded (Euclidean distance), which corresponds to a design whose
-bench strings are offset with round joins. Ramps are not designed.
-Crest and toe strings are contours of the design surface (contourpy).
+bench strings are offset with round joins. Crest and toe strings are contours
+of the design surface (contourpy).
+
+Ramp (optional): a spiral haul road is traced bottom-up from the pit floor.
+At each angular step around the pit centre the road centre sits half a road
+width outside the wall contour at the road's current elevation (the wall as
+already cut back by the road below), and the elevation rises by ``gradient``
+times the travelled length until the road meets the original surface. The
+start angle is adjusted so the road exits at the requested azimuth. The road
+cells then act as extra floor points at the road elevation, so the same
+envelope cuts the road into the wall and sets the benches above it back (the
+road is excavated, not placed on the wall). The road surface is flat across
+its width; no switchbacks or road-specific batters are designed.
 """
 
 from __future__ import annotations
 
+import itertools
 import math
 from dataclasses import dataclass
 from pathlib import Path
@@ -66,6 +78,18 @@ class BenchGeometry:
 
 
 @dataclass(frozen=True)
+class Ramp:
+    width: float  # m
+    gradient: float  # rise over run, e.g. 0.10 for 10 %
+    exit_azimuth: float = 0.0  # degrees from north, clockwise; where the road leaves the pit
+    clockwise: bool = True  # direction of travel going down
+
+    def __post_init__(self) -> None:
+        if self.width <= 0 or not 0.01 <= self.gradient <= 0.25:
+            raise PitOptError("ramp width must be > 0 and gradient between 1 % and 25 %")
+
+
+@dataclass(frozen=True)
 class DesignedPit:
     x: Floats  # raster column coordinates
     y: Floats  # raster row coordinates
@@ -74,6 +98,13 @@ class DesignedPit:
     geometry: BenchGeometry
     reaches_edge: bool  # design meets the raster border below the original surface
     on_model: Mask  # ny x nx raster cells over the block model area
+    ramp: Floats | None = None  # road centreline, n x 3, from the exit down to the floor
+
+    @property
+    def ramp_length(self) -> float:
+        if self.ramp is None or len(self.ramp) < 2:
+            return 0.0
+        return float(np.linalg.norm(np.diff(self.ramp, axis=0), axis=1).sum())
 
     def surface(self) -> Surface:
         xx, yy = np.meshgrid(self.x, self.y)
@@ -124,6 +155,8 @@ class DesignedPit:
                             Polyline(layer, np.column_stack([pts, np.full(len(pts), z)]), closed)
                         )
             level += h
+        if self.ramp is not None and len(self.ramp) >= 2:
+            lines.append(Polyline(f"{name}_RAMP", self.ramp, closed=False))
         return lines
 
 
@@ -136,6 +169,7 @@ def design_pit(  # noqa: PLR0913 - options are keyword-only
     rock: Mask | None = None,
     resolution: float | None = None,
     margin: float | None = None,
+    ramp: Ramp | None = None,
 ) -> DesignedPit:
     nx, ny, nz = grid.count
     cube = np.asarray(mined, bool).reshape(nz, ny, nx)
@@ -156,15 +190,133 @@ def design_pit(  # noqa: PLR0913 - options are keyword-only
     on_grid = (ci >= 0) & (ci < nx) & (cj >= 0) & (cj < ny)
     floor = np.full(xx.shape, np.inf)
     floor[on_grid] = floor_col[cj[on_grid], ci[on_grid]]
-    design = np.full(xx.shape, np.inf)
-    for level in np.unique(floor[np.isfinite(floor)]):
-        dist = distance_transform_edt(floor > level, sampling=res)
-        design = np.minimum(design, level + geometry.rise(np.asarray(dist, np.float64)))
+    design = _envelope(floor, geometry, res)
     top = _original_surface(grid, xx, yy, topography, rock, cube)
+    road = None
+    if ramp is not None:
+        road, road_floor = _trace_ramp(x, y, design, top, floor, ramp, geometry, res)
+        design = _envelope(np.minimum(floor, road_floor), geometry, res)
     z = np.minimum(design, top)
     below = design < top - 1e-6
     edge = bool(below[0, :].any() or below[-1, :].any() or below[:, 0].any() or below[:, -1].any())
-    return DesignedPit(x, y, z, top, geometry, edge, on_grid)
+    return DesignedPit(x, y, z, top, geometry, edge, on_grid, road)
+
+
+def _envelope(floor: Floats, geometry: BenchGeometry, res: float) -> Floats:
+    design = np.full(floor.shape, np.inf)
+    for level in np.unique(floor[np.isfinite(floor)]):
+        dist = distance_transform_edt(floor > level, sampling=res)
+        design = np.minimum(design, level + geometry.rise(np.asarray(dist, np.float64)))
+    return design
+
+
+def _trace_ramp(  # noqa: PLR0913, PLR0917, PLR0915 - raster inputs, one tracing loop
+    x: Floats,
+    y: Floats,
+    design: Floats,
+    top: Floats,
+    floor: Floats,
+    ramp: Ramp,
+    geometry: BenchGeometry,
+    res: float,
+) -> tuple[Floats, Floats]:
+    """Road centreline (n x 3, exit first) and a raster of road elevations (+inf off road).
+
+    Traced bottom-up so every lap sits on the wall as already pushed back by
+    the laps below it; the start angle is adjusted until the road leaves the
+    pit at the requested exit azimuth.
+    """
+    ny, nx = design.shape
+    pit = np.isfinite(floor)
+    jj, ii = np.nonzero(pit)
+    cx, cy = float(x[ii].mean()), float(y[jj].mean())
+    bottom = float(floor[pit].min())
+    high = float(np.nanmax(top))
+    reach = float(np.hypot(x[-1] - x[0], y[-1] - y[0]))
+    radii = np.arange(0.0, reach, res / 2)
+    xx, yy = np.meshgrid(x, y)
+    # Laps are placed on the wall at the overall slope (no stairs), so the wall
+    # contour moves smoothly; the stair wall is never outside it, which keeps the
+    # whole road width in rock.
+    smooth = BenchGeometry(geometry.overall_angle, geometry.bench_height, 0.0)
+    slope = math.tan(math.radians(geometry.overall_angle))
+    design = _envelope(floor, smooth, res)
+    up = -1.0 if ramp.clockwise else 1.0  # clockwise going down = anticlockwise going up
+
+    def lookup(grid: Floats, px: Floats, py: Floats) -> Floats:
+        i = np.clip(np.round((px - x[0]) / res).astype(int), 0, nx - 1)
+        j = np.clip(np.round((py - y[0]) / res).astype(int), 0, ny - 1)
+        return np.asarray(grid[j, i], np.float64)
+
+    def cut(current: Floats, p: tuple[float, float], h: float) -> None:
+        """Lower the wall behind a road section (the road is excavated into it)."""
+        span = (high - h) / slope + ramp.width
+        i0, i1 = np.searchsorted(x, [p[0] - span, p[0] + span])
+        j0, j1 = np.searchsorted(y, [p[1] - span, p[1] + span])
+        d = np.hypot(xx[j0:j1, i0:i1] - p[0], yy[j0:j1, i0:i1] - p[1])
+        lowered = h + smooth.rise(np.maximum(d - ramp.width / 2, 0.0))
+        current[j0:j1, i0:i1] = np.minimum(current[j0:j1, i0:i1], lowered)
+
+    def walk(start: float, gradient: float) -> tuple[Floats, float]:
+        current = design.copy()
+        theta, h, travelled = start, bottom, 0.0
+        pts: list[tuple[float, float]] = []
+        pending: list[tuple[float, tuple[float, float], float]] = []
+        for _ in range(200_000):
+            ray = lookup(current, cx + radii * math.sin(theta), cy + radii * math.cos(theta))
+            hit = np.flatnonzero(ray > h + 1e-3)
+            if hit.size == 0:
+                break
+            r_road = float(radii[hit[0]]) + ramp.width / 2
+            p = (cx + r_road * math.sin(theta), cy + r_road * math.cos(theta))
+            if pts:
+                step = math.hypot(p[0] - pts[-1][0], p[1] - pts[-1][1])
+                travelled += step
+                h += gradient * step
+            pts.append(p)
+            if lookup(top, np.array([p[0]]), np.array([p[1]]))[0] <= h:
+                break  # the road has reached the original surface: exit
+            # A section's cut is applied half a lap later: it shapes the wall for the
+            # lap above, not for the road's own next steps.
+            pending.append((travelled, p, h))
+            delay = max(math.pi * r_road, 4.0 * ramp.width)
+            while pending and travelled - pending[0][0] > delay:
+                _, q, hq = pending.pop(0)
+                cut(current, q, hq)
+            theta += up * res / max(r_road, res)  # about one raster cell of road per step
+        if len(pts) < 3:
+            raise PitOptError("the pit is too small for a ramp of this width and gradient")
+        return np.asarray(pts, np.float64), theta
+
+    target = math.radians(ramp.exit_azimuth)
+    start = target
+    for _ in range(5):  # move the start until the exit lands on the target azimuth
+        xy, end = walk(start, ramp.gradient)
+        miss = math.remainder(target - end, 2 * math.pi)
+        if abs(miss) < math.radians(2.0):
+            break
+        start += miss
+        xy, end = walk(start, ramp.gradient)
+    run = np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(xy, axis=0), axis=1))]
+    line = np.column_stack([xy, bottom + ramp.gradient * run])[::-1]
+    road = np.full(design.shape, np.inf)
+    nearest = np.full(design.shape, np.inf)  # each road cell takes its nearest section
+    for (x0, y0, z0), (x1, y1, z1) in itertools.pairwise(line):
+        lo_x, hi_x = min(x0, x1) - ramp.width, max(x0, x1) + ramp.width
+        lo_y, hi_y = min(y0, y1) - ramp.width, max(y0, y1) + ramp.width
+        i0, i1 = np.searchsorted(x, [lo_x, hi_x])
+        j0, j1 = np.searchsorted(y, [lo_y, hi_y])
+        if i0 == i1 or j0 == j1:
+            continue
+        sx, sy = xx[j0:j1, i0:i1], yy[j0:j1, i0:i1]
+        dx, dy = x1 - x0, y1 - y0
+        t = np.clip(((sx - x0) * dx + (sy - y0) * dy) / max(dx * dx + dy * dy, 1e-12), 0, 1)
+        dist = np.hypot(sx - (x0 + t * dx), sy - (y0 + t * dy))
+        closer = (dist <= ramp.width / 2) & (dist < nearest[j0:j1, i0:i1])
+        nearest[j0:j1, i0:i1] = np.where(closer, dist, nearest[j0:j1, i0:i1])
+        road[j0:j1, i0:i1] = np.where(closer, z0 + t * (z1 - z0), road[j0:j1, i0:i1])
+    quantum = 0.25
+    return line, np.floor(road / quantum) * quantum
 
 
 def _original_surface(  # noqa: PLR0913, PLR0917 - raster inputs
@@ -210,6 +362,7 @@ def design_from_model(  # noqa: PLR0913 - options are keyword-only
     save_surface: str | None = None,
     flag_attribute: str | None = None,
     dxf: Path | None = None,
+    ramp: Ramp | None = None,
 ) -> DesignReport:
     """Design benches around shells ``1..last_shell`` of a stored pit optimisation."""
     if "pit_shell" not in model.attributes:
@@ -219,7 +372,7 @@ def design_from_model(  # noqa: PLR0913 - options are keyword-only
     mined = (shell >= 1) & (shell <= last)
     topo = surfaces.load_surface(project, topography) if topography else None
     rock = model.values("kaya") > 0.5 if "kaya" in model.attributes else None
-    pit = design_pit(model.grid, mined, geometry, topography=topo, rock=rock)
+    pit = design_pit(model.grid, mined, geometry, topography=topo, rock=rock, ramp=ramp)
     inside = pit.inside(model.grid.centroids())
     if rock is not None:
         inside &= rock
