@@ -332,7 +332,15 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
   drive per level along the principal plan axis of that level's ore blocks,
   through the crosscut end (no footwall offset, no drawpoints, no curved
   drives for folded ore). No ventilation raises, sumps, passing bays, switchbacks, geotechnical or
-  clash checks against other excavations, and no development scheduling.
+  clash checks against other excavations.
+- `underground.devschedule` (CLI `decline --schedule`, GUI "Hazırlık
+  çizelgesi"): rule-based development timing: one decline heading at a fixed
+  rate, level crews developing levels in the order the decline reaches them,
+  a fixed stoping lead time, cost per metre. Stope schedules can wait for
+  their level's ready year (nearest level to the stope floor) and carry the
+  yearly development cost; in the GUI the two windows are linked by copying
+  the ready-year and cost text. No raises, no ramp-up, no optimisation.
+  Smoke-tested only.
 
 ## Design reserves and surface volumes
 

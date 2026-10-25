@@ -42,8 +42,27 @@ from minecore.underground.development import (
     Development,
     development_from_model,
 )
+from minecore.underground.devschedule import DevRates, schedule_development
 from minecore.underground.economics import StopeValue, schedule_stopes, stope_values
 from minecore.underground.stopes import StopeResult, stopes_from_model
+
+
+def _parse_pairs(text: str, label: str) -> list[tuple[float, float]] | None:
+    """Parse "a:b; c:d" into (a, b) pairs. Empty text gives None."""
+    pairs: list[tuple[float, float]] = []
+    for raw in text.split(";"):
+        part = raw.strip()
+        if not part:
+            continue
+        left, sep, right = part.partition(":")
+        try:
+            a, b = float(left), float(right)
+        except ValueError:
+            a = b = math.nan
+        if not sep or not (math.isfinite(a) and math.isfinite(b)):
+            raise RuntimeError(f"{label}: '{part}' okunamadı. Biçim 'a:b; c:d' olmalı.")
+        pairs.append((a, b))
+    return pairs or None
 
 
 class StopeDialog(QDialog):
@@ -111,6 +130,14 @@ class StopeDialog(QDialog):
         form.addRow("Yeraltı madencilik / zenginleştirme ($/t)", _row(self.mining, self.processing))
         form.addRow("Seyrelme % / kazı kazanımı %", _row(self.dilution, self.mine_recovery))
         form.addRow("Pano başına hazırlık maliyeti ($)", self.dev_cost)
+        self.ready_levels = QLineEdit()
+        self.ready_levels.setPlaceholderText("örn. 250:1.5; 225:2.4 (kot:yıl)")
+        self.ready_levels.setToolTip("Dekline penceresindeki Hazırlık çizelgesi'nden kopyalayın")
+        self.dev_costs = QLineEdit()
+        self.dev_costs.setPlaceholderText("örn. 1:7.2; 2:6.0 (yıl:M$)")
+        self.dev_costs.setToolTip("Dekline penceresindeki Hazırlık çizelgesi'nden kopyalayın")
+        form.addRow("Kat hazır olma (kot:yıl)", self.ready_levels)
+        form.addRow("Hazırlık gideri (yıl:M$)", self.dev_costs)
         form.addRow("Üretim kapasitesi (Mt/yıl) / iskonto %", _row(self.capacity, self.discount))
         form.addRow("Sıralama", self.order)
         form.addRow("Yatırım", self.capex)
@@ -220,23 +247,42 @@ class StopeDialog(QDialog):
         model = BlockModel.open(self.project, self.model.currentText())
         unit = model.attributes[self.grade.currentText()].get("unit")
         dev = self.dev_cost.value()
+        levels = _parse_pairs(self.ready_levels.text(), "Kat hazır olma")
+        costs = _parse_pairs(self.dev_costs.text(), "Hazırlık gideri")
+        extra_costs = None
+        if costs is not None:
+            extra_costs = {}
+            for year, cost in costs:
+                if year < 1 or year != int(year):
+                    raise RuntimeError("Hazırlık gideri: yıl 1 veya daha büyük tam sayı olmalı.")
+                extra_costs[int(year)] = cost * 1e6
         self.values = stope_values(self.stopes.stopes, self.economics(), unit, dev)
+        ready_years = None
+        if levels is not None:
+            grid = model.grid
+            ready_years = []
+            for v in self.values:
+                z = grid.origin[2] + v.stope.k * grid.size[2]
+                ready_years.append(min(levels, key=lambda lv: abs(lv[0] - z))[1])
         self.sched, starts = schedule_stopes(
             self.values,
             self.capacity.value() * 1e6,
             self.discount.value() / 100.0,
             bottom_up=self.order.currentIndex() == 0,
             development_cost=dev,
+            ready_years=ready_years,
+            extra_costs=extra_costs,
         )
         for n, v in enumerate(self.values):
             self.table.setItem(n, 5, QTableWidgetItem(f"{v.value:,.0f}"))
         rows = self.sched.rows
         self.sched_table.setRowCount(len(rows))
         for n, r in enumerate(rows):
+            feed = "" if math.isnan(r.feed_grade) else f"{r.feed_grade:.3f}"
             cells = [
                 str(r.period),
                 f"{r.mined_t:,.0f}",
-                f"{r.feed_grade:.3f}",
+                feed,
                 f"{r.metal:,.0f}",
                 f"{r.revenue / 1e6:,.2f}",
                 f"{r.mining_cost / 1e6:,.2f}",
@@ -330,8 +376,71 @@ class DeclineDialog(QDialog):
         self.text = QLabel()
         self.text.setWordWrap(True)
         form.addRow(self.text)
+        self._schedule_fields(form)
         self.model.currentTextChanged.connect(self._fill)
         self._fill(self.model.currentText())
+
+    def _schedule_fields(self, form: QFormLayout) -> None:
+        self.decline_rate = _spin(1200.0, 50.0, 20000.0, 50.0, 0)
+        self.level_rate = _spin(1000.0, 50.0, 20000.0, 50.0, 0)
+        self.crews = _spin(1.0, 1.0, 10.0, 1.0, 0)
+        self.lead = _spin(0.25, 0.0, 5.0, 0.05, 2)
+        self.cost_per_m = _spin(6000.0, 0.0, 1e6, 100.0, 0)
+        form.addRow("Dekline / kat ilerlemesi (m/yıl)", _row(self.decline_rate, self.level_rate))
+        form.addRow("Kat ekibi sayısı / hazırlık süresi (yıl)", _row(self.crews, self.lead))
+        form.addRow("Galeri maliyeti ($/m)", self.cost_per_m)
+        schedule = QPushButton("Hazırlık çizelgesi")
+        schedule.clicked.connect(self._guard(self.schedule))
+        form.addRow(schedule)
+        self.levels_table = QTableWidget(0, 4)
+        self.levels_table.setHorizontalHeaderLabels(
+            ["Kat kotu", "Metre", "Dekline ulaşır (yıl)", "Kat hazır (yıl)"]
+        )
+        self.levels_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        form.addRow(self.levels_table)
+        self.schedule_summary = QLabel()
+        self.schedule_summary.setWordWrap(True)
+        form.addRow(self.schedule_summary)
+        self.ready_text = QLineEdit()
+        self.ready_text.setReadOnly(True)
+        self.cost_text = QLineEdit()
+        self.cost_text.setReadOnly(True)
+        form.addRow("Kat hazır olma (panolar penceresine kopyalayın)", self.ready_text)
+        form.addRow("Yıllık hazırlık gideri M$", self.cost_text)
+
+    def schedule(self) -> None:
+        if self.dev is None:
+            self.run(None)
+        assert self.dev is not None
+        rates = DevRates(
+            decline_rate=self.decline_rate.value(),
+            level_rate=self.level_rate.value(),
+            level_crews=int(self.crews.value()),
+            lead_years=self.lead.value(),
+            cost_per_m=self.cost_per_m.value(),
+        )
+        sched = schedule_development(self.dev, rates)
+        self.levels_table.setRowCount(len(sched.levels))
+        for n, lv in enumerate(sched.levels):
+            cells = [
+                f"{lv.elevation:g}",
+                f"{lv.metres:,.0f}",
+                f"{lv.reached:.2f}",
+                f"{lv.ready:.2f}",
+            ]
+            for c, text in enumerate(cells):
+                self.levels_table.setItem(n, c, QTableWidgetItem(text))
+        self.levels_table.resizeColumnsToContents()
+        self.ready_text.setText(
+            "; ".join(f"{lv.elevation:g}:{lv.ready:.2f}" for lv in sched.levels)
+        )
+        self.cost_text.setText("; ".join(f"{y.year}:{y.cost / 1e6:.3f}" for y in sched.years))
+        metres = sum(y.decline_m + y.level_m for y in sched.years)
+        total = sum(y.cost for y in sched.years)
+        self.schedule_summary.setText(
+            f"Toplam {metres:,.0f} m galeri, toplam hazırlık gideri {total / 1e6:,.2f} M$, "
+            f"{len(sched.years)} yıl, {len(sched.levels)} kat."
+        )
 
     def _guard(self, slot: Callable[[], None]) -> Callable[[], None]:
         def run() -> None:

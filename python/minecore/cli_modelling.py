@@ -95,6 +95,7 @@ from minecore.reserves import bench_reserves, between_fraction, volume_between
 from minecore.solids import flag_blocks, load_solid, read_solid, save_solid
 from minecore.solidtools import Boolean, boolean, cut_by_surface, repair, verify
 from minecore.underground.development import DeclineDesign, development_from_model
+from minecore.underground.devschedule import DevRates, schedule_development
 from minecore.underground.stopes import stopes_from_model
 
 METHODS = {"nn": Method.NEAREST, "idw": Method.INVERSE_DISTANCE, "ok": Method.ORDINARY_KRIGING}
@@ -331,6 +332,14 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     dec.add_argument("--no-drives", action="store_true", help="crosscuts only, no ore drives")
     dec.add_argument("--dxf")
     dec.add_argument("--save", default="dekline", help="store centrelines as a string set")
+    dec.add_argument(
+        "--schedule",
+        type=float,
+        nargs=5,
+        metavar=("DECLINE_M_Y", "LEVEL_M_Y", "CREWS", "LEAD_Y", "COST_M"),
+        help="development schedule: decline and level advance m/year, level crews, "
+        "stoping lead time (years), cost per metre",
+    )
 
     pit = commands.add_parser("pit", help="open-pit optimisation")
     pit_cmds = pit.add_subparsers(dest="pit_command", metavar="ACTION", required=True)
@@ -798,6 +807,19 @@ def decline_command(args: argparse.Namespace, out: TextIO) -> int:
             f"ore drives {dev.drive_length:,.0f} m, "
             f"total {dev.total_length:,.0f} m, {dev.volume:,.0f} m3, {dev.tonnes:,.0f} t\n"
         )
+        if args.schedule:
+            d_rate, l_rate, crews, lead, cost = args.schedule
+            ds = schedule_development(dev, DevRates(d_rate, l_rate, int(crews), lead, cost))
+            for lv in ds.levels:
+                out.write(
+                    f"level {lv.elevation:.1f}: decline arrives {lv.reached:.2f} y, "
+                    f"developed {lv.start:.2f}-{lv.finish:.2f} y, ready {lv.ready:.2f} y\n"
+                )
+            for y in ds.years:
+                out.write(
+                    f"year {y.year}: decline {y.decline_m:,.0f} m, levels {y.level_m:,.0f} m, "
+                    f"cost {y.cost:,.0f}\n"
+                )
     return 0
 
 
