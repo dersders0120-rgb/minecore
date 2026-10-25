@@ -682,6 +682,14 @@ def test_stope_dialog(qapp: QApplication, tmp_path: Path) -> None:
     assert len(dialog.stopes.stopes) == 4
     assert dialog.table.rowCount() == 4
     assert "ug_pano" in BlockModel.open(project, "BM").attributes
+    dialog.capacity.setValue(0.005)  # 5 000 t/y: the four 2 970 t stopes take three years
+    dialog.capex.setText("0:0.5")
+    dialog.plan()
+    assert dialog.sched is not None
+    assert len(dialog.sched.rows) == 3
+    assert sum(r.mined_t for r in dialog.sched.rows) == pytest.approx(4 * 2700 * 0.9 * 1.1)
+    assert dialog.flow is not None
+    assert "proje NPV" in dialog.plan_summary.text()
     from minecore.gui.underground import DeclineDialog  # noqa: PLC0415
     from minecore.strings import string_names  # noqa: PLC0415
 

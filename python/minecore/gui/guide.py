@@ -89,6 +89,10 @@ GUIDE = """
 ## 5. Yeraltı
 - **Yeraltı > Pano zarfı**: sabit boyutlu pano ile yüzen pano zarfı ve çakışmasız pano
   seçimi; DXF.
+- **Pano ekonomisi**: aynı pencerede fiyat, kazanım, yeraltı madencilik ve
+  zenginleştirme maliyeti, seyrelme ve kazı kazanımıyla her panonun değeri; pozitif
+  değerli panolar kapasiteye göre seviye seviye (alttan veya üstten) yıllara dağıtılır;
+  yatırım, sabit gider ve vergiyle proje nakit akışı, NPV ve İVO verilir.
 - **Yeraltı > Dekline ve kat galerileri**: ağızdan spiral dekline (eğim, dönüş yarıçapı,
   cevherden uzaklık), her kata yatay galeri ve cevher doğrultusunda kat galerisi
   (ore drive); metraj, hacim, tonaj; DXF.

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
 from pathlib import Path
 
@@ -13,29 +14,42 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMessageBox,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
     QWidget,
 )
 
 from minecore.blockmodel import BlockModel
 from minecore.gui.layout import fit_to_screen, scroll_panel
+from minecore.gui.pit import PRICE_TR
 from minecore.gui.resource import _row, _spin, block_models
+from minecore.pitopt.cashflow import (
+    Capital,
+    CashFlow,
+    FinancialTerms,
+    cash_flow,
+    parse_capital,
+)
+from minecore.pitopt.economics import Economics, PriceUnit
+from minecore.pitopt.scheduling import ConstrainedSchedule
 from minecore.project import Project
 from minecore.underground.development import (
     DeclineDesign,
     Development,
     development_from_model,
 )
+from minecore.underground.economics import StopeValue, schedule_stopes, stope_values
 from minecore.underground.stopes import StopeResult, stopes_from_model
 
 
 class StopeDialog(QDialog):
     """Floating stope envelope and non-overlapping stopes."""
 
-    def __init__(self, project: Project, parent: QWidget) -> None:
+    def __init__(self, project: Project, parent: QWidget) -> None:  # noqa: PLR0915 - one form
         super().__init__(parent)
         self.setWindowTitle("Yeraltı: pano zarfı ve pano seçimi")
         fit_to_screen(self, 1000, 600)
@@ -69,9 +83,61 @@ class StopeDialog(QDialog):
         self.summary = QLabel()
         self.summary.setWordWrap(True)
         form.addRow(self.summary)
-        self.table = QTableWidget(0, 5)
-        self.table.setHorizontalHeaderLabels(["Pano", "i / j / k", "Tonaj (t)", "Tenör", "Metal"])
-        layout.addWidget(self.table, 1)
+        form.addRow(QLabel("<b>Pano ekonomisi ve üretim çizelgesi</b>"))
+        self.price = _spin(2000.0, 0.0001, 1e9, 10.0, 4)
+        self.price_unit = QComboBox()
+        for unit, label in PRICE_TR.items():
+            self.price_unit.addItem(label, unit.value)
+        self.recovery = _spin(90.0, 1.0, 100.0, 1.0, 1)
+        self.mining = _spin(45.0, 0.0, 1e6, 1.0, 2)
+        self.processing = _spin(20.0, 0.0, 1e6, 1.0, 2)
+        self.selling = _spin(0.0, 0.0, 1e9, 1.0, 2)
+        self.payable = _spin(100.0, 1.0, 100.0, 0.5, 1)
+        self.royalty = _spin(0.0, 0.0, 99.0, 0.5, 1)
+        self.dilution = _spin(10.0, 0.0, 200.0, 1.0, 1)
+        self.mine_recovery = _spin(90.0, 1.0, 100.0, 1.0, 1)
+        self.dev_cost = _spin(0.0, 0.0, 1e9, 10000.0, 0)
+        self.capacity = _spin(0.5, 0.001, 100.0, 0.05, 3)
+        self.discount = _spin(8.0, 0.0, 50.0, 0.5, 1)
+        self.order = QComboBox()
+        self.order.addItems(["Alttan yukarı (seviye seviye)", "Üstten aşağı (seviye seviye)"])
+        self.capex = QLineEdit()
+        self.capex.setPlaceholderText("yıl:M$, örn. 0:80; 3:15")
+        self.fixed = _spin(0.0, 0.0, 1e6, 0.5, 2)
+        self.tax = _spin(0.0, 0.0, 80.0, 1.0, 1)
+        form.addRow("Metal fiyatı", _row(self.price, self.price_unit))
+        form.addRow("Tesis kazanımı % / satış maliyeti", _row(self.recovery, self.selling))
+        form.addRow("Ödenebilir % / royalty %", _row(self.payable, self.royalty))
+        form.addRow("Yeraltı madencilik / zenginleştirme ($/t)", _row(self.mining, self.processing))
+        form.addRow("Seyrelme % / kazı kazanımı %", _row(self.dilution, self.mine_recovery))
+        form.addRow("Pano başına hazırlık maliyeti ($)", self.dev_cost)
+        form.addRow("Üretim kapasitesi (Mt/yıl) / iskonto %", _row(self.capacity, self.discount))
+        form.addRow("Sıralama", self.order)
+        form.addRow("Yatırım", self.capex)
+        form.addRow("Sabit gider (M$/yıl) / vergi %", _row(self.fixed, self.tax))
+        plan = QPushButton("Panoları değerle, çizelgele, nakit akışı")
+        plan.clicked.connect(self._guarded(self.plan))
+        form.addRow(plan)
+        self.plan_summary = QLabel()
+        self.plan_summary.setWordWrap(True)
+        form.addRow(self.plan_summary)
+        tabs = QTabWidget()
+        layout.addWidget(tabs, 1)
+        self.table = QTableWidget(0, 6)
+        self.table.setHorizontalHeaderLabels(
+            ["Pano", "i / j / k", "Tonaj (t)", "Tenör", "Metal", "Değer ($)"]
+        )
+        tabs.addTab(self.table, "Panolar")
+        self.sched_table = QTableWidget(0, 7)
+        self.sched_table.setHorizontalHeaderLabels(
+            ["Yıl", "Kazı (t)", "Tenör", "Metal", "Gelir M$", "Maliyet M$", "Nakit M$"]
+        )
+        tabs.addTab(self.sched_table, "Üretim çizelgesi")
+        self.cash_table = QTableWidget(0, 0)
+        tabs.addTab(self.cash_table, "Nakit akışı")
+        self.values: list[StopeValue] = []
+        self.sched: ConstrainedSchedule | None = None
+        self.flow: CashFlow | None = None
         self.model.currentTextChanged.connect(self._fill)
         self._fill(self.model.currentText())
 
@@ -132,6 +198,88 @@ class StopeDialog(QDialog):
             for c, text in enumerate(cells):
                 self.table.setItem(n, c, QTableWidgetItem(text))
         self.table.resizeColumnsToContents()
+
+    def economics(self) -> Economics:
+        return Economics(
+            price=self.price.value(),
+            price_unit=PriceUnit(self.price_unit.currentData()),
+            recovery=self.recovery.value() / 100.0,
+            mining_cost=self.mining.value(),
+            processing_cost=self.processing.value(),
+            selling_cost=self.selling.value(),
+            mining_recovery=self.mine_recovery.value() / 100.0,
+            dilution=self.dilution.value() / 100.0,
+            payable=self.payable.value() / 100.0,
+            royalty=self.royalty.value() / 100.0,
+        )
+
+    def plan(self) -> None:
+        if self.stopes is None:
+            self.run()
+        assert self.stopes is not None
+        model = BlockModel.open(self.project, self.model.currentText())
+        unit = model.attributes[self.grade.currentText()].get("unit")
+        dev = self.dev_cost.value()
+        self.values = stope_values(self.stopes.stopes, self.economics(), unit, dev)
+        self.sched, starts = schedule_stopes(
+            self.values,
+            self.capacity.value() * 1e6,
+            self.discount.value() / 100.0,
+            bottom_up=self.order.currentIndex() == 0,
+            development_cost=dev,
+        )
+        for n, v in enumerate(self.values):
+            self.table.setItem(n, 5, QTableWidgetItem(f"{v.value:,.0f}"))
+        rows = self.sched.rows
+        self.sched_table.setRowCount(len(rows))
+        for n, r in enumerate(rows):
+            cells = [
+                str(r.period),
+                f"{r.mined_t:,.0f}",
+                f"{r.feed_grade:.3f}",
+                f"{r.metal:,.0f}",
+                f"{r.revenue / 1e6:,.2f}",
+                f"{r.mining_cost / 1e6:,.2f}",
+                f"{r.cash / 1e6:,.2f}",
+            ]
+            for c, text in enumerate(cells):
+                self.sched_table.setItem(n, c, QTableWidgetItem(text))
+        if not rows:
+            self.flow = None
+            self.plan_summary.setText("Pozitif değerli pano yok: çizelge boş.")
+            return
+        terms = FinancialTerms(
+            tuple(Capital(c.period, c.amount * 1e6) for c in parse_capital(self.capex.text())),
+            fixed_cost=self.fixed.value() * 1e6,
+            tax_rate=self.tax.value() / 100.0,
+            discount_rate=self.discount.value() / 100.0,
+            royalty=self.royalty.value() / 100.0,
+        )
+        self.flow = flow = cash_flow(rows, terms)
+        headers = ["Kalem", *(str(r.period) for r in flow.rows)]
+        lines = [
+            ("Gelir", [r.revenue for r in flow.rows]),
+            ("FAVÖK", [r.ebitda for r in flow.rows]),
+            ("Yatırım", [r.capital for r in flow.rows]),
+            ("Vergi", [r.tax for r in flow.rows]),
+            ("Nakit akışı", [r.cash for r in flow.rows]),
+        ]
+        self.cash_table.setColumnCount(len(headers))
+        self.cash_table.setRowCount(len(lines))
+        self.cash_table.setHorizontalHeaderLabels(headers)
+        for n, (label, vals) in enumerate(lines):
+            self.cash_table.setItem(n, 0, QTableWidgetItem(label))
+            for c, value in enumerate(vals, start=1):
+                self.cash_table.setItem(n, c, QTableWidgetItem(f"{value / 1e6:,.2f}"))
+        used = len(starts)
+        irr = flow.irr()
+        self.plan_summary.setText(
+            f"{used} pozitif değerli pano {len(rows)} yılda çizelgelendi "
+            f"({sum(r.mined_t for r in rows) / 1e6:,.2f} Mt). Çizelge NPV "
+            f"{self.sched.npv / 1e6:,.1f} M$; proje NPV {flow.npv / 1e6:,.1f} M$"
+            + (f", İVO %{irr * 100:.1f}" if math.isfinite(irr) else "")
+            + ". Sıralama kurallıdır (seviye seviye, değerli pano önce); optimizasyon değildir."
+        )
 
     def export(self) -> None:
         path, _ = QFileDialog.getSaveFileName(self, "DXF kaydet", "panolar.dxf", "DXF (*.dxf)")

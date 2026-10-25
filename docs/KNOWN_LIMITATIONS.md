@@ -263,6 +263,12 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
   non-overlapping stope selection by metal. Not a Mineable Shape Optimiser:
   no variable stope shapes, dip/strike following, pillars, dilution skins,
   development or scheduling. Stopes are aligned with the block grid.
+- `underground.economics` (GUI "Panoları değerle, çizelgele"): stope value
+  with global dilution (zero grade) and mining recovery, a fixed development
+  cost per stope, and a rule-based schedule: level by level (bottom-up or
+  top-down), richest stope first, at one tonnage capacity. No development
+  lead times, no stope-to-stope dependencies or pillars, no fill, no
+  ramp-up, not optimised; negative stopes are skipped. Smoke-tested only.
 - `underground.development`: concept access layout only: one straight portal
   leg plus a circular spiral decline at constant gradient beside the orebody
   (standoff checked in plan against ore block centroids), and one straight
