@@ -724,7 +724,15 @@ class PitDialog(QDialog):
             write_pit_reports(Path(path), self.pit, self.sched)
         else:
             target = Path(path if path.lower().endswith(".xlsx") else path + ".xlsx")
-            write_pit_reports_xlsx(target, self.pit, self.sched, self.inventory, self.flow)
+            write_pit_reports_xlsx(
+                target,
+                self.pit,
+                self.sched,
+                self.inventory,
+                self.flow,
+                self.fleet,
+                list_scenarios(self.project),
+            )
 
     def _fleet_page(self) -> QWidget:
         page = QWidget()
@@ -1152,12 +1160,14 @@ def _inventory_cells(r: InventoryRow) -> list[Any]:
     return [r.phase, r.bench_toe, r.ore_t, grade, r.metal, r.waste_t, strip, r.value]
 
 
-def write_pit_reports_xlsx(
+def write_pit_reports_xlsx(  # noqa: PLR0913, PLR0917 - one sheet per argument
     path: Path,
     result: PitResult,
     sched: ConstrainedSchedule | None,
     inventory: list[InventoryRow] | None = None,
     flow: CashFlow | None = None,
+    fleet: list[FleetRow] | None = None,
+    scenarios: list[Scenario] | None = None,
 ) -> None:
     from minecore.io.excel import write_workbook  # noqa: PLC0415
 
@@ -1231,6 +1241,28 @@ def write_pit_reports_xlsx(
     if flow is not None:
         headers = [h.replace(" M$", "") for h in CASH_HEADERS]
         sheets["Nakit akışı"] = (headers, [[r.period, *_cash_cells(r)[1:]] for r in flow.rows])
+    if fleet:
+        sheets["Ekipman"] = (
+            FLEET_HEADERS,
+            [
+                [
+                    r.period,
+                    r.mined_t / 1e6,
+                    r.lift_m,
+                    r.haul_m,
+                    r.cycle_min,
+                    r.trucks,
+                    r.loaders,
+                    r.truck_hours,
+                    r.cost / 1e6,
+                    r.cost_per_t,
+                ]
+                for r in fleet
+            ],
+        )
+    if scenarios:
+        table = comparison(scenarios)
+        sheets["Senaryolar"] = (["Gösterge", *table[0][1:]], table[1:])
     write_workbook(path, sheets)
 
 
