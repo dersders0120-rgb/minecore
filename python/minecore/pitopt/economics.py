@@ -4,8 +4,11 @@ For a block of ``t`` tonnes at grade ``g``:
 
 * metal mass (kg) = ``t * 1000 * g * f`` where ``f`` is the grade unit's mass
   fraction factor (``%`` = 0.01, ``g/t`` = ``ppm`` = 1e-6);
-* recovered payable metal in price units = metal mass * recovery / unit mass;
-* revenue = payable metal * (price * revenue_factor - selling cost);
+* recovered metal in price units = metal mass * recovery / unit mass;
+* revenue = recovered metal * payable * (price * revenue_factor - selling cost)
+  * (1 - royalty): ``payable`` is the fraction of recovered metal the buyer
+  pays for (smelter terms), ``royalty`` a share of the sales revenue paid to
+  the state or a landowner (net smelter return royalty);
 * mining recovery ``MR`` and dilution ``D`` (fractions) apply to ore: the
   plant receives ``feed = t * MR * (1 + D)`` tonnes at grade ``g / (1 + D)``
   (dilution is zero-grade rock from the surrounding waste, which is mined and
@@ -19,8 +22,9 @@ For a block of ``t`` tonnes at grade ``g``:
 NSR mode (``nsr=True``): the attribute is a net smelter return per tonne of
 in-situ rock (currency/t, after metallurgical recovery, payables and selling
 costs, e.g. computed for several elements with the block calculator). Then
-revenue = ``t * MR * nsr * revenue_factor``; price, price unit, recovery and
-selling cost are not used, and "metal" is the recovered value at factor 1.
+revenue = ``t * MR * nsr * revenue_factor * (1 - royalty)``; price, price
+unit, recovery, payable and selling cost are not used (the NSR contains
+them), and "metal" is the recovered value at factor 1.
 
 Process routes (optional ``routes``): alternative destinations, e.g. a heap
 leach next to the mill, each with its own metallurgical recovery and
@@ -112,8 +116,14 @@ class Economics:
     dilution: float = 0.0
     nsr: bool = False
     routes: tuple[Route, ...] = ()  # extra process routes (route 1 is the main one)
+    payable: float = 1.0  # fraction of recovered metal paid for
+    royalty: float = 0.0  # fraction of sales revenue
 
     def __post_init__(self) -> None:
+        if not 0 < self.payable <= 1:
+            raise PitOptError("payable fraction must be in (0, 1]")
+        if not 0 <= self.royalty < 1:
+            raise PitOptError("royalty must be in [0, 1)")
         if self.routes and self.nsr:
             raise PitOptError("process routes are not available in NSR mode")
         if not (self.price > 0 and math.isfinite(self.price)):
@@ -152,6 +162,7 @@ class BlockEconomics:
     feed: Floats  # plant feed tonnes if the block is ore (0 for waste)
     feed_grade: Floats  # diluted grade of the feed
     route: npt.NDArray[np.int64]  # 0 waste, 1 main route, 2.. extra routes
+    revenue: Floats  # sales revenue after payables and royalty if ore (0 for waste)
 
 
 def block_values(  # noqa: PLR0913, PLR0917 - one value per input array
@@ -165,16 +176,19 @@ def block_values(  # noqa: PLR0913, PLR0917 - one value per input array
     """Economic value of each block (missing grade counts as waste rock)."""
     g = np.where(np.isfinite(grade), np.maximum(grade, 0.0), 0.0)
     mr, dil = econ.mining_recovery, econ.dilution
+    keep = 1.0 - econ.royalty
     if econ.nsr:
         metal = tonnes * mr * g
-        revenue = metal * revenue_factor
+        revenue = metal * revenue_factor * keep
+        per_metal = 0.0
     else:
         if grade_unit is None:
             raise PitOptError("the grade attribute has no unit; set % or g/t to value metal")
         fraction = Unit(grade_unit).si_factor
         contained = tonnes * 1000.0 * g * fraction * mr / econ.price_unit.kilograms
         metal = contained * econ.recovery
-        revenue = metal * (econ.price * revenue_factor - econ.selling_cost)
+        per_metal = econ.payable * (econ.price * revenue_factor - econ.selling_cost) * keep
+        revenue = metal * per_metal
     mining = tonnes * (econ.mining_cost + econ.mining_cost_per_bench * bench_from_top)
     feed = tonnes * mr * (1.0 + dil)
     processing = feed * econ.processing_cost
@@ -182,12 +196,12 @@ def block_values(  # noqa: PLR0913, PLR0917 - one value per input array
     route = np.ones(np.shape(margin), np.int64)
     for k, r in enumerate(econ.routes, start=2):
         metal_r = contained * r.recovery
-        margin_r = (
-            metal_r * (econ.price * revenue_factor - econ.selling_cost) - feed * r.processing_cost
-        )
+        revenue_r = metal_r * per_metal
+        margin_r = revenue_r - feed * r.processing_cost
         better = margin_r > margin
         margin = np.where(better, margin_r, margin)
         metal = np.where(better, metal_r, metal)
+        revenue = np.where(better, revenue_r, revenue)
         route[better] = k
     ore = margin > 0
     route[~ore] = 0
@@ -201,4 +215,5 @@ def block_values(  # noqa: PLR0913, PLR0917 - one value per input array
         np.where(ore, feed, 0.0),
         g / (1.0 + dil),
         route,
+        np.where(ore, revenue, 0.0).astype(np.float64),
     )

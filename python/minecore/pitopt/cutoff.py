@@ -232,7 +232,7 @@ def cutoffs_from_model(  # noqa: PLR0913 - options are keyword-only
 
     Mining recovery, dilution and bench costs are not applied (Lane works on
     the in-situ grade distribution of the pit); NSR models use a price of 1
-    per NSR unit.
+    per NSR unit. Payables and royalty scale the net metal price.
     """
     if "pit_shell" not in model.attributes:
         raise PitOptError(f"{model.name} has no pit_shell; run the pit optimisation first")
@@ -254,6 +254,9 @@ def cutoffs_from_model(  # noqa: PLR0913 - options are keyword-only
             raise PitOptError("the grade attribute has no unit; set % or g/t to value metal")
         per_grade = 1000.0 * Unit(unit).si_factor / econ.price_unit.kilograms
         price, selling, recovery = econ.price, econ.selling_cost, econ.recovery
+    # Payables and royalty scale the net price per metal unit, as in the block value.
+    share = (1.0 if econ.nsr else econ.payable) * (1.0 - econ.royalty)
+    price, selling = price * share, selling * share
     inputs = LaneInputs(
         price,
         selling,

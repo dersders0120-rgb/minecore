@@ -67,6 +67,7 @@ class PitResult:
     feed: Floats  # plant feed tonnes of ore blocks (after mining recovery, dilution)
     feed_grade: Floats  # diluted feed grade
     route: Ints  # process route of each block at revenue factor 1 (0 = waste)
+    revenue: Floats  # sales revenue of ore blocks at factor 1, after payables and royalty
 
 
 def _discounted(order: Ints, tonnes: Floats, value: Floats, rate: float, discount: float) -> float:
@@ -177,6 +178,7 @@ def optimise_pit(  # noqa: PLR0913 - options are keyword-only
         base.feed,
         base.feed_grade,
         base.route,
+        base.revenue,
     )
 
 

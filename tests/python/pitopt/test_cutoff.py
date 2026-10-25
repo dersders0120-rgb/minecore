@@ -9,7 +9,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from minecore.pitopt.cutoff import LaneInputs, constant_cutoff_npv, optimise_cutoffs
+from minecore.pitopt.cutoff import LaneInputs, LaneResult, constant_cutoff_npv, optimise_cutoffs
 from minecore.pitopt.economics import PitOptError
 
 GRADES = np.linspace(0.05, 9.95, 100)
@@ -80,3 +80,33 @@ def test_market_limit_and_validation() -> None:
         _inputs(mill_capacity=0.0)
     with pytest.raises(PitOptError):
         optimise_cutoffs(_inputs(), GRADES, np.zeros(100))
+
+
+def test_royalty_and_payables_lower_the_lane_net_price(tmp_path: object) -> None:
+    from pathlib import Path  # noqa: PLC0415
+
+    from minecore.blockmodel import BlockModel, Grid  # noqa: PLC0415
+    from minecore.pitopt import Economics, PriceUnit  # noqa: PLC0415
+    from minecore.pitopt.cutoff import cutoffs_from_model  # noqa: PLC0415
+    from minecore.project import Project  # noqa: PLC0415
+
+    project = Project.create(Path(str(tmp_path)) / "l.mcproj", "l")
+    grid = Grid((0.0, 0.0, 0.0), (10.0, 10.0, 10.0), (10, 10, 1))
+    model = BlockModel.create(project, "m", grid)
+    model.set_attributes(
+        {"au": np.linspace(0.1, 5.0, grid.blocks), "pit_shell": np.ones(grid.blocks)},
+        {"au": {"unit": "g/t"}, "pit_shell": {"unit": None}},
+        "grades",
+    )
+
+    def run(econ: Economics) -> LaneResult:
+        return cutoffs_from_model(
+            model, "au", econ, mine_capacity=1e4, mill_capacity=5e3, discount=0.1
+        )
+
+    taxed = run(Economics(60.0, PriceUnit.GRAM, 0.9, 2.0, 15.0, 1.0, payable=0.95, royalty=0.1))
+    share = 0.95 * 0.9
+    same = run(Economics(60.0 * share, PriceUnit.GRAM, 0.9, 2.0, 15.0, share))
+    assert taxed.npv == pytest.approx(same.npv)
+    assert [y.cutoff for y in taxed.years] == pytest.approx([y.cutoff for y in same.years])
+    project.close()

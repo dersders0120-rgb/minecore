@@ -52,6 +52,14 @@ from minecore.pitopt.benchdesign import (
 from minecore.pitopt.benchdesign import (
     parse_sectors as parse_bench_sectors,
 )
+from minecore.pitopt.cashflow import (
+    Capital,
+    CashFlow,
+    CashFlowRow,
+    FinancialTerms,
+    cash_flow,
+    parse_capital,
+)
 from minecore.pitopt.cutoff import LaneResult, cutoffs_from_model
 from minecore.pitopt.design import edge_blocks
 from minecore.pitopt.economics import PitOptError, parse_routes
@@ -154,6 +162,13 @@ class PitDialog(QDialog):
         ef.addRow("Zenginleştirme maliyeti $/t cevher", self.processing)
         ef.addRow("Madencilik kazanımı % (cevher kaybı)", self.mine_recovery)
         ef.addRow("Seyrelme % (sıfır tenörlü pasa)", self.dilution)
+        self.payable = _spin(100.0, 1.0, 100.0, 0.5, 1)
+        self.payable.setToolTip("Alıcının ödediği metal oranı (izabe koşulları)")
+        self.royalty = _spin(0.0, 0.0, 99.0, 0.5, 2)
+        self.royalty.setToolTip(
+            "Satış gelirinin devlet/arazi payı (ör. Türkiye maden devlet hakkı)"
+        )
+        ef.addRow("Ödenebilir metal % / royalty (devlet hakkı) %", _row(self.payable, self.royalty))
         self.routes = QLineEdit()
         self.routes.setPlaceholderText("örn. liç:60:4; yığın liçi:40:2 (ad:kazanım %:maliyet $/t)")
         self.routes.setToolTip(
@@ -213,10 +228,27 @@ class PitDialog(QDialog):
         pf.addRow("Ek yol kapasiteleri (Mt/yıl)", self.route_caps)
         pf.addRow("Pushback'ler arası basamak gecikmesi", self.lag)
         pf.addRow("Batma hızı (basamak/yıl)", self.sinking)
-        pf.addRow(make)
-        pf.addRow(save)
-        pf.addRow(export)
         left.addWidget(pb)
+
+        fin = QGroupBox("Proje nakit akışı")
+        ff = QFormLayout(fin)
+        self.capex = QLineEdit()
+        self.capex.setPlaceholderText("örn. 0:250; 4:40 (yıl:M$; 0 = üretim öncesi)")
+        self.capex.setToolTip("Yatırımlar. 0. yıl inşaat dönemidir; ek yatırımlar sonraki yıllara.")
+        self.fixed = _spin(0.0, 0.0, 1e5, 1.0, 2)
+        self.closure = _spin(0.0, 0.0, 1e5, 1.0, 2)
+        self.tax = _spin(0.0, 0.0, 99.0, 1.0, 1)
+        self.depreciation = QSpinBox(minimum=1, maximum=50, value=5)
+        self.mid_period = QCheckBox("Yıl ortasında iskonto")
+        ff.addRow("Yatırım (capex)", self.capex)
+        ff.addRow("Sabit gider (M$/yıl)", self.fixed)
+        ff.addRow("Kapanış maliyeti (M$)", self.closure)
+        ff.addRow("Gelir vergisi % / amortisman (yıl)", _row(self.tax, self.depreciation))
+        ff.addRow(self.mid_period)
+        ff.addRow(make)
+        ff.addRow(save)
+        ff.addRow(export)
+        left.addWidget(fin)
         left.addStretch(1)
 
         right = QTabWidget()
@@ -262,6 +294,10 @@ class PitDialog(QDialog):
         self.inv_table = QTableWidget(0, len(INVENTORY_HEADERS))
         self.inv_table.setHorizontalHeaderLabels(INVENTORY_HEADERS)
         right.addTab(self.inv_table, "Pushback-basamak envanteri")
+        self.cash_table = QTableWidget(0, len(CASH_HEADERS))
+        self.cash_table.setHorizontalHeaderLabels(CASH_HEADERS)
+        right.addTab(self.cash_table, "Nakit akışı")
+        self.flow: CashFlow | None = None
         self.inventory: list[InventoryRow] = []
         self.tabs = right
         self.note = QLabel(
@@ -331,6 +367,21 @@ class PitDialog(QDialog):
             mining_recovery=self.mine_recovery.value() / 100.0,
             dilution=self.dilution.value() / 100.0,
             routes=() if self.nsr.isChecked() else parse_routes(self.routes.text()),
+            payable=self.payable.value() / 100.0,
+            royalty=self.royalty.value() / 100.0,
+        )
+
+    def terms(self) -> FinancialTerms:
+        capital = parse_capital(self.capex.text())
+        return FinancialTerms(
+            tuple(Capital(c.period, c.amount * 1e6) for c in capital),
+            fixed_cost=self.fixed.value() * 1e6,
+            closure_cost=self.closure.value() * 1e6,
+            tax_rate=self.tax.value() / 100.0,
+            depreciation_years=self.depreciation.value(),
+            discount_rate=self.discount.value() / 100.0,
+            mid_period=self.mid_period.isChecked(),
+            royalty=self.royalty.value() / 100.0,
         )
 
     def slope_profile(self) -> SlopeProfile:
@@ -459,6 +510,8 @@ class PitDialog(QDialog):
             route_capacities=parse_capacities(self.route_caps.text()),
         )
         self.sched = schedule_constrained(self.pit, self.phase, limits)
+        self.flow = cash_flow(self.sched.rows, self.terms()) if self.sched.rows else None
+        self._show_cash_flow()
         rows = self.sched.rows
         self.sched_table.setRowCount(len(rows) + 1)
         for i, p in enumerate(rows):
@@ -503,7 +556,8 @@ class PitDialog(QDialog):
         self.inform(
             "Pushback",
             f"{int(self.phase.max())} pushback, {len(rows)} yıllık çizelge. "
-            f"NPV {self.sched.npv / 1e6:,.1f} M$."
+            f"Çizelge NPV {self.sched.npv / 1e6:,.1f} M$."
+            + (_project_summary(self.flow) if self.flow is not None else "")
             + width_note
             + (
                 f"\nUyarı: {self.sched.unmined_t / 1e6:,.2f} Mt {limits.max_periods} yılda "
@@ -537,7 +591,64 @@ class PitDialog(QDialog):
             write_pit_reports(Path(path), self.pit, self.sched)
         else:
             target = Path(path if path.lower().endswith(".xlsx") else path + ".xlsx")
-            write_pit_reports_xlsx(target, self.pit, self.sched, self.inventory)
+            write_pit_reports_xlsx(target, self.pit, self.sched, self.inventory, self.flow)
+
+    def _show_cash_flow(self) -> None:
+        rows = self.flow.rows if self.flow is not None else ()
+        self.cash_table.setRowCount(len(rows))
+        for i, r in enumerate(rows):
+            for j, value in enumerate(_cash_cells(r)):
+                _cell(self.cash_table, i, j, value if isinstance(value, str) else _m(value))
+        self.cash_table.resizeColumnsToContents()
+
+
+CASH_HEADERS = [
+    "Yıl",
+    "Satış geliri M$",
+    "Royalty M$",
+    "Net gelir M$",
+    "Zenginleştirme M$",
+    "Madencilik M$",
+    "Sabit gider M$",
+    "FAVÖK M$",
+    "Amortisman M$",
+    "Vergi M$",
+    "Yatırım M$",
+    "Kapanış M$",
+    "Nakit akışı M$",
+    "İskontolu M$",
+    "Kümülatif M$",
+]
+
+
+def _cash_cells(r: CashFlowRow) -> list[Any]:
+    return [
+        str(r.period),
+        r.gross_revenue,
+        r.royalty,
+        r.revenue,
+        r.processing,
+        r.mining,
+        r.fixed,
+        r.ebitda,
+        r.depreciation,
+        r.tax,
+        r.capital,
+        r.closure,
+        r.cash,
+        r.discounted,
+        r.cumulative,
+    ]
+
+
+def _project_summary(flow: CashFlow) -> str:
+    irr, payback = flow.irr(), flow.payback()
+    return (
+        f"\nProje NPV (yatırım, vergi, kapanış dahil) {flow.npv / 1e6:,.1f} M$; "
+        + (f"İVO (IRR) %{irr * 100:.1f}" if math.isfinite(irr) else "İVO hesaplanamadı")
+        + "; geri ödeme "
+        + (f"{payback:.1f} yıl." if math.isfinite(payback) else "sağlanmıyor.")
+    )
 
 
 INVENTORY_HEADERS = [
@@ -563,6 +674,7 @@ def write_pit_reports_xlsx(
     result: PitResult,
     sched: ConstrainedSchedule | None,
     inventory: list[InventoryRow] | None = None,
+    flow: CashFlow | None = None,
 ) -> None:
     from minecore.io.excel import write_workbook  # noqa: PLC0415
 
@@ -629,6 +741,9 @@ def write_pit_reports_xlsx(
         )
     if inventory:
         sheets["Envanter"] = (INVENTORY_HEADERS, [_inventory_cells(r) for r in inventory])
+    if flow is not None:
+        headers = [h.replace(" M$", "") for h in CASH_HEADERS]
+        sheets["Nakit akışı"] = (headers, [[r.period, *_cash_cells(r)[1:]] for r in flow.rows])
     write_workbook(path, sheets)
 
 

@@ -45,6 +45,7 @@ from minecore.estimation import Ellipsoid, Method, Search, experimental, fit_sph
 from minecore.geology.implicit import interval_contacts, model_domain
 from minecore.pitopt import Economics, PriceUnit, SlopeProfile, optimise_pit, pushbacks, schedule
 from minecore.pitopt.benchdesign import BenchGeometry, Ramp, design_from_model, parse_sectors
+from minecore.pitopt.cashflow import CashFlow, FinancialTerms, cash_flow, parse_capital
 from minecore.pitopt.cutoff import cutoffs_from_model
 from minecore.pitopt.design import edge_blocks, export_pit, period_surfaces
 from minecore.pitopt.economics import PitOptError, parse_routes
@@ -273,6 +274,17 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     opt.add_argument("--density", default="2.7")
     opt.add_argument("--mining-recovery", type=float, default=1.0, help="fraction of ore mined")
     opt.add_argument("--dilution", type=float, default=0.0, help="zero-grade dilution fraction")
+    opt.add_argument("--payable", type=float, default=1.0, help="fraction of metal paid for")
+    opt.add_argument("--royalty", type=float, default=0.0, help="fraction of sales revenue")
+    fin = opt.add_argument_group("project cash flow (needs --plant)")
+    fin.add_argument(
+        "--capex", default="", metavar="T:AMOUNT;...", help="capital by period, 0 = pre-production"
+    )
+    fin.add_argument("--fixed-cost", type=float, default=0.0, help="fixed cost per year")
+    fin.add_argument("--closure", type=float, default=0.0, help="closure cost after the last year")
+    fin.add_argument("--tax", type=float, default=0.0, help="income tax rate, fraction")
+    fin.add_argument("--depreciation", type=int, default=5, help="straight-line years")
+    fin.add_argument("--mid-period", action="store_true", help="discount at mid-year")
     opt.add_argument("--slope", type=float, default=45.0)
     opt.add_argument("--revenue-factors", type=float, nargs="+", default=[0.5, 0.75, 1.0, 1.25])
     opt.add_argument("--final-rf", type=float, default=1.0)
@@ -802,87 +814,146 @@ def pit_command(args: argparse.Namespace, out: TextIO) -> int:
             for e in ends:
                 out.write(f"{e.name}: {e.blocks} blocks (cumulative {e.cumulative_blocks})\n")
             return 0
-        model = BlockModel.open(project, args.model)
-        if not args.nsr and None in (args.price, args.price_unit, args.recovery):
-            raise PitOptError("--price, --price-unit and --recovery are required without --nsr")
-        econ = Economics(
-            args.price or 1.0,
-            PriceUnit(args.price_unit or "t"),
-            args.recovery or 1.0,
-            args.mining_cost,
-            args.processing_cost,
-            args.selling_cost,
-            args.bench_cost,
-            _density(args.density),
-            args.mining_recovery,
-            args.dilution,
-            args.nsr,
-            parse_routes(";".join(args.route)),
+        return pit_optimise(project, args, out)
+
+
+def pit_optimise(project: Project, args: argparse.Namespace, out: TextIO) -> int:
+    model = BlockModel.open(project, args.model)
+    if not args.nsr and None in (args.price, args.price_unit, args.recovery):
+        raise PitOptError("--price, --price-unit and --recovery are required without --nsr")
+    econ = Economics(
+        args.price or 1.0,
+        PriceUnit(args.price_unit or "t"),
+        args.recovery or 1.0,
+        args.mining_cost,
+        args.processing_cost,
+        args.selling_cost,
+        args.bench_cost,
+        _density(args.density),
+        args.mining_recovery,
+        args.dilution,
+        args.nsr,
+        parse_routes(";".join(args.route)),
+        args.payable,
+        args.royalty,
+    )
+    terms = FinancialTerms(
+        parse_capital(args.capex),
+        args.fixed_cost,
+        args.closure,
+        args.tax,
+        args.depreciation,
+        args.discount,
+        args.mid_period,
+        args.royalty,
+    )
+    financial = bool(terms.capital or args.fixed_cost or args.closure or args.tax)
+    if financial and not args.plant:
+        raise PitOptError("the project cash flow needs the constrained schedule: give --plant")
+    slope = SlopeProfile(args.slope)
+    factors = sorted(set(args.revenue_factors) | {args.final_rf})
+    result = optimise_pit(
+        model,
+        args.grade,
+        econ,
+        slope,
+        factors,
+        mining_rate=args.rate,
+        discount_rate=args.discount,
+        rock_attribute=args.rock,
+    )
+    final = factors.index(args.final_rf) + 1
+    phase_ore = args.phase_ore or max(result.rows[final - 1].ore_t / 3, 1.0)
+    phase = pushbacks(result, final, phase_ore)
+    if args.min_width > 0:
+        phase = apply_mining_width(model.grid, phase, slope, args.min_width).phase
+    sched: Schedule | ConstrainedSchedule
+    flow: CashFlow | None = None
+    if args.plant:
+        limits = Limits(
+            args.rate,
+            args.plant,
+            args.lag,
+            args.sinking,
+            args.discount,
+            route_capacities=tuple(args.route_capacity),
         )
-        slope = SlopeProfile(args.slope)
-        factors = sorted(set(args.revenue_factors) | {args.final_rf})
-        result = optimise_pit(
-            model,
-            args.grade,
-            econ,
-            slope,
-            factors,
-            mining_rate=args.rate,
-            discount_rate=args.discount,
-            rock_attribute=args.rock,
+        sched = schedule_constrained(result, phase, limits)
+        flow = cash_flow(sched.rows, terms)
+    else:
+        sched = schedule(result, phase, args.rate, args.discount)
+    store(model, result, econ, slope, phase, sched)
+    edge = edge_blocks(model.grid, result.shell > 0)
+    if edge:
+        sys.stderr.write(
+            f"warning: the largest shell touches the model side with {edge} blocks; "
+            "it may be truncated (create the model with padding)\n"
         )
-        final = factors.index(args.final_rf) + 1
-        phase_ore = args.phase_ore or max(result.rows[final - 1].ore_t / 3, 1.0)
-        phase = pushbacks(result, final, phase_ore)
-        if args.min_width > 0:
-            phase = apply_mining_width(model.grid, phase, slope, args.min_width).phase
-        sched: Schedule | ConstrainedSchedule
-        if args.plant:
-            limits = Limits(
-                args.rate,
-                args.plant,
-                args.lag,
-                args.sinking,
-                args.discount,
-                route_capacities=tuple(args.route_capacity),
-            )
-            sched = schedule_constrained(result, phase, limits)
-        else:
-            sched = schedule(result, phase, args.rate, args.discount)
-        store(model, result, econ, slope, phase, sched)
-        edge = edge_blocks(model.grid, result.shell > 0)
-        if edge:
-            sys.stderr.write(
-                f"warning: the largest shell touches the model side with {edge} blocks; "
-                "it may be truncated (create the model with padding)\n"
-            )
-        if args.json:
-            json.dump(
-                {
-                    "shells": [r.__dict__ for r in result.rows],
-                    "schedule": [p.__dict__ for p in sched.rows],
-                    "npv": sched.npv,
-                },
-                out,
-                indent=2,
-            )
-            out.write("\n")
-            return 0
+    if args.json:
+        json.dump(
+            {
+                "shells": [r.__dict__ for r in result.rows],
+                "schedule": [p.__dict__ for p in sched.rows],
+                "npv": sched.npv,
+                **(
+                    {
+                        "cash_flow": [r.__dict__ for r in flow.rows],
+                        "project": {
+                            "npv": flow.npv,
+                            "irr": _finite(flow.irr()),
+                            "payback": _finite(flow.payback()),
+                            "undiscounted": flow.undiscounted,
+                        },
+                    }
+                    if flow is not None
+                    else {}
+                ),
+            },
+            out,
+            indent=2,
+        )
+        out.write("\n")
+        return 0
+    out.write(
+        f"{'shell':>5} {'RF':>5} {'ore t':>14} {'waste t':>14} {'best NPV':>14} {'worst NPV':>14}\n"
+    )
+    for r in result.rows:
         out.write(
-            f"{'shell':>5} {'RF':>5} {'ore t':>14} {'waste t':>14} "
-            f"{'best NPV':>14} {'worst NPV':>14}\n"
+            f"{r.shell:5d} {r.revenue_factor:5.2f} {r.ore_t:14,.0f} {r.waste_t:14,.0f} "
+            f"{r.best_npv:14,.0f} {r.worst_npv:14,.0f}\n"
         )
-        for r in result.rows:
-            out.write(
-                f"{r.shell:5d} {r.revenue_factor:5.2f} {r.ore_t:14,.0f} {r.waste_t:14,.0f} "
-                f"{r.best_npv:14,.0f} {r.worst_npv:14,.0f}\n"
-            )
-        _write_routes(result, econ, final, out)
-        out.write(
-            f"pushbacks: {int(phase.max())}; schedule: {len(sched.rows)} years; "
-            f"NPV {sched.npv:,.0f}\n"
-        )
+    _write_routes(result, econ, final, out)
+    out.write(
+        f"pushbacks: {int(phase.max())}; schedule: {len(sched.rows)} years; NPV {sched.npv:,.0f}\n"
+    )
+    if flow is not None:
+        _write_cash_flow(flow, out)
     return 0
+
+
+def _finite(value: float) -> float | None:
+    return value if math.isfinite(value) else None
+
+
+def _write_cash_flow(flow: CashFlow, out: TextIO) -> None:
+    out.write(
+        f"{'year':>4} {'revenue':>14} {'royalty':>12} {'opex':>14} {'tax':>12} "
+        f"{'capital':>13} {'cash flow':>14} {'discounted':>14}\n"
+    )
+    for r in flow.rows:
+        opex = r.processing + r.mining + r.fixed + r.closure
+        out.write(
+            f"{r.period:4d} {r.revenue:14,.0f} {r.royalty:12,.0f} {opex:14,.0f} {r.tax:12,.0f} "
+            f"{r.capital:13,.0f} {r.cash:14,.0f} {r.discounted:14,.0f}\n"
+        )
+    irr, payback = flow.irr(), flow.payback()
+    out.write(
+        f"project NPV {flow.npv:,.0f}; IRR "
+        + (f"{irr:.1%}" if math.isfinite(irr) else "none")
+        + "; payback "
+        + (f"{payback:.1f} years" if math.isfinite(payback) else "not reached")
+        + f"; undiscounted {flow.undiscounted:,.0f}\n"
+    )
 
 
 def pit_cutoff(project: Project, args: argparse.Namespace, out: TextIO) -> int:
