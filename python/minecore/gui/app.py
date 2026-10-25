@@ -50,7 +50,6 @@ from minecore import __version__, solids, strings, surfaces
 from minecore.blockmodel import BlockModel
 from minecore.blockmodel.workflow import load_variograms
 from minecore.drillholes import (
-    CATALOGUE,
     DrillholeDatabase,
     FieldType,
     Role,
@@ -65,6 +64,7 @@ from minecore.drillholes.importer import (
     import_workbook,
 )
 from minecore.drillholes.workflow import composite_table, hole_geometry, save_composites
+from minecore.gui.issues_tr import rows as issue_rows
 from minecore.gui.layout import fit_to_screen
 from minecore.gui.resource import (
     BlockModelDialog,
@@ -1181,21 +1181,21 @@ class MainWindow(QMainWindow):
 
     def _fill_issues(self) -> None:
         self.issues.setSortingEnabled(False)
-        issues = self.report.issues if self.report else ()
-        self.issues.setRowCount(len(issues))
-        for row, issue in enumerate(issues):
+        report_rows = issue_rows(self.report.issues) if self.report else []
+        self.issues.setRowCount(len(report_rows))
+        for row, entry in enumerate(report_rows):
             cells = [
-                SEVERITY_TR[issue.severity],
-                issue.code,
-                issue.table,
-                issue.hole_id or "",
-                "" if issue.src_line is None else str(issue.src_line),
-                f"{CATALOGUE[issue.code].title_tr}: {issue.message}",
+                SEVERITY_TR[entry.severity],
+                entry.code,
+                entry.table,
+                entry.hole,
+                entry.line,
+                entry.text,
             ]
             for col, text in enumerate(cells):
                 item = QTableWidgetItem(text)
                 if col == 0:
-                    item.setForeground(QColor(SEVERITY_COLOR[issue.severity]))
+                    item.setForeground(QColor(SEVERITY_COLOR[entry.severity]))
                 self.issues.setItem(row, col, item)
         self.issues.setSortingEnabled(True)
         self.issues.resizeColumnsToContents()
