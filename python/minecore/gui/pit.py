@@ -71,6 +71,7 @@ from minecore.pitopt.scheduling import (
     bench_inventory,
     schedule_constrained,
 )
+from minecore.pitopt.sensitivity import Input, Plan, Sensitivity, parse_changes, sensitivity
 from minecore.pitopt.width import apply_mining_width
 from minecore.project import Project
 
@@ -330,6 +331,7 @@ class PitDialog(QDialog):
         self.cash_table = QTableWidget(0, len(CASH_HEADERS))
         self.cash_table.setHorizontalHeaderLabels(CASH_HEADERS)
         right.addTab(self.cash_table, "Nakit akışı")
+        right.addTab(self._sensitivity_page(), "Duyarlılık")
         self.flow: CashFlow | None = None
         self.inventory: list[InventoryRow] = []
         self.tabs = right
@@ -412,6 +414,22 @@ class PitDialog(QDialog):
             coproducts=() if self.nsr.isChecked() else parse_products(self.coproducts.text()),
         )
 
+    def limits(self) -> Limits:
+        return Limits(
+            mining_capacity=self.rate.value() * 1e6,
+            plant_capacity=self.plant.value() * 1e6,
+            bench_lag=self.lag.value(),
+            sinking_rate=self.sinking.value(),
+            discount_rate=self.discount.value() / 100.0,
+            route_capacities=parse_capacities(self.route_caps.text()),
+            grade_bins=parse_bins(self.bins.text()),
+            stockpile_capacities=parse_capacities(self.stock_caps.text()),
+            rehandle_cost=self.rehandle.value(),
+        )
+
+    def rock_attribute(self) -> str | None:
+        return None if self.rock.currentIndex() == 0 else self.rock.currentText()
+
     def terms(self) -> FinancialTerms:
         capital = parse_capital(self.capex.text())
         return FinancialTerms(
@@ -447,7 +465,7 @@ class PitDialog(QDialog):
                 mining_rate=self.rate.value() * 1e6,
                 discount_rate=self.discount.value() / 100.0,
                 max_levels=levels,
-                rock_attribute=None if self.rock.currentIndex() == 0 else self.rock.currentText(),
+                rock_attribute=self.rock_attribute(),
                 progress=progress,
             ),
         )
@@ -551,17 +569,7 @@ class PitDialog(QDialog):
             width_note = f"\nMinimum genişlik: {fixed.moved:,} blok başka pushback'e alındı" + (
                 f"; {fixed.remaining_slivers:,} dar blok kaldı." if fixed.remaining_slivers else "."
             )
-        limits = Limits(
-            mining_capacity=self.rate.value() * 1e6,
-            plant_capacity=self.plant.value() * 1e6,
-            bench_lag=self.lag.value(),
-            sinking_rate=self.sinking.value(),
-            discount_rate=self.discount.value() / 100.0,
-            route_capacities=parse_capacities(self.route_caps.text()),
-            grade_bins=parse_bins(self.bins.text()),
-            stockpile_capacities=parse_capacities(self.stock_caps.text()),
-            rehandle_cost=self.rehandle.value(),
-        )
+        limits = self.limits()
         self.sched = schedule_constrained(self.pit, self.phase, limits)
         self.flow = cash_flow(self.sched.rows, self.terms()) if self.sched.rows else None
         self._show_cash_flow()
@@ -655,6 +663,100 @@ class PitDialog(QDialog):
             target = Path(path if path.lower().endswith(".xlsx") else path + ".xlsx")
             write_pit_reports_xlsx(target, self.pit, self.sched, self.inventory, self.flow)
 
+    def _sensitivity_page(self) -> QWidget:
+        page = QWidget()
+        v = QVBoxLayout(page)
+        form = QFormLayout()
+        self.sens_changes = QLineEdit("-20; -10; 10; 20")
+        self.sens_changes.setToolTip("Her girdinin değişimi, yüzde; ';' ile ayrılır.")
+        self.sens_reopt = QCheckBox("Ocağı her durumda yeniden optimize et (yavaş)")
+        self.sens_reopt.setToolTip(
+            "Kapalı: ocak ve pushback'ler sabit, yalnız blok değerleri ve çizelge değişir "
+            "(tek maden planının duyarlılığı). Açık: her durumda ocak yeniden bulunur."
+        )
+        run = QPushButton("Duyarlılık analizi")
+        run.clicked.connect(self._guard(self.run_sensitivity))
+        form.addRow("Değişimler (%)", self.sens_changes)
+        form.addRow(self.sens_reopt)
+        form.addRow(run)
+        v.addLayout(form)
+        self.sens_table = QTableWidget(0, 0)
+        v.addWidget(self.sens_table, 1)
+        self.sens_figure = Figure(figsize=(6, 3.5))
+        self.sens_canvas = FigureCanvasQTAgg(self.sens_figure)  # type: ignore[no-untyped-call]
+        v.addWidget(self.sens_canvas, 2)
+        self.sens: Sensitivity | None = None
+        return page
+
+    def run_sensitivity(self) -> None:
+        if self.pit is None or self.phase is None:
+            raise RuntimeError("Önce kabukları hesaplayıp pushback ve çizelge oluşturun.")
+        factors = self.pit.revenue_factors
+        plan = Plan(
+            BlockModel.open(self.project, self.model.currentText()),
+            self.grade.currentText(),
+            self.economics(),
+            self.slope_profile(),
+            self.limits(),
+            self.terms(),
+            factors,
+            factors[int(self.final.currentData()) - 1],
+            self.min_ore.value() * 1e6,
+            self.min_width.value(),
+            self.rock_attribute(),
+        )
+        changes = parse_changes(self.sens_changes.text())
+        pit, phase = self.pit, self.phase
+        self.sens = _with_progress(
+            self,
+            "Duyarlılık analizi...",
+            lambda progress: sensitivity(
+                plan,
+                changes=changes,
+                reoptimise=self.sens_reopt.isChecked(),
+                base=(pit, phase),
+                progress=progress.update,
+            ),
+        )
+        self._show_sensitivity()
+
+    def _show_sensitivity(self) -> None:
+        s = self.sens
+        if s is None:
+            return
+        changes = sorted({c.change for c in s.cases} | {0.0})
+        inputs = list(dict.fromkeys(c.input for c in s.cases if c.input is not None))
+        npv = {(c.input, c.change): c.npv for c in s.cases}
+        self.sens_table.setColumnCount(len(changes) + 1)
+        self.sens_table.setRowCount(len(inputs))
+        self.sens_table.setHorizontalHeaderLabels(
+            ["Proje NPV (M$)", *(f"{c:+.0%}" if c else "Baz" for c in changes)]
+        )
+        self.sens_figure.clear()
+        ax = self.sens_figure.add_subplot(111)
+        for i, which in enumerate(inputs):
+            _cell(self.sens_table, i, 0, SENSITIVITY_LABELS[which])
+            values = [s.base.npv if c == 0 else npv[(which, c)] for c in changes]
+            for j, value in enumerate(values, start=1):
+                _cell(self.sens_table, i, j, _m(value) if math.isfinite(value) else "-")
+            ax.plot(
+                [100 * c for c in changes],
+                [v / 1e6 for v in values],
+                marker="o",
+                label=SENSITIVITY_LABELS[which],
+            )
+        ax.axhline(0.0, color="0.6", linewidth=0.8)
+        ax.set_xlabel("Girdi değişimi (%)")
+        ax.set_ylabel("Proje NPV (M$)")
+        mode = "yeniden optimize edilen ocak" if s.reoptimised else "sabit ocak tasarımı"
+        ax.set_title(f"Duyarlılık ({mode})")
+        ax.grid(True, alpha=0.3)
+        ax.legend(fontsize=8)
+        self.sens_figure.tight_layout()
+        self.sens_canvas.draw_idle()  # type: ignore[no-untyped-call]
+        self.sens_table.resizeColumnsToContents()
+        self.tabs.setCurrentIndex(self.tabs.count() - 1)
+
     def _show_cash_flow(self) -> None:
         rows = self.flow.rows if self.flow is not None else ()
         self.cash_table.setRowCount(len(rows))
@@ -663,6 +765,15 @@ class PitDialog(QDialog):
                 _cell(self.cash_table, i, j, value if isinstance(value, str) else _m(value))
         self.cash_table.resizeColumnsToContents()
 
+
+SENSITIVITY_LABELS = {
+    Input.PRICE: "Metal fiyatı",
+    Input.MINING: "Madencilik maliyeti",
+    Input.PROCESSING: "Zenginleştirme maliyeti",
+    Input.RECOVERY: "Metalurjik kazanım",
+    Input.DISCOUNT: "İskonto oranı",
+    Input.CAPITAL: "Yatırım",
+}
 
 CASH_HEADERS = [
     "Yıl",

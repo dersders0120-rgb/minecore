@@ -11,10 +11,14 @@ one tonne of material takes under the binding capacity
     T(c) = max(1 / M, x(c) / H, y * metal(c) / K)
 
 and ``F = d * V`` the opportunity cost of the remaining value ``V``. The
-maximum is found numerically over every distinct grade of the reserve (exact
-for a discrete grade-tonnage distribution), not with the six limiting and
-balancing cut-offs in closed form; for continuous distributions both give
-the same answer. Depletion follows Lane: the remaining reserve keeps the
+maximum is found numerically over every distinct grade of the reserve plus
+the balancing points of each pair of capacities (mine-mill, mill-market,
+mine-market). A balancing point usually falls inside one grade class; there
+part of the class's material goes to the plant, which is what makes both
+capacities bind (``x`` and metal are linear within a class, so ``v`` is
+linear between candidates and the maximum is at a grade or a balancing
+point: the yearly maximum is exact for a discrete grade-tonnage
+distribution). Depletion follows Lane: the remaining reserve keeps the
 same grade distribution, only its tonnage falls. ``V`` per year is iterated
 to convergence (backward NPV of the schedule).
 """
@@ -100,8 +104,32 @@ class _Reserve:
         )
 
 
+def _with_balances(inp: LaneInputs, res: _Reserve) -> tuple[Floats, Floats, Floats]:
+    """The grade candidates plus the balancing points between two capacities."""
+    c, x, q = res.candidates()
+    metal = inp.recovery * q
+    targets = (  # (curve, value at which the two times are equal)
+        (x, inp.mill_capacity / inp.mine_capacity),  # mine-mill
+        (metal, inp.market_capacity / inp.mine_capacity),  # mine-market
+        (metal / np.where(x > 0, x, np.inf), inp.market_capacity / inp.mill_capacity),
+    )
+    extra_c, extra_x, extra_q = [], [], []
+    for curve, target in targets:
+        if not math.isfinite(target):
+            continue
+        # The curve is monotone along the candidates (x and metal grow, metal per ore
+        # tonne falls), so the balance lies in at most one segment.
+        hit = np.flatnonzero((curve[:-1] - target) * (curve[1:] - target) < 0)
+        for i in hit:
+            t = (target - curve[i]) / (curve[i + 1] - curve[i])
+            extra_c.append(c[i + 1])  # part of class i + 1 goes to the plant
+            extra_x.append(x[i] + t * (x[i + 1] - x[i]))
+            extra_q.append(q[i] + t * (q[i + 1] - q[i]))
+    return np.r_[c, extra_c], np.r_[x, extra_x], np.r_[q, extra_q]
+
+
 def _best(inp: LaneInputs, res: _Reserve, opportunity: float) -> tuple[int, Floats]:
-    _, x, q = res.candidates()
+    _, x, q = _with_balances(inp, res)
     metal = inp.recovery * q
     time = np.maximum.reduce(
         [
@@ -127,7 +155,7 @@ class _Year:
 
 
 def _year(inp: LaneInputs, res: _Reserve, remaining: float, value: float) -> _Year:
-    c, x, q = res.candidates()
+    c, x, q = _with_balances(inp, res)
     k, time = _best(inp, res, inp.discount * value)
     material = min(remaining, 1.0 / time[k])
     ore = material * x[k]

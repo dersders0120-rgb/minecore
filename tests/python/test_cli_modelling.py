@@ -333,3 +333,13 @@ def test_project_cash_flow_from_the_cli(tmp_path: Path) -> None:
         1.5 * sum(r["reclaimed_t"] for r in rows)
     )
     assert "stockpiles:" in _run(*econ[:-1], "--grade-bins", "1", "2")
+    # Sensitivity: the base case is the reported project; price up raises the NPV.
+    sens = json.loads(_run(*econ, "--sensitivity", "price", "mining", "--changes=-10;10"))
+    s = sens["sensitivity"]
+    assert s["base"]["npv"] == pytest.approx(sens["project"]["npv"])
+    npv = {(c["input"], c["change"]): c["npv"] for c in s["cases"]}
+    assert npv[("price", -0.1)] < s["base"]["npv"] < npv[("price", 0.1)]
+    assert npv[("mining", 0.1)] < s["base"]["npv"] < npv[("mining", -0.1)]
+    assert "sensitivity of the project NPV" in _run(*econ[:-1], "--sensitivity")
+    no_plant = [a for a in econ if a not in ("--plant", "5e5", "--json")]
+    assert main([*no_plant, "--sensitivity"], io.StringIO()) == 1
