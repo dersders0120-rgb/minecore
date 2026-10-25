@@ -157,7 +157,11 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
 - `pitopt.cutoff`: Lane's method with mine, mill and market capacities, fixed
   cost and opportunity cost d·V, iterated to convergence. The best cut-off
   per year is searched over every block grade (exact for the discrete
-  grade-tonnage curve), not via the closed-form limiting/balancing cut-offs.
+  grade-tonnage curve) plus the balancing points between two capacities.
+  Lane's iteration finds a fixed point, which is not guaranteed to be the
+  best cut-off path: when one cut-off kept every year has a higher NPV, that
+  schedule is returned instead (`policy = "constant"`, reported), and when
+  the passes cycle without converging the best pass is kept.
 - Lane's depletion assumption: the remaining reserve keeps the pit's grade
   distribution every year (no link to the pushback/bench sequence). Mining
   recovery, dilution and bench-dependent costs are not applied; stockpiles
@@ -185,11 +189,15 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
 - Ramp: one haul road per pit, traced bottom-up around the pit centroid and
   cut into the wall (benches above are set back): a spiral at constant
   gradient, or a switchback road on one wall arc with flat turning pads. The
-  switchback turn is a hairpin of raster steps, not a designed curve. No
-  multiple pit bottoms/exits, no road batters or
-  safety bunds, and the road is not checked against a minimum curve radius;
-  it starts at the deepest floor cell nearest its traced start, so a
-  multi-bottom pit gets one road around the centroid only. Because the optimiser treats the block model edge as
+  switchback turn is a hairpin of raster steps, not a designed curve.
+  Separate pits (separate openings at the original surface) each get their
+  own road, traced as if the other pits were absent; exits are given per pit
+  in order of excavated volume, and a pit whose road cannot be traced is
+  reported without one. Roads of different pits are not checked against
+  each other. A single opening with several bottoms (pits merged above some
+  level) gets one road from its deepest bottom; the other bottoms are only
+  counted, no connecting road is designed. No road batters or safety bunds,
+  and the road is not checked against a minimum curve radius. Because the optimiser treats the block model edge as
   unconstrained, a design can need ground outside the model; the volume
   outside is reported (create the model with padding).
 - DXF export writes R12 ASCII `POLYLINE` (3D) and `3DFACE` entities only, no

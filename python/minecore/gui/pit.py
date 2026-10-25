@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 from PySide6.QtCore import Qt
@@ -48,6 +49,7 @@ from minecore.pitopt.benchdesign import (
     DesignReport,
     Ramp,
     design_from_model,
+    parse_exits,
 )
 from minecore.pitopt.benchdesign import (
     parse_sectors as parse_bench_sectors,
@@ -1109,6 +1111,14 @@ class BenchDesignDialog(QDialog):
             "Zikzak rampanın kullandığı şev yayı (°), çıkış yönü ortada. Dar yay = daha çok dönüş."
         )
         form.addRow("Rampa tipi / zikzak yayı (°)", _row(self.ramp_kind, self.ramp_span))
+        self.ramp_exits = QLineEdit()
+        self.ramp_exits.setPlaceholderText("örn. 180; 270 (boş: hepsi yukarıdaki yönden)")
+        self.ramp_exits.setToolTip(
+            "Tasarım yüzeyde birden çok ayrı ocak açarsa her ocağa ayrı rampa çizilir. "
+            "Ocaklar kazı hacmine göre sıralanır; en büyüğü yukarıdaki çıkış yönünü, "
+            "sonrakiler buradaki yönleri sırayla kullanır."
+        )
+        form.addRow("Diğer ocakların çıkış yönleri (°)", self.ramp_exits)
         run = QPushButton("Tasarla, yüzeyi kaydet, blokları işaretle")
         run.clicked.connect(self._guard(self.run))
         export = QPushButton("Tasarımı DXF olarak dışa aktar...")
@@ -1162,6 +1172,7 @@ class BenchDesignDialog(QDialog):
                 self.ramp_exit.value(),
                 self.ramp_dir.currentIndex() == 0,
                 self.ramp_span.value() if self.ramp_kind.currentIndex() == 1 else 0.0,
+                exits=parse_exits(self.ramp_exits.text()),
             )
             if self.ramp_on.isChecked()
             else None,
@@ -1177,9 +1188,18 @@ class BenchDesignDialog(QDialog):
             f"{r.design_value / 1e6:,.1f} M$. Yüzey 'tasarim_{self.shell.value()}', "
             "bloklar 'pit_tasarim' olarak kaydedildi."
             + (
-                f"\nRampa: {r.pit.ramp_length:,.0f} m, {r.pit.ramp[0, 2]:.0f} m kotundan "
-                f"{r.pit.ramp[-1, 2]:.0f} m kotuna."
-                if r.pit.ramp is not None
+                f"\nAyrı ocak sayısı {r.pit.pits}, ocak tabanı sayısı {r.pit.bottoms}."
+                if r.pit.pits > 1 or r.pit.bottoms > 1
+                else ""
+            )
+            + "".join(
+                f"\nRampa {k}: {_length(road):,.0f} m, {road[0, 2]:.0f} m kotundan "
+                f"{road[-1, 2]:.0f} m kotuna."
+                for k, road in enumerate(r.pit.ramps, 1)
+            )
+            + (
+                f"\n{r.pit.pits_without_ramp} küçük ocak rampa için çok dar; rampa çizilmedi."
+                if r.pit.pits_without_ramp
                 else ""
             )
             + (
@@ -1195,6 +1215,10 @@ class BenchDesignDialog(QDialog):
         if path:
             self.report = self._design(Path(path))
             self.result_label.setText(f"Tasarım yazıldı: {path}")
+
+
+def _length(road: npt.NDArray[np.float64]) -> float:
+    return float(np.linalg.norm(np.diff(road, axis=0), axis=1).sum())
 
 
 LANE_HEADERS = (
@@ -1321,4 +1345,10 @@ class CutoffDialog(QDialog):
             "yüksek tutulur (paranın zaman değeri), rezerv azaldıkça düşer. Lane modeli: "
             "kalan rezervin tenör dağılımı değişmez varsayılır; seyrelme ve kazı kaybı "
             "uygulanmaz."
+            + (
+                "\nBu girdilerde her yıl aynı cut-off, Lane politikasından daha yüksek NPV "
+                "verdiği için o gösterildi."
+                if lane.policy == "constant"
+                else ""
+            )
         )

@@ -28,6 +28,16 @@ envelope cuts the road into the wall and sets the benches above it back (the
 road is excavated, not placed on the wall). The road surface is flat across
 its width; no road-specific batters are designed.
 
+Several pits: when the design opens at the surface in more than one place
+(separate pits from one optimisation), every opening gets its own road,
+traced from its own deepest floor around its own centre, as if the other
+pits were not there (they are outside its walls), then all roads are cut
+together. Openings are ordered by excavated volume (largest first); the
+first takes ``exit_azimuth`` and the next ones ``exits`` in order. A small
+satellite pit too small for the road is left without one and counted. A
+single opening with several bottoms (pits merged above some level) gets one
+road from its deepest bottom; the other bottoms are counted, not connected.
+
 Switchback ramp (``switchback_span`` > 0): instead of circling the pit, the
 road climbs back and forth across one wall, inside an arc of the given span
 centred on the exit azimuth. At each end of the arc the road turns on a flat
@@ -49,12 +59,12 @@ from __future__ import annotations
 
 import itertools
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import numpy as np
 import numpy.typing as npt
-from scipy.ndimage import distance_transform_edt
+from scipy.ndimage import binary_dilation, distance_transform_edt, label
 
 from minecore import surfaces
 from minecore.blockmodel import BlockModel, Grid
@@ -126,6 +136,21 @@ def parse_sectors(text: str, bench_height: float) -> tuple[Sector, ...]:
     return tuple(out)
 
 
+def parse_exits(text: str) -> tuple[float, ...]:
+    """Exit azimuths for further pits, e.g. ``"180; 270"`` (degrees from north)."""
+    out = []
+    for part in text.replace(",", ";").split(";"):
+        if part.strip():
+            try:
+                az = float(part)
+            except ValueError as exc:
+                raise PitOptError(f"exit azimuth {part.strip()!r} is not a number") from exc
+            if not 0.0 <= az < 360.0:
+                raise PitOptError("exit azimuths must be between 0 and 360 degrees")
+            out.append(az)
+    return tuple(out)
+
+
 @dataclass(frozen=True)
 class Ramp:
     width: float  # m
@@ -134,6 +159,7 @@ class Ramp:
     clockwise: bool = True  # direction of travel going down
     switchback_span: float = 0.0  # arc of wall (degrees) a switchback road uses; 0 = spiral
     turn_length: float | None = None  # flat road at each switchback (m); default 1.5 x width
+    exits: tuple[float, ...] = ()  # exit azimuths of the 2nd, 3rd... separate pit
 
     def __post_init__(self) -> None:
         if self.width <= 0 or not 0.01 <= self.gradient <= 0.25:
@@ -146,6 +172,12 @@ class Ramp:
     @property
     def switchback(self) -> bool:
         return self.switchback_span > 0.0
+
+    def exit_of(self, pit: int) -> float:
+        """Exit azimuth of the pit-th separate pit (0 = the largest)."""
+        if pit == 0 or pit > len(self.exits):
+            return self.exit_azimuth
+        return self.exits[pit - 1]
 
     @property
     def pad(self) -> float:
@@ -164,12 +196,18 @@ class DesignedPit:
     on_model: Mask  # ny x nx raster cells over the block model area
     ramp: Floats | None = None  # road centreline, n x 3, from the exit down to the floor
     sectors: tuple[Sector, ...] = ()  # geotechnical sectors, sorted by start azimuth
+    ramps: tuple[Floats, ...] = ()  # one road per separate pit, largest pit first
+    pits: int = 1  # separate openings of the design at the original surface
+    bottoms: int = 1  # separate mined floors (a merged pit can have several)
+    pits_without_ramp: int = 0  # separate pits too small for the road
 
     @property
     def ramp_length(self) -> float:
-        if self.ramp is None or len(self.ramp) < 2:
-            return 0.0
-        return float(np.linalg.norm(np.diff(self.ramp, axis=0), axis=1).sum())
+        """Total length of all roads (m)."""
+        roads = self.ramps or ((self.ramp,) if self.ramp is not None else ())
+        return sum(
+            float(np.linalg.norm(np.diff(r, axis=0), axis=1).sum()) for r in roads if len(r) >= 2
+        )
 
     def surface(self) -> Surface:
         xx, yy = np.meshgrid(self.x, self.y)
@@ -220,8 +258,9 @@ class DesignedPit:
                             Polyline(layer, np.column_stack([pts, np.full(len(pts), z)]), closed)
                         )
             level += h
-        if self.ramp is not None and len(self.ramp) >= 2:
-            lines.append(Polyline(f"{name}_RAMP", self.ramp, closed=False))
+        for road in self.ramps or ((self.ramp,) if self.ramp is not None else ()):
+            if len(road) >= 2:
+                lines.append(Polyline(f"{name}_RAMP", road, closed=False))
         return lines
 
 
@@ -263,14 +302,74 @@ def design_pit(  # noqa: PLR0913 - options are keyword-only
     floor[on_grid] = floor_col[cj[on_grid], ci[on_grid]]
     design = _envelope(floor, geometry, res, sectors)
     top = _original_surface(grid, xx, yy, topography, rock, cube)
-    road = None
+    openings = _openings(design, top, floor)
+    bottoms = _bottoms(floor)
+    roads: list[Floats] = []
+    skipped = 0
     if ramp is not None:
-        road, road_floor = _trace_ramp(x, y, design, top, floor, ramp, geometry, res, sectors)
+        road_floor = np.full(floor.shape, np.inf)
+        for k, opening in enumerate(openings):
+            own = np.where(opening, floor, np.inf)
+            pit_ramp = replace(ramp, exit_azimuth=ramp.exit_of(k))
+            try:
+                line, cells = _trace_ramp(x, y, design, top, own, pit_ramp, geometry, res, sectors)
+            except PitOptError:
+                if k == 0:
+                    raise
+                skipped += 1  # a satellite pit too small for the road
+                continue
+            roads.append(line)
+            road_floor = np.minimum(road_floor, cells)
         design = _envelope(np.minimum(floor, road_floor), geometry, res, sectors)
     z = np.minimum(design, top)
     below = design < top - 1e-6
     edge = bool(below[0, :].any() or below[-1, :].any() or below[:, 0].any() or below[:, -1].any())
-    return DesignedPit(x, y, z, top, geometry, edge, on_grid, road, sectors)
+    return DesignedPit(
+        x,
+        y,
+        z,
+        top,
+        geometry,
+        edge,
+        on_grid,
+        roads[0] if roads else None,
+        sectors,
+        tuple(roads),
+        max(len(openings), 1),
+        max(bottoms, 1),
+        skipped,
+    )
+
+
+def _bottoms(floor: Floats) -> int:
+    """Regional minima of the mined floor: connected flat areas with higher floor
+    (or no mined block) all around."""
+    eight = np.ones((3, 3), bool)
+    count = 0
+    for level in np.unique(floor[np.isfinite(floor)]):
+        labels, n = label(floor == level, structure=eight)
+        lower = floor < level
+        for k in range(1, n + 1):
+            ring = binary_dilation(labels == k, structure=eight)
+            count += not (ring & lower).any()
+    return count
+
+
+def _openings(design: Floats, top: Floats, floor: Floats) -> list[Mask]:
+    """Separate pits: connected areas cut below the original surface, largest first.
+
+    Each is returned as the mask of the area; only areas holding mined floor
+    count (a design always opens over its own floor).
+    """
+    depth = np.clip(top - design, 0.0, None)
+    labels, n = label(depth > 1e-6, structure=np.ones((3, 3)))
+    found = []
+    for k in range(1, n + 1):
+        area = labels == k
+        if np.isfinite(floor[area]).any():
+            found.append((float(depth[area].sum()), k, area))
+    found.sort(key=lambda t: (-t[0], t[1]))
+    return [area for _, _, area in found]
 
 
 def _envelope(

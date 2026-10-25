@@ -45,7 +45,13 @@ from minecore.drillholes.workflow import composite_table, hole_geometry, save_co
 from minecore.estimation import Ellipsoid, Method, Search, experimental, fit_spherical
 from minecore.geology.implicit import interval_contacts, model_domain
 from minecore.pitopt import Economics, PriceUnit, SlopeProfile, optimise_pit, pushbacks, schedule
-from minecore.pitopt.benchdesign import BenchGeometry, Ramp, design_from_model, parse_sectors
+from minecore.pitopt.benchdesign import (
+    BenchGeometry,
+    Ramp,
+    design_from_model,
+    parse_exits,
+    parse_sectors,
+)
 from minecore.pitopt.cashflow import CashFlow, FinancialTerms, cash_flow, parse_capital
 from minecore.pitopt.cutoff import cutoffs_from_model
 from minecore.pitopt.design import edge_blocks, export_pit, period_surfaces
@@ -385,6 +391,11 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     des.add_argument("--ramp-width", type=float, help="haul road width, m (adds a spiral ramp)")
     des.add_argument("--ramp-gradient", type=float, default=0.10, help="e.g. 0.10 for 10 %%")
     des.add_argument("--ramp-exit", type=float, default=0.0, help="exit azimuth, degrees")
+    des.add_argument(
+        "--ramp-exits",
+        default="",
+        help="exit azimuths of the 2nd, 3rd... separate pit (largest first), e.g. '180;270'",
+    )
     des.add_argument("--ramp-ccw", action="store_true", help="spiral counter-clockwise going down")
     des.add_argument(
         "--switchback",
@@ -829,6 +840,7 @@ def pit_design(project: Project, args: argparse.Namespace, out: TextIO) -> int:
             not args.ramp_ccw,
             args.switchback,
             args.turn_length,
+            parse_exits(args.ramp_exits),
         )
         if args.ramp_width
         else None,
@@ -839,11 +851,13 @@ def pit_design(project: Project, args: argparse.Namespace, out: TextIO) -> int:
             f"sector from {s.azimuth % 360.0:.0f} deg: face {s.geometry.face_angle:g}, "
             f"berm {s.geometry.berm:g}, overall {s.geometry.overall_angle:.1f} deg\n"
         )
-    if r.pit.ramp is not None:
-        out.write(
-            f"ramp {r.pit.ramp_length:,.0f} m from {r.pit.ramp[0, 2]:.1f} "
-            f"to {r.pit.ramp[-1, 2]:.1f}\n"
-        )
+    if r.pit.pits > 1 or r.pit.bottoms > 1:
+        out.write(f"separate pits {r.pit.pits}, pit bottoms {r.pit.bottoms}\n")
+    for k, road in enumerate(r.pit.ramps, 1):
+        length = float(np.linalg.norm(np.diff(road, axis=0), axis=1).sum())
+        out.write(f"ramp {k}: {length:,.0f} m from {road[0, 2]:.1f} to {road[-1, 2]:.1f}\n")
+    if r.pit.pits_without_ramp:
+        out.write(f"pits too small for the ramp (no road): {r.pit.pits_without_ramp}\n")
     out.write(
         f"overall slope {geometry.overall_angle:.1f} deg; volume {r.pit.volume():,.0f} m3; "
         f"blocks {r.shell_blocks} in shell, {r.design_blocks} in design; "
@@ -1199,6 +1213,8 @@ def pit_cutoff(project: Project, args: argparse.Namespace, out: TextIO) -> int:
             f"{y.metal:12,.1f} {y.cash:14,.0f} {y.limit:>6}\n"
         )
     out.write(f"NPV {result.npv:,.0f} ({result.iterations} iterations)\n")
+    if result.policy == "constant":
+        out.write("a constant cut-off beats Lane's policy here; it is reported instead\n")
     return 0
 
 
