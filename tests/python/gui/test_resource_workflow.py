@@ -787,6 +787,10 @@ def test_pit_dialog_scenarios(qapp: QApplication, tmp_path: Path) -> None:
     dialog.plant.setValue(0.02)
     dialog.min_ore.setValue(0.02)
     dialog.make_phases()
+    dialog.run_fleet()
+    assert dialog.fleet
+    assert dialog.fleet_table.rowCount() == len(dialog.sched.rows)  # type: ignore[union-attr]
+    assert all(r.trucks >= 1 for r in dialog.fleet)
     dialog.ask_name = lambda default: "baz"  # type: ignore[method-assign]
     dialog.save_scenario()
     dialog.price.setValue(2200.0)

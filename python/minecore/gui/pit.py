@@ -68,6 +68,7 @@ from minecore.pitopt.cashflow import (
 from minecore.pitopt.cutoff import LaneResult, cutoffs_from_model
 from minecore.pitopt.design import edge_blocks
 from minecore.pitopt.economics import PitOptError, parse_products, parse_routes
+from minecore.pitopt.fleet import Fleet, FleetRow, fleet_by_period, period_lifts
 from minecore.pitopt.milp import OptimisedSchedule, schedule_optimised
 from minecore.pitopt.optimise import route_tonnes, store
 from minecore.pitopt.phases import best_pushbacks
@@ -365,6 +366,7 @@ class PitDialog(QDialog):
         self.cash_table.setHorizontalHeaderLabels(CASH_HEADERS)
         right.addTab(self.cash_table, "Nakit akışı")
         right.addTab(self._sensitivity_page(), "Duyarlılık")
+        right.addTab(self._fleet_page(), "Ekipman")
         right.addTab(self._scenario_page(), "Senaryolar")
         self.flow: CashFlow | None = None
         self.inventory: list[InventoryRow] = []
@@ -723,6 +725,99 @@ class PitDialog(QDialog):
         else:
             target = Path(path if path.lower().endswith(".xlsx") else path + ".xlsx")
             write_pit_reports_xlsx(target, self.pit, self.sched, self.inventory, self.flow)
+
+    def _fleet_page(self) -> QWidget:
+        page = QWidget()
+        v = QVBoxLayout(page)
+        form = QFormLayout()
+        self.fl_payload = _spin(90.0, 1.0, 500.0, 5.0, 1)
+        self.fl_grad = _spin(10.0, 1.0, 25.0, 0.5, 1)
+        self.fl_inpit = _spin(300.0, 0.0, 1e5, 50.0, 0)
+        self.fl_surface = _spin(1500.0, 0.0, 1e5, 100.0, 0)
+        self.fl_lramp = _spin(11.0, 1.0, 80.0, 1.0, 1)
+        self.fl_eramp = _spin(25.0, 1.0, 80.0, 1.0, 1)
+        self.fl_lflat = _spin(30.0, 1.0, 80.0, 1.0, 1)
+        self.fl_eflat = _spin(40.0, 1.0, 80.0, 1.0, 1)
+        self.fl_load = _spin(3.5, 0.1, 60.0, 0.5, 1)
+        self.fl_dump = _spin(1.5, 0.1, 60.0, 0.5, 1)
+        self.fl_avail = _spin(85.0, 1.0, 100.0, 1.0, 0)
+        self.fl_util = _spin(80.0, 1.0, 100.0, 1.0, 0)
+        self.fl_tcost = _spin(180.0, 0.0, 1e5, 10.0, 0)
+        self.fl_lrate = _spin(1800.0, 10.0, 1e5, 100.0, 0)
+        self.fl_lcost = _spin(400.0, 0.0, 1e5, 10.0, 0)
+        form.addRow("Kamyon kapasitesi (t) / rampa eğimi %", _row(self.fl_payload, self.fl_grad))
+        form.addRow("Ocak içi / yüzey mesafesi (m, tek yön)", _row(self.fl_inpit, self.fl_surface))
+        form.addRow("Rampa hızı dolu / boş (km/sa)", _row(self.fl_lramp, self.fl_eramp))
+        form.addRow("Düz yol hızı dolu / boş (km/sa)", _row(self.fl_lflat, self.fl_eflat))
+        form.addRow("Yanaşma+yükleme / boşaltma (dk)", _row(self.fl_load, self.fl_dump))
+        form.addRow("Mekanik hazırlık % / kullanım %", _row(self.fl_avail, self.fl_util))
+        form.addRow("Kamyon maliyeti ($/sa)", self.fl_tcost)
+        form.addRow(
+            "Yükleyici kapasitesi (t/sa) / maliyeti ($/sa)", _row(self.fl_lrate, self.fl_lcost)
+        )
+        run = QPushButton("Kamyon ve yükleyici filosunu hesapla")
+        run.clicked.connect(self._guard(self.run_fleet))
+        form.addRow(run)
+        v.addLayout(form)
+        self.fleet_table = QTableWidget(0, len(FLEET_HEADERS))
+        self.fleet_table.setHorizontalHeaderLabels(FLEET_HEADERS)
+        v.addWidget(self.fleet_table, 1)
+        self.fleet_note = QLabel()
+        self.fleet_note.setWordWrap(True)
+        v.addWidget(self.fleet_note)
+        self.fleet: list[FleetRow] = []
+        return page
+
+    def fleet_inputs(self) -> Fleet:
+        return Fleet(
+            payload_t=self.fl_payload.value(),
+            ramp_gradient=self.fl_grad.value() / 100.0,
+            in_pit_m=self.fl_inpit.value(),
+            surface_m=self.fl_surface.value(),
+            loaded_ramp_kmh=self.fl_lramp.value(),
+            empty_ramp_kmh=self.fl_eramp.value(),
+            loaded_flat_kmh=self.fl_lflat.value(),
+            empty_flat_kmh=self.fl_eflat.value(),
+            spot_load_min=self.fl_load.value(),
+            dump_min=self.fl_dump.value(),
+            availability=self.fl_avail.value() / 100.0,
+            utilisation=self.fl_util.value() / 100.0,
+            truck_cost_h=self.fl_tcost.value(),
+            loader_tph=self.fl_lrate.value(),
+            loader_cost_h=self.fl_lcost.value(),
+        )
+
+    def run_fleet(self) -> None:
+        if self.pit is None or not isinstance(self.sched, ConstrainedSchedule):
+            raise RuntimeError("Önce kabukları hesaplayıp kısıtlı üretim çizelgesi oluşturun.")
+        grid = BlockModel.open(self.project, self.model.currentText()).grid
+        lifts = period_lifts(self.pit, self.sched, grid.size[2])
+        self.fleet = rows = fleet_by_period(self.sched, lifts, self.fleet_inputs())
+        self.fleet_table.setRowCount(len(rows))
+        for n, r in enumerate(rows):
+            cells = [
+                str(r.period),
+                f"{r.mined_t / 1e6:,.2f}",
+                f"{r.lift_m:,.0f}",
+                f"{r.haul_m:,.0f}",
+                f"{r.cycle_min:,.1f}",
+                str(r.trucks),
+                str(r.loaders),
+                f"{r.truck_hours:,.0f}",
+                f"{r.cost / 1e6:,.2f}",
+                f"{r.cost_per_t:,.2f}",
+            ]
+            for c, text in enumerate(cells):
+                _cell(self.fleet_table, n, c, text)
+        peak = max((r.trucks for r in rows), default=0)
+        total = sum(r.cost for r in rows)
+        tonnes = sum(r.mined_t for r in rows)
+        self.fleet_note.setText(
+            f"En çok {peak} kamyon, {max((r.loaders for r in rows), default=0)} yükleyici. "
+            f"Nakliye+yükleme ortalama {total / tonnes if tonnes else 0:,.2f} $/t. "
+            "Ortalama çevrim tahminidir (kuyruk/eşleşme benzetimi yok); maliyet çizelge "
+            "nakit akışına eklenmez, madencilik maliyetiyle karşılaştırmak içindir."
+        )
 
     def _scenario_page(self) -> QWidget:
         page = QWidget()
@@ -1379,6 +1474,19 @@ def _length(road: npt.NDArray[np.float64]) -> float:
 LANE_HEADERS = (
     "Yıl", "Cut-off", "Malzeme t", "Cevher t", "Tenör", "Metal", "Nakit akışı", "Kısıt",
 )  # fmt: skip
+FLEET_HEADERS = [
+    "Yıl",
+    "Kazı Mt",
+    "Ort. kot farkı (m)",
+    "Nakliye mesafesi (m)",
+    "Çevrim (dk)",
+    "Kamyon",
+    "Yükleyici",
+    "Kamyon saati",
+    "Maliyet M$",
+    "$/t",
+]
+
 LIMIT_NAMES = {"mine": "maden", "mill": "tesis", "market": "pazar"}
 
 

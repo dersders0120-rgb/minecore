@@ -152,6 +152,15 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
   NSR) with selling costs unchanged; recovery is capped at 100 %. Scenarios
   are not stored in the project; each run is recomputed.
 
+## Truck and loader fleet
+
+- `pitopt.fleet` (GUI "Ekipman"): average-cycle fleet sizing per schedule
+  period. The lift is the tonnage-weighted depth of the increments that start
+  in the period, below the model top (pit exit at the model top); one
+  destination per period; no queueing, match factor, rimpull/retarder curves
+  or fuel model; the cost is reported, not added to the schedule cash flow.
+  Smoke-tested only.
+
 ## Pit scenarios
 
 - `pitopt.scenarios` (GUI "Senaryolar", CLI `pit optimise --save-scenario`,

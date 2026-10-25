@@ -69,6 +69,9 @@ GUIDE = """
    **Proje nakit akışı** bölümünde yatırım (ör. `0:250; 4:40`, yıl:M$), sabit gider,
    kapanış maliyeti, vergi ve amortisman girilir; "Nakit akışı" sekmesi yıl yıl FAVÖK,
    vergi, nakit akışı ve proje NPV, İVO (IRR) ve geri ödeme süresini verir.
+   "Ekipman" sekmesi çizelgenin her yılı için ortalama nakliye çevrimini (ocak içi,
+   rampa ve yüzey mesafesi, dolu/boş hızlar), gereken kamyon ve yükleyici sayısını ve
+   nakliye-yükleme maliyetini ($/t) verir.
    "Senaryolar" sekmesi çalışmayı adıyla kaydeder (tüm girdiler ve ana sonuçlar
    projede saklanır), senaryoları yan yana tablo ve NPV grafiği ile karşılaştırır,
    bir senaryonun girdilerini forma geri yükler ve karşılaştırmayı CSV'ye yazar.
