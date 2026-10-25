@@ -26,6 +26,7 @@ from pathlib import Path, PurePosixPath
 from types import TracebackType
 from typing import Any, Self
 
+from minecore import coords
 from minecore._core import core_version
 from minecore.project.errors import (
     ProjectError,
@@ -47,6 +48,7 @@ PACKAGE_SUFFIX = ".mcproj"
 DB_FILE = "project.sqlite"
 DATA_DIRS = ("tables", "blocks", "geometry")
 BACKUP_DIR = "backups"
+COORDINATE_SYSTEM_KEY = "coordinate_system"
 
 _KIND = re.compile(r"^[a-z][a-z0-9_]*$")
 
@@ -315,6 +317,29 @@ class Project:
             "ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json",
             (key, payload),
         )
+
+    # -- coordinate system ---------------------------------------------------
+
+    def coordinate_system(self) -> coords.WorkingSystem | None:
+        """The working coordinate system, or ``None`` if not yet defined."""
+        data = self.get_setting(COORDINATE_SYSTEM_KEY)
+        return None if data is None else coords.from_json(data)
+
+    def set_coordinate_system(self, system: coords.WorkingSystem) -> None:
+        """Define the working coordinate system.
+
+        It can be changed freely while the project holds no objects. Afterwards
+        a change would silently move existing geometry, so it is refused until
+        reprojection of stored data exists.
+        """
+        new = coords.to_json(system)
+        current = self.get_setting(COORDINATE_SYSTEM_KEY)
+        if current is not None and current != new and self.objects():
+            raise ProjectError(
+                "the coordinate system cannot change once the project holds objects; "
+                "reprojecting stored data is not supported yet"
+            )
+        self.set_setting(COORDINATE_SYSTEM_KEY, new)
 
     # -- object catalogue ----------------------------------------------------
 

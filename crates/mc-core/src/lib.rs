@@ -8,6 +8,7 @@
 //! Dependency rule: domain modules and the desktop workbench depend on this
 //! crate; this crate never depends on them.
 
+pub mod coords;
 pub mod units;
 
 /// Version of the core engine, taken from the workspace manifest.

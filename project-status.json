@@ -1,13 +1,13 @@
 {
   "schema_version": 1,
-  "updated": "2026-10-24",
-  "current_milestone": "M0",
+  "updated": "2026-10-25",
+  "current_milestone": "M1",
   "milestones": [
     {
       "id": "M0",
       "title": "Foundation",
-      "status": "IN_REVIEW",
-      "evidence": "PR m0-foundation: all local gates pass (34 pytest, 2 cargo tests, ruff, mypy strict, clippy -D warnings, cargo-deny); CI result pending"
+      "status": "DONE",
+      "evidence": "PR #1 merged; CI green on Windows and Linux"
     },
     {
       "id": "M1",
@@ -88,7 +88,7 @@
       "milestone": "M0",
       "title": "Repository foundation, CI, governance, verification script",
       "owner": "opus",
-      "status": "SUBMITTED",
+      "status": "INTEGRATED",
       "depends_on": [],
       "brief": null
     },
@@ -97,7 +97,7 @@
       "milestone": "M1",
       "title": "Competitive capability matrix from public documentation",
       "owner": "gemini",
-      "status": "VERIFIED",
+      "status": "INTEGRATED",
       "depends_on": [],
       "brief": "docs/tasks/T-002.md",
       "evidence": "Reviewed by architect; committed to docs/research/CAPABILITY_MATRIX.md with review note. Citations unchecked (no web access from dev environment)."
@@ -107,7 +107,7 @@
       "milestone": "M1",
       "title": "Units and quantities contract (mc-core::units)",
       "owner": "opus",
-      "status": "SUBMITTED",
+      "status": "INTEGRATED",
       "depends_on": [
         "T-001"
       ],
@@ -118,18 +118,18 @@
       "milestone": "M1",
       "title": "CRS and local mine grid contract",
       "owner": "opus",
-      "status": "BACKLOG",
+      "status": "SUBMITTED",
       "depends_on": [
         "T-003"
       ],
-      "brief": null
+      "brief": "docs/adr/0005-crs-and-local-grids.md"
     },
     {
       "id": "T-005",
       "milestone": "M1",
       "title": "Project package v1: SQLite schema, versioning, migrations",
       "owner": "opus",
-      "status": "SUBMITTED",
+      "status": "INTEGRATED",
       "depends_on": [
         "T-001"
       ],
@@ -162,22 +162,40 @@
       "milestone": "M2",
       "title": "Synthetic drillhole dataset generator",
       "owner": "deepseek",
-      "status": "BACKLOG",
+      "status": "SUBMITTED",
       "depends_on": [
         "T-003",
         "T-005"
       ],
-      "brief": null
+      "brief": "docs/tasks/T-008.md"
     },
     {
       "id": "T-009",
       "milestone": "M2",
       "title": "Independent reference cases for minimum-curvature desurvey",
       "owner": "chatgpt",
-      "status": "VERIFIED",
+      "status": "INTEGRATED",
       "depends_on": [],
       "brief": "docs/tasks/T-009.md",
       "evidence": "Independent re-computation (Rodrigues + ratio factor, stdlib) max deviation 7.8e-7 m = output rounding; runs in CI as tests/python/test_reference_desurvey.py"
+    },
+    {
+      "id": "T-010",
+      "milestone": "M1",
+      "title": "Research: coordinate reference practice for mining in Turkey",
+      "owner": "gemini",
+      "status": "SUBMITTED",
+      "depends_on": [],
+      "brief": "docs/tasks/T-010.md"
+    },
+    {
+      "id": "T-011",
+      "milestone": "M12",
+      "title": "English-Turkish mining terminology glossary",
+      "owner": "haiku",
+      "status": "SUBMITTED",
+      "depends_on": [],
+      "brief": null
     }
   ]
 }
