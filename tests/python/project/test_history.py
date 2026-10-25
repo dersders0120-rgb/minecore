@@ -188,3 +188,19 @@ def test_cli_history_undo_redo(tmp_path: Path) -> None:
     code, text = run(["project", "history", pkg])
     assert "(undone)" in text
     assert run(["project", "redo", pkg])[0] == 0
+
+
+def test_tracked_columns_match_schema_and_triggers(project: Project) -> None:
+    from minecore.project.history import TRACKED  # noqa: PLC0415
+
+    db = project._db()
+    for table, (key, columns) in TRACKED.items():
+        assert [r[1] for r in db.execute(f"PRAGMA table_info({table})")] == list(columns)
+        assert key in columns
+        triggers = db.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'trigger' AND tbl_name = ?", (table,)
+        ).fetchall()
+        assert len(triggers) == 3
+        for (sql,) in triggers:
+            for column in columns:
+                assert f"'{column}'" in sql, (table, column)
