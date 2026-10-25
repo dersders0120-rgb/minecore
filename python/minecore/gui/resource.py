@@ -183,14 +183,20 @@ class BlockModelDialog(QDialog):
         for box in (self.sx, self.sy, self.sz):
             size.addWidget(box)
         self.padding = _spin(20.0, 0.0, 1e4, 5)
+        self.azimuth = _spin(0.0, -359.99, 359.99, 5.0)
+        self.azimuth.setToolTip(
+            "Modelin satır (+Y) ekseninin kuzeyden saat yönünde açısı. 0: döndürülmemiş model.\n"
+            "Cevher doğrultusuna hizalı model daha az blokla aynı hacmi kapsar."
+        )
         self.info = QLabel()
         form.addRow("Ad", self.name)
         form.addRow("Kapsanacak veri", self.source)
         form.addRow("Blok boyu X / Y / Z (m)", size)
         form.addRow("Kenar payı (m)", self.padding)
+        form.addRow("Döndürme açısı (°, kuzeyden saat yönü)", self.azimuth)
         form.addRow(self.info)
         form.addRow(_buttons(self))
-        for box in (self.sx, self.sy, self.sz, self.padding):
+        for box in (self.sx, self.sy, self.sz, self.padding, self.azimuth):
             box.valueChanged.connect(self._preview)
         self.source.currentTextChanged.connect(self._preview)
         self._preview()
@@ -198,7 +204,10 @@ class BlockModelDialog(QDialog):
     def grid(self) -> Grid:
         samples = _samples(self.db, self.source.currentText())
         return Grid.covering(
-            samples.xyz, (self.sx.value(), self.sy.value(), self.sz.value()), self.padding.value()
+            samples.xyz,
+            (self.sx.value(), self.sy.value(), self.sz.value()),
+            self.padding.value(),
+            self.azimuth.value(),
         )
 
     def _preview(self) -> None:
@@ -213,6 +222,7 @@ class BlockModelDialog(QDialog):
         self.info.setText(
             f"Orijin {g.origin[0]:.1f}, {g.origin[1]:.1f}, {g.origin[2]:.1f}\n"
             f"Blok sayısı {g.count[0]} x {g.count[1]} x {g.count[2]} = {g.blocks:,}"
+            + (f"\nDöndürme {g.azimuth:g}° (orijin döndürme merkezidir)" if g.rotated else "")
         )
 
 

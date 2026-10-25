@@ -575,3 +575,27 @@ def test_self_test_from_the_help_menu(qapp: QApplication, monkeypatch: pytest.Mo
     window.self_test()
     assert shown[0].startswith("Tüm adımlar başarılı"), shown[0]
     window.close()
+
+
+def test_rotated_block_model_dialog_and_3d_cells(qapp: QApplication, tmp_path: Path) -> None:
+    from minecore.gui.app import block_mesh  # noqa: PLC0415
+
+    project, db, field = _project(tmp_path)
+    parent = QWidget()
+    bm = resource.BlockModelDialog(db, parent)
+    bm.source.setCurrentText(f"komp / {field}")
+    bm.azimuth.setValue(30.0)
+    grid = bm.grid()
+    assert grid.azimuth == 30.0
+    assert "Döndürme 30" in bm.info.text()
+    samples = resource._samples(db, f"komp / {field}")
+    idx = grid.cell_index(samples.xyz)
+    assert (idx >= 0).all()
+    assert (idx < np.asarray(grid.count)).all()
+    origin = np.asarray(grid.origin)
+    mesh = block_mesh(grid, origin)
+    assert mesh.n_cells == grid.blocks
+    # Cell k of the mesh is block k of the model, rotated with it.
+    centres = np.asarray(mesh.cell_centers().points) + origin
+    np.testing.assert_allclose(centres, grid.centroids(), atol=1e-6)
+    project.close()

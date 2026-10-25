@@ -11,7 +11,10 @@ The regular grid uses the largest block size per axis (the parent cell) or,
 without size columns, the smallest spacing between distinct centroid
 coordinates. Several rows in one parent cell (sub-blocks) are merged by a
 volume-weighted mean (missing values are ignored). Text columns are skipped
-and reported. Rotated models are not supported (no rotation is read).
+and reported. A rotated model is read with its ``azimuth`` (bearing of the
+model's +j axis, degrees clockwise from north; ADR-0009): centroids are world
+coordinates and sizes are along the model axes. Text exports rarely carry the
+rotation, so it is given by the user.
 """
 
 from __future__ import annotations
@@ -67,13 +70,14 @@ def _spacing(values: Floats) -> float:
     return float(d.min()) if d.size else math.nan
 
 
-def import_block_csv(  # noqa: PLR0912, PLR0915 - one parsing pass
+def import_block_csv(  # noqa: PLR0912, PLR0913, PLR0915 - one parsing pass, keyword options
     project: Project,
     path: Path,
     name: str,
     *,
     size: tuple[float, float, float] | None = None,
     units: dict[str, str] | None = None,
+    azimuth: float = 0.0,
 ) -> BlockImport:
     dialect, rows = read_rows(path)
     header = rows[dialect.header_row]
@@ -100,9 +104,11 @@ def import_block_csv(  # noqa: PLR0912, PLR0915 - one parsing pass
                 text_cols.add(c)
             else:
                 table[r, c] = value
-    xyz = table[:, [int(c) for c in centre if c is not None]]
-    if not np.isfinite(xyz).all():
+    world = table[:, [int(c) for c in centre if c is not None]]
+    if not np.isfinite(world).all():
         raise BlockModelError(f"{path.name}: missing or non-numeric centroid coordinates")
+    frame = Grid((0.0, 0.0, 0.0), (1.0, 1.0, 1.0), (1, 1, 1), azimuth)
+    xyz = frame.to_local(world)  # model axes, so spacing and sizes are read along them
     have_sizes = all(s is not None for s in sizes)
     row_size = (
         table[:, [int(s) for s in sizes if s is not None]] if have_sizes else np.ones_like(xyz)
@@ -123,10 +129,12 @@ def import_block_csv(  # noqa: PLR0912, PLR0915 - one parsing pass
     origin = lo.min(axis=0)
     idx = np.floor((xyz - origin) / parent + 1e-9).astype(np.int64)
     count = idx.max(axis=0) + 1
+    o = frame.to_world(origin[None, :])[0]
     grid = Grid(
-        (float(origin[0]), float(origin[1]), float(origin[2])),
+        (float(o[0]), float(o[1]), float(o[2])),
         (float(parent[0]), float(parent[1]), float(parent[2])),
         (int(count[0]), int(count[1]), int(count[2])),
+        float(azimuth),
     )
     flat = idx[:, 0] + count[0] * (idx[:, 1] + count[1] * idx[:, 2])
     weight = np.prod(row_size, axis=1) if have_sizes else np.ones(len(body))

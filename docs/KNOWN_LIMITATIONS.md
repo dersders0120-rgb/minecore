@@ -19,8 +19,9 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
 
 ## Block model, variograms and estimation (M4–M6 alpha)
 
-- Regular, unrotated block models only; no sub-blocks, no rotation, no wireframe
-  (solid) flagging or domain-restricted estimation yet.
+- Regular block models, optionally rotated about the vertical (ADR-0009:
+  azimuth of the rows). No dip/plunge rotation and no sub-cells yet; sub-blocked
+  imports are merged into parent cells.
 - Variogram GUI fits the first structure automatically; a second structure
   is entered by hand (no joint automatic fit of nested structures).
 - Validation: swath plots and leave-one-hole-out cross-validation exist
@@ -40,7 +41,8 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
 - CSV/text with centroid columns (and optional per-row sizes for sub-blocked
   models). Sub-blocks are merged into parent cells by volume-weighted mean;
   categorical text columns are skipped (convert codes to numbers first).
-  Rotated models and native Datamine/Surpac/Vulcan formats are not read.
+  A rotated model is read when its azimuth is given (text exports do not carry
+  it); native Datamine/Surpac/Vulcan formats are not read.
 
 ## Sample statistics
 

@@ -201,11 +201,11 @@ class DeclineDialog(QDialog):
         model = BlockModel.open(self.project, name)
         flags = [a for a in model.attributes if a.startswith(("ug_", "dom_"))]
         self.ore.addItems(flags)
-        g = model.grid
+        lo, hi = model.grid.bounds()
         # Default portal: beside the model on the east side, at the model top.
-        self.px.setValue(g.origin[0] + g.size[0] * g.count[0] + 100.0)
-        self.py.setValue(g.origin[1] + 0.5 * g.size[1] * g.count[1])
-        self.pz.setValue(g.origin[2] + g.size[2] * g.count[2])
+        self.px.setValue(float(hi[0]) + 100.0)
+        self.py.setValue(0.5 * float(lo[1] + hi[1]))
+        self.pz.setValue(float(hi[2]))
 
     def run(self, dxf: Path | None) -> None:
         design = DeclineDesign(

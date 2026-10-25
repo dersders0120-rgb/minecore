@@ -211,3 +211,51 @@ def test_csv_to_pit_schedule(tmp_path: Path) -> None:  # noqa: PLR0915 - one end
     assert "decline" in dec
     assert "DECLINE" in (tmp_path / "dec.dxf").read_text()
     assert "blocks of" in _run("bm", "reblock", p, "BM", "BM2", "--factors", "2", "2", "1")
+
+
+def test_rotated_model_chain(tmp_path: Path) -> None:
+    """A rotated model runs the same chain; its resource matches the unrotated one."""
+    p = str(tmp_path / "r.mcproj")
+    _run("project", "create", p, "--name", "r")
+    _run("drillholes", "import", p, str(SAMPLE_DIR))
+    _run("drillholes", "validate", p)
+    _run("drillholes", "composite", p, "assay", "AU_PPM", "--length", "2")
+    src = "assay_komp_2m/AU_PPM"
+    _run("surface", "from-collars", p, "topo")
+    totals = []
+    for name, azimuth in (("BM", "0"), ("BMR", "35")):
+        out = _run(
+            "bm", "create", p, name, "--source", src, "--size", "10", "10", "5",
+            "--padding", "20", "--azimuth", azimuth,
+        )  # fmt: skip
+        assert ("azimuth 35" in out) == (azimuth == "35")
+        _run("surface", "flag", p, "topo", name)
+        _run(
+            "bm", "estimate", p, name, src, "au", "--method", "idw", "--radius", "60",
+            "--rock-only",
+        )  # fmt: skip
+        report = json.loads(_run("bm", "report", p, name, "au", "--cutoffs", "0.5", "--json"))
+        totals.append(report[0])
+    # Same data, same search: the tonnage above cut-off differs only by block placement.
+    assert abs(totals[1]["tonnes"] / totals[0]["tonnes"] - 1.0) < 0.02
+    assert abs(totals[1]["grade"] / totals[0]["grade"] - 1.0) < 0.02
+    econ = [
+        "--price", "2000", "--price-unit", "ozt", "--recovery", "0.9",
+        "--mining-cost", "2.5", "--processing-cost", "15", "--rock", "kaya", "--json",
+    ]  # fmt: skip
+    opt = json.loads(_run("pit", "optimise", p, "BMR", "au", *econ))
+    assert opt["shells"][-1]["ore_t"] > 0
+    des = _run("pit", "design", p, "BMR", "--face", "65", "--height", "10", "--berm", "5")
+    assert "overall slope" in des
+    from minecore.blockmodel import BlockModel  # noqa: PLC0415
+    from minecore.project import Project  # noqa: PLC0415
+
+    with Project.open(p) as project:
+        lo, hi = BlockModel.open(project, "BMR").grid.bounds()
+    pdf = tmp_path / "r.pdf"
+    text = _run(
+        "plot", p, str(pdf), "--axis", "x", "--at", str(0.5 * (lo[0] + hi[0])), "--width", "20",
+        "--model", "BMR", "--attribute", "au",
+    )  # fmt: skip
+    assert pdf.read_bytes().startswith(b"%PDF")
+    assert " 0 blocks" not in text

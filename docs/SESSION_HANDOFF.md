@@ -1,7 +1,7 @@
 # Session handoff
 
-Updated: 2026-10-25 ~07:20 UTC (architect, thread "Build block model and estimation", end of thread;
-new work continues in a fresh thread)
+Updated: 2026-10-25 ~07:50 UTC (architect, thread "Continue MineCore development":
+rotated block models, ADR-0009)
 
 ## Owner direction (binding)
 - Windows 11 only. Wants a usable program fast, accepts some bugs, tests the GUI
@@ -64,7 +64,8 @@ new work continues in a fresh thread)
    workflow tip: auto-fit variogram is a starting point only (owner asked; told
    him to check nugget with downhole variogram and ranges with directions).
    Consider a sill default from the data variance in the variogram dialog.
-2. Rotated block models and sub-cells (contract change in mc-core: needs an ADR).
+2. Sub-cells (needs its own ADR). Rotated block models are done (ADR-0009,
+   azimuth about the vertical; thread "Continue MineCore development").
 3. Pit design: switchback ramps, multiple pit bottoms, blended sector changes.
 4. Routes and stockpiles in Lane; re-routing ore when a route is full.
 5. Underground: stope shapes beyond grid boxes, footwall drives and drawpoints,

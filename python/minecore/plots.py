@@ -23,7 +23,7 @@ import numpy as np
 import numpy.typing as npt
 
 from minecore._core import MineCoreError
-from minecore.blockmodel import BlockModel
+from minecore.blockmodel import BlockModel, Grid
 from minecore.blockmodel.workflow import interval_samples
 from minecore.drillholes import DrillholeDatabase
 from minecore.drillholes.workflow import hole_geometry
@@ -90,6 +90,61 @@ def cut_solid(solid: Solid, axis: int, at: float) -> Floats:
     return np.asarray(out, np.float64).reshape(-1, 2, 3)
 
 
+def block_section_polygons(
+    grid: Grid, axis: int, at: float
+) -> tuple[npt.NDArray[np.int64], Floats]:
+    """Blocks cut by the world plane ``coord[axis] = at`` and their outlines in that plane.
+
+    Returns flat block indices and ``m x 4 x 2`` polygons in the plane's
+    (horizontal, vertical) coordinates (see ``_plane_axes``). Works for rotated
+    models (ADR-0009), where a world section cuts blocks obliquely: each block
+    is drawn over the stretch of its footprint that the plane crosses.
+    """
+    nx, ny, nz = grid.count
+    dx, dy, dz = grid.size
+    oz = grid.origin[2]
+    jj, ii = np.divmod(np.arange(nx * ny), nx)
+    local = np.stack(
+        [
+            np.column_stack([ii + a, jj + b, np.zeros(nx * ny)]) * np.array([dx, dy, 0.0])
+            for a, b in ((0, 0), (1, 0), (1, 1), (0, 1))
+        ],
+        axis=1,
+    )  # columns x 4 corners x 3, counter-clockwise
+    foot = grid.to_world(local.reshape(-1, 3)).reshape(nx * ny, 4, 3)[:, :, :2]
+    if axis == 2:
+        k = int(np.floor((at - oz) / dz))
+        if not 0 <= k < nz:
+            return np.zeros(0, np.int64), np.zeros((0, 4, 2))
+        return np.arange(nx * ny, dtype=np.int64) + k * nx * ny, foot
+    other = 1 - axis  # the horizontal plane coordinate
+    d = foot[:, :, axis] - at
+    d = np.where(np.abs(d) < 1e-9, 1e-9, d)
+    lo = np.full(nx * ny, np.inf)
+    hi = np.full(nx * ny, -np.inf)
+    for a in range(4):
+        b = (a + 1) % 4
+        cross = (d[:, a] > 0) != (d[:, b] > 0)
+        t = np.where(cross, d[:, a] / np.where(cross, d[:, a] - d[:, b], 1.0), 0.0)
+        o = foot[:, a, other] + t * (foot[:, b, other] - foot[:, a, other])
+        lo = np.where(cross, np.minimum(lo, o), lo)
+        hi = np.where(cross, np.maximum(hi, o), hi)
+    cols = np.flatnonzero(hi > lo)
+    lev = np.repeat(np.arange(nz), cols.size)
+    c = np.tile(cols, nz)
+    z0, z1 = oz + lev * dz, oz + (lev + 1) * dz
+    polys = np.stack(
+        [
+            np.column_stack([lo[c], z0]),
+            np.column_stack([hi[c], z0]),
+            np.column_stack([hi[c], z1]),
+            np.column_stack([lo[c], z1]),
+        ],
+        axis=1,
+    )
+    return (c + lev * nx * ny).astype(np.int64), polys
+
+
 def section_plot(  # noqa: PLR0912, PLR0915 - one figure, one pass per layer
     project: Project,
     spec: SectionSpec,
@@ -115,27 +170,46 @@ def section_plot(  # noqa: PLR0912, PLR0915 - one figure, one pass per layer
     if spec.model:
         model = BlockModel.open(project, spec.model)
         g = model.grid
-        idx = int(np.floor((spec.at - g.origin[spec.axis]) / g.size[spec.axis]))
-        if not 0 <= idx < g.count[spec.axis]:
-            raise PlotError(f"the plane is outside block model {spec.model!r}")
-        if spec.attribute:
-            nx, ny, nz = g.count
-            cube = model.values(spec.attribute).reshape(nz, ny, nx)
-            if spec.axis == 0:
-                plane = cube[:, :, idx]
-            elif spec.axis == 1:
-                plane = cube[:, idx, :]
-            else:
-                plane = cube[idx, :, :]
-            he = g.origin[h_ax] + g.size[h_ax] * np.arange(g.count[h_ax] + 1)
-            ve = g.origin[v_ax] + g.size[v_ax] * np.arange(g.count[v_ax] + 1)
-            masked = np.ma.masked_invalid(plane)
-            mesh = ax.pcolormesh(he, ve, masked, cmap="viridis", alpha=0.85, shading="flat")
-            unit = model.attributes[spec.attribute].get("unit")
-            fig.colorbar(mesh, ax=ax, shrink=0.6, pad=0.01).set_label(
-                f"Blok: {spec.attribute}" + (f" ({unit})" if unit else "")
-            )
-            result.blocks = int(masked.count())
+        if g.rotated:
+            flat, polys = block_section_polygons(g, spec.axis, spec.at)
+            if flat.size == 0:
+                raise PlotError(f"the plane is outside block model {spec.model!r}")
+            if spec.attribute:
+                from matplotlib.collections import PolyCollection  # noqa: PLC0415
+
+                vals = model.values(spec.attribute)[flat]
+                ok = np.isfinite(vals)
+                coll = PolyCollection(list(polys[ok]), cmap="viridis", alpha=0.85)
+                coll.set_array(vals[ok])
+                coll.set_edgecolor("face")
+                ax.add_collection(coll)
+                unit = model.attributes[spec.attribute].get("unit")
+                fig.colorbar(coll, ax=ax, shrink=0.6, pad=0.01).set_label(
+                    f"Blok: {spec.attribute}" + (f" ({unit})" if unit else "")
+                )
+                result.blocks = int(ok.sum())
+        else:
+            idx = int(np.floor((spec.at - g.origin[spec.axis]) / g.size[spec.axis]))
+            if not 0 <= idx < g.count[spec.axis]:
+                raise PlotError(f"the plane is outside block model {spec.model!r}")
+            if spec.attribute:
+                nx, ny, nz = g.count
+                cube = model.values(spec.attribute).reshape(nz, ny, nx)
+                if spec.axis == 0:
+                    plane = cube[:, :, idx]
+                elif spec.axis == 1:
+                    plane = cube[:, idx, :]
+                else:
+                    plane = cube[idx, :, :]
+                he = g.origin[h_ax] + g.size[h_ax] * np.arange(g.count[h_ax] + 1)
+                ve = g.origin[v_ax] + g.size[v_ax] * np.arange(g.count[v_ax] + 1)
+                masked = np.ma.masked_invalid(plane)
+                mesh = ax.pcolormesh(he, ve, masked, cmap="viridis", alpha=0.85, shading="flat")
+                unit = model.attributes[spec.attribute].get("unit")
+                fig.colorbar(mesh, ax=ax, shrink=0.6, pad=0.01).set_label(
+                    f"Blok: {spec.attribute}" + (f" ({unit})" if unit else "")
+                )
+                result.blocks = int(masked.count())
     if spec.drill is not None or db is not None:
         if db is None:
             dbs = project.objects("drillhole_db")
@@ -205,9 +279,9 @@ def section_plot(  # noqa: PLR0912, PLR0915 - one figure, one pass per layer
         # Frame the block model (surfaces such as a design raster extend further).
         g = BlockModel.open(project, spec.model).grid
         pad = 0.05
+        low, high = g.bounds()
         for axis, setter in ((h_ax, ax.set_xlim), (v_ax, ax.set_ylim)):
-            start = float(g.origin[axis])
-            end = start + g.size[axis] * g.count[axis]
+            start, end = float(low[axis]), float(high[axis])
             setter(start - pad * (end - start), end + pad * (end - start))
     ax.ticklabel_format(useOffset=False, style="plain")
     if spec.surfaces or spec.solids:

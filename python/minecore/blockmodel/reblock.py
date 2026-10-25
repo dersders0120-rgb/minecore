@@ -41,7 +41,7 @@ def reblock(
     nx, ny, nz = g.count
     fx, fy, fz = factors
     count = (-(-nx // fx), -(-ny // fy), -(-nz // fz))
-    grid = Grid(g.origin, (g.size[0] * fx, g.size[1] * fy, g.size[2] * fz), count)
+    grid = Grid(g.origin, (g.size[0] * fx, g.size[1] * fy, g.size[2] * fz), count, g.azimuth)
     index = np.arange(g.blocks)
     i, j, k = index % nx, (index // nx) % ny, index // (nx * ny)
     cell = (i // fx) + count[0] * ((j // fy) + count[1] * (k // fz))

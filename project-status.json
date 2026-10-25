@@ -31,7 +31,7 @@
       "id": "M4",
       "title": "Block model",
       "status": "IN_PROGRESS",
-      "evidence": "Regular models, rock/air flag, CSV import with sub-block merge, re-blocking, calculator, solid flags with volume fractions (PR #9-#16). Rotated/sub-celled storage pending (needs ADR)."
+      "evidence": "Regular models, rock/air flag, CSV import with sub-block merge, re-blocking, calculator, solid flags with volume fractions (PR #9-#16). Rotated models about the vertical (ADR-0009). Sub-celled storage pending (needs ADR)."
     },
     {
       "id": "M5",
