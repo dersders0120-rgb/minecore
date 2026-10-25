@@ -48,12 +48,29 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
   top, not from the surface.
 - Single element, single process route; no cut-off optimisation (Lane), no
   stockpiles, no mining dilution/recovery factors on the block model.
-- Pushbacks group whole shells by ore tonnage; minimum mining width and ramp
-  access are not enforced.
+- Pushbacks group whole shells by ore tonnage. Minimum mining width
+  (`pitopt.width`) reworks pushbacks so each bench increment is at least the
+  given width (morphological opening; thin parts join the previous pushback,
+  slope precedence is restored by propagation). The final pit itself is not
+  changed, so a pit bottom narrower than the width stays narrow (the number of
+  remaining narrow blocks is reported). Thin pushbacks are absorbed rather than
+  widened. Measured: 123k blocks, 3.2 M arcs, 3.4 s. Ramp access is not
+  enforced.
 - Schedule (`pitopt.scheduling`): greedy, rule-based sequence with mining and
   plant capacity, bench lag, sinking rate and one blended stockpile. Not an
   optimised (MILP) schedule; no blending targets, no cut-off optimisation, no
   equipment or haulage model; periods are years of equal capacity.
+
+## Pit design outputs
+
+- `pitopt.design`: bench crest/toe loops of the block pit (block edges, no
+  smoothing), a closed pit solid (marching cubes of the mined indicator, so
+  corners are chamfered; volume slightly below the block volume), and the
+  mined-out surface at block-column centres (staircase interpolated linearly).
+- No ramp, berm or haul-road design; no conversion of shells to designed
+  bench toe/crest strings with batter angles.
+- DXF export writes R12 ASCII `POLYLINE` (3D) and `3DFACE` entities only, no
+  header/table sections, no blocks or text.
 
 ## Surfaces
 

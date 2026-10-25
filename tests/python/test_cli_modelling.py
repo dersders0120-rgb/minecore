@@ -68,9 +68,16 @@ def test_csv_to_pit_schedule(tmp_path: Path) -> None:
             "1000000",
             "--plant",
             "300000",
+            "--min-width",
+            "40",
             "--json",
         )
     )
     assert len(result["shells"]) == 4
     assert "npv" in result
     assert all(p["ore_fed_t"] <= 300000 * (1 + 1e-9) for p in result["schedule"])
+    dxf = tmp_path / "pit.dxf"
+    text = _run("pit", "export", p, "BM", str(dxf), "--phases", "--save-surface", "pit")
+    assert "outlines" in text
+    assert dxf.read_text().rstrip().endswith("EOF")
+    assert "PB1_CREST" in dxf.read_text()

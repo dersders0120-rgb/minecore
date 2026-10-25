@@ -36,8 +36,10 @@ from minecore.drillholes.importer import import_folder
 from minecore.drillholes.workflow import composite_table, hole_geometry, save_composites
 from minecore.estimation import Ellipsoid, Method, Search, experimental, fit_spherical
 from minecore.pitopt import Economics, PriceUnit, SlopeProfile, optimise_pit, pushbacks, schedule
+from minecore.pitopt.design import export_pit
 from minecore.pitopt.optimise import Schedule, store
 from minecore.pitopt.scheduling import ConstrainedSchedule, Limits, schedule_constrained
+from minecore.pitopt.width import apply_mining_width
 from minecore.project import Project
 
 METHODS = {"nn": Method.NEAREST, "idw": Method.INVERSE_DISTANCE, "ok": Method.ORDINARY_KRIGING}
@@ -133,6 +135,15 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     opt.add_argument("--plant", type=float, help="plant capacity, ore t/year (enables limits)")
     opt.add_argument("--lag", type=int, default=2, help="bench lag between pushbacks")
     opt.add_argument("--sinking", type=int, default=6, help="max benches per pushback per year")
+    opt.add_argument("--min-width", type=float, default=0.0, help="minimum mining width, m")
+    exp = pit_cmds.add_parser("export", help="pit outlines, surface and solid to DXF")
+    exp.add_argument("project")
+    exp.add_argument("model")
+    exp.add_argument("dxf")
+    exp.add_argument("--shell", type=int, help="last shell of the pit (default: all shells)")
+    exp.add_argument("--phases", action="store_true", help="one layer set per pushback")
+    exp.add_argument("--topography", help="surface to complete the mined-out surface")
+    exp.add_argument("--save-surface", help="store the mined-out surface under this name")
     opt.add_argument("--json", action="store_true")
 
 
@@ -271,8 +282,27 @@ def _density(text: str) -> float | str:
         return text
 
 
+def pit_export(project: Project, args: argparse.Namespace, out: TextIO) -> int:
+    e = export_pit(
+        project,
+        BlockModel.open(project, args.model),
+        Path(args.dxf),
+        last_shell=args.shell,
+        phases=args.phases,
+        topography=args.topography,
+        save_surface=args.save_surface,
+    )
+    out.write(
+        f"pit to shell {e.last_shell}: {e.blocks} blocks, solid {e.volume:,.0f} m3, "
+        f"{e.outlines} outlines -> {args.dxf}\n"
+    )
+    return 0
+
+
 def pit_command(args: argparse.Namespace, out: TextIO) -> int:
     with Project.open(args.project) as project:
+        if args.pit_command == "export":
+            return pit_export(project, args, out)
         model = BlockModel.open(project, args.model)
         econ = Economics(
             args.price,
@@ -299,6 +329,8 @@ def pit_command(args: argparse.Namespace, out: TextIO) -> int:
         final = factors.index(args.final_rf) + 1
         phase_ore = args.phase_ore or max(result.rows[final - 1].ore_t / 3, 1.0)
         phase = pushbacks(result, final, phase_ore)
+        if args.min_width > 0:
+            phase = apply_mining_width(model.grid, phase, slope, args.min_width).phase
         sched: Schedule | ConstrainedSchedule
         if args.plant:
             limits = Limits(args.rate, args.plant, args.lag, args.sinking, args.discount)

@@ -71,6 +71,8 @@ from minecore.gui.resource import (
     block_models,
     export_block_model_csv,
 )
+from minecore.io.dxf import write_dxf
+from minecore.pitopt.design import export_pit
 from minecore.project import Project
 
 SAMPLE_DIR = Path(__file__).resolve().parent / "sample"
@@ -251,8 +253,10 @@ class MainWindow(QMainWindow):
         action(surf, "Katı model (wireframe) içe aktar: OBJ, STL, DXF...", self.import_solid)
         action(surf, "Blok modelini katı ile işaretle (domen)...", self.flag_solid)
         action(surf, "Tenör kabuğu katısı oluştur (blok modelinden)...", self.make_grade_shell)
+        action(surf, "Katı modeli DXF olarak dışa aktar...", self.export_solid)
         pit = self.menuBar().addMenu("&Açık Ocak")
         action(pit, "Ocak optimizasyonu, pushback ve çizelge...", self.optimise_pit)
+        action(pit, "Ocağı DXF olarak dışa aktar, ocak yüzeyi oluştur...", self.export_pit)
         help_menu = self.menuBar().addMenu("&Yardım")
         action(help_menu, "Örnek sondaj projesini aç", self.open_sample)
         action(help_menu, "Hakkında", self.about)
@@ -606,6 +610,62 @@ class MainWindow(QMainWindow):
             self,
             "Tenör kabuğu",
             f"'{name}': {len(solid.triangles):,} üçgen, hacim {solid.volume():,.0f} m³.",
+        )
+
+    def export_solid(self) -> None:
+        project = self._need_project()
+        names = solids.solid_names(project)
+        if not names:
+            raise RuntimeError("Projede katı model yok.")
+        name, ok = QInputDialog.getItem(self, "DXF", "Katı:", names, 0, False)
+        if not ok:
+            return
+        path, _ = QFileDialog.getSaveFileName(self, "DXF kaydet", f"{name}.dxf", "DXF (*.dxf)")
+        if not path:
+            return
+        solid = solids.load_solid(project, name)
+        count = write_dxf(Path(path), faces=[(name, solid.vertices[solid.triangles])])
+        self.statusBar().showMessage(f"{count:,} üçgen yazıldı: {path}")
+
+    def export_pit(self) -> None:
+        project = self._need_project()
+        models = [
+            m
+            for m in block_models(project)
+            if "pit_shell" in BlockModel.open(project, m).attributes
+        ]
+        if not models:
+            raise RuntimeError("Önce ocak optimizasyonunu çalıştırın.")
+        model_name, ok = QInputDialog.getItem(self, "Ocak", "Blok modeli:", models, 0, False)
+        if not ok:
+            return
+        model = BlockModel.open(project, model_name)
+        top = int(np.nanmax(model.values("pit_shell")))
+        last, ok = QInputDialog.getInt(self, "Ocak", "Son kabuk (nihai ocak):", top, 1, top)
+        if not ok:
+            return
+        path, _ = QFileDialog.getSaveFileName(self, "DXF kaydet", "ocak.dxf", "DXF (*.dxf)")
+        if not path:
+            return
+        names = [n for n in surfaces.surface_names(project) if not n.startswith("ocak_")]
+        topo = names[0] if names else None
+        e = export_pit(
+            project,
+            model,
+            Path(path),
+            last_shell=last,
+            phases=True,
+            topography=topo,
+            save_surface=f"ocak_{last}",
+        )
+        self.refresh()
+        QMessageBox.information(
+            self,
+            "Ocak",
+            f"Kabuk 1-{e.last_shell}: {e.blocks:,} blok, katı hacmi {e.volume:,.0f} m³.\n"
+            f"{e.outlines} basamak çizgisi (üst/alt kot) ve ocak katısı: {path}\n"
+            f"Kazı sonrası yüzey 'ocak_{last}' adıyla kaydedildi"
+            + (f" (topoğrafya: {topo})." if topo else "."),
         )
 
     def optimise_pit(self) -> None:

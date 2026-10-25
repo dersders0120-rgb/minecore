@@ -145,6 +145,7 @@ def test_pit_dialog_shells_pushbacks_and_save(qapp: QApplication, tmp_path: Path
     assert dialog.pit is not None
     assert dialog.shells.rowCount() == len(dialog.pit.rows)
     dialog.min_ore.setValue(0.05)
+    dialog.min_width.setValue(30.0)
     dialog.make_phases()
     assert dialog.sched is not None
     assert dialog.sched_table.rowCount() == len(dialog.sched.rows) + 1
@@ -159,6 +160,32 @@ def test_pit_dialog_shells_pushbacks_and_save(qapp: QApplication, tmp_path: Path
     write_pit_reports_xlsx(tmp_path / "pit.xlsx", dialog.pit, dialog.sched)
     assert (tmp_path / "pit.xlsx").stat().st_size > 0
     project.close()
+    _export_pit_from_main_window(tmp_path / "pit.mcproj", tmp_path / "ocak.dxf")
+
+
+def _export_pit_from_main_window(path: Path, dxf: Path) -> None:
+    from PySide6.QtWidgets import QFileDialog, QInputDialog, QMessageBox  # noqa: PLC0415
+
+    from minecore.gui.app import MainWindow  # noqa: PLC0415
+    from minecore.surfaces import surface_names  # noqa: PLC0415
+
+    patch = pytest.MonkeyPatch()
+    notes: list[str] = []
+    patch.setattr(QInputDialog, "getItem", lambda *a, **k: (a[3][0], True))
+    patch.setattr(QInputDialog, "getInt", lambda *a, **k: (a[3], True))
+    patch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: (str(dxf), ""))
+    patch.setattr(QMessageBox, "information", lambda *a, **k: notes.append(a[2]))
+    try:
+        window = MainWindow()
+        window._set_project(Project.open(path))
+        window.export_pit()
+        assert notes, "the export reported nothing"
+        assert "PIT_SOLID" in dxf.read_text()
+        assert window.project is not None
+        assert any(n.startswith("ocak_") for n in surface_names(window.project))
+        window.project.close()
+    finally:
+        patch.undo()
 
 
 def test_validation_dialog(qapp: QApplication, tmp_path: Path) -> None:

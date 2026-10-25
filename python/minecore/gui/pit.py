@@ -42,6 +42,7 @@ from minecore.pitopt import (
 )
 from minecore.pitopt.optimise import store
 from minecore.pitopt.scheduling import ConstrainedSchedule, Limits, schedule_constrained
+from minecore.pitopt.width import apply_mining_width
 from minecore.project import Project
 
 PRICE_TR = {
@@ -154,6 +155,9 @@ class PitDialog(QDialog):
         export.clicked.connect(self._guard(self.export))
         pf.addRow("Nihai ocak kabuğu", self.final)
         pf.addRow("Pushback başına en az cevher (Mt)", self.min_ore)
+        self.min_width = _spin(0.0, 0.0, 1000.0, 5.0, 1)
+        self.min_width.setToolTip("Her basamaktaki pushback dilimi için en az genişlik; 0 = yok")
+        pf.addRow("Minimum kazı genişliği (m)", self.min_width)
         self.plant = _spin(2.0, 0.001, 1e4, 0.5, 3)
         self.lag = QSpinBox(minimum=0, maximum=50, value=2)
         self.sinking = QSpinBox(minimum=1, maximum=50, value=6)
@@ -358,6 +362,16 @@ class PitDialog(QDialog):
             raise RuntimeError("Önce kabukları hesaplayın.")
         final = int(self.final.currentData())
         self.phase = pushbacks(self.pit, final, self.min_ore.value() * 1e6)
+        width_note = ""
+        if self.min_width.value() > 0:
+            grid = BlockModel.open(self.project, self.model.currentText()).grid
+            fixed = apply_mining_width(
+                grid, self.phase, self.slope_profile(), self.min_width.value()
+            )
+            self.phase = fixed.phase
+            width_note = f"\nMinimum genişlik: {fixed.moved:,} blok başka pushback'e alındı" + (
+                f"; {fixed.remaining_slivers:,} dar blok kaldı." if fixed.remaining_slivers else "."
+            )
         limits = Limits(
             mining_capacity=self.rate.value() * 1e6,
             plant_capacity=self.plant.value() * 1e6,
@@ -396,6 +410,7 @@ class PitDialog(QDialog):
             "Pushback",
             f"{int(self.phase.max())} pushback, {len(rows)} yıllık çizelge. "
             f"NPV {self.sched.npv / 1e6:,.1f} M$."
+            + width_note
             + (
                 f"\nUyarı: {self.sched.unmined_t / 1e6:,.2f} Mt {limits.max_periods} yılda "
                 "kazılamadı."
