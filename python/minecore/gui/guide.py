@@ -64,6 +64,9 @@ GUIDE = """
    **Proje nakit akışı** bölümünde yatırım (ör. `0:250; 4:40`, yıl:M$), sabit gider,
    kapanış maliyeti, vergi ve amortisman girilir; "Nakit akışı" sekmesi yıl yıl FAVÖK,
    vergi, nakit akışı ve proje NPV, İVO (IRR) ve geri ödeme süresini verir.
+   "Duyarlılık" sekmesi fiyat, madencilik ve zenginleştirme maliyeti, kazanım, iskonto
+   ve yatırımın ±% değişiminde proje NPV'sini tablo ve örümcek grafiği olarak verir
+   (sabit ocak tasarımı veya her durumda yeniden optimize edilen ocak).
 2. **Basamak tasarımı**: şev açısı, basamak yüksekliği ve berm ile tasarım yüzeyi,
    tasarım içindeki bloklar ve değer karşılaştırması; isteğe bağlı spiral rampa
    (genişlik, eğim, çıkış yönü); geoteknik sektörler (ör. `0:70:6; 180:55:8`:

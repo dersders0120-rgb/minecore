@@ -238,6 +238,29 @@ def test_pit_dialog_stockpile_bins_and_capacity(qapp: QApplication, tmp_path: Pa
     project.close()
 
 
+def test_pit_dialog_sensitivity(qapp: QApplication, tmp_path: Path) -> None:
+    project, dialog, _parent = _gold_silver_dialog(tmp_path, [])
+    dialog.price.setValue(1800.0)
+    dialog.coproducts.setText("ag:25:ozt:70:95")
+    dialog.run()
+    with pytest.raises(RuntimeError):
+        dialog.run_sensitivity()  # needs the pushbacks and the schedule first
+    dialog.plant.setValue(0.02)
+    dialog.min_ore.setValue(0.02)
+    dialog.capex.setText("0:0.5")
+    dialog.make_phases()
+    assert dialog.flow is not None
+    dialog.sens_changes.setText("-10; 10")
+    dialog.run_sensitivity()
+    s = dialog.sens
+    assert s is not None
+    assert s.base.npv == pytest.approx(dialog.flow.npv)
+    assert dialog.sens_table.rowCount() == 6  # price, costs, recovery, discount, capital
+    assert dialog.sens_table.columnCount() == 4  # label, -10 %, base, +10 %
+    assert len(dialog.sens_figure.axes[0].get_legend_handles_labels()[0]) == 6
+    project.close()
+
+
 def test_pit_dialog_values_co_products(qapp: QApplication, tmp_path: Path) -> None:
     project, dialog, _parent = _gold_silver_dialog(tmp_path, [])
     dialog.price.setValue(1800.0)

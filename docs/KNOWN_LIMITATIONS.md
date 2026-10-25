@@ -122,6 +122,17 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
 - The simple fixed-rate schedule (without a plant capacity) has no cash-flow
   breakdown; the project cash flow needs the constrained schedule.
 
+## Sensitivity analysis
+
+- `pitopt.sensitivity` (CLI `pit optimise --sensitivity`, GUI "Duyarlılık"
+  tab) changes one input at a time by relative amounts and reruns block
+  values, schedule and project cash flow, on the fixed pit design or with the
+  pit re-optimised. Not available: two-way tables, correlated or
+  probabilistic (Monte Carlo) cases, break-even search, per-metal prices,
+  selling cost or fixed cost as inputs. Price scales every metal price (or the
+  NSR) with selling costs unchanged; recovery is capped at 100 %. Scenarios
+  are not stored in the project; each run is recomputed.
+
 ## Cut-off grade optimisation (Lane)
 
 - `pitopt.cutoff`: Lane's method with mine, mill and market capacities, fixed

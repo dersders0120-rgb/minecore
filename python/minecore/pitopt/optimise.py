@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -104,6 +104,53 @@ def _coproduct_grades(model: BlockModel, econ: Economics) -> list[tuple[Floats, 
     return out
 
 
+def _inputs(
+    model: BlockModel, grade_attribute: str, econ: Economics, rock_attribute: str | None
+) -> tuple[Floats, str | None, Floats, Ints, list[tuple[Floats, str | None]]]:
+    """Grade, its unit, tonnes, bench from the top and co-product grades of each block."""
+    nx, ny, nz = model.grid.count
+    k = np.arange(model.grid.blocks) // (nx * ny)
+    return (
+        model.values(grade_attribute),
+        model.attributes[grade_attribute].get("unit"),
+        _block_tonnes(model, econ, rock_attribute),
+        (nz - 1 - k).astype(np.int64),
+        _coproduct_grades(model, econ),
+    )
+
+
+def revalue(  # noqa: PLR0913 - options are keyword-only
+    model: BlockModel,
+    grade_attribute: str,
+    econ: Economics,
+    result: PitResult,
+    *,
+    rock_attribute: str | None = None,
+    price_factor: float = 1.0,
+) -> PitResult:
+    """The shells of ``result`` valued with other economics (a fixed pit design).
+
+    Ore/waste, routes and values follow the new economics; the shells stay.
+    The shell report rows are dropped (they belong to the original values).
+    """
+    grade, unit, tonnes, bench, co_grades = _inputs(model, grade_attribute, econ, rock_attribute)
+    base = block_values(grade, unit, tonnes, bench, econ, price_factor, co_grades)
+    return replace(
+        result,
+        value=base.value,
+        ore=base.ore,
+        tonnes=tonnes,
+        metal=base.metal,
+        rows=(),
+        mining=base.mining,
+        feed=base.feed,
+        feed_grade=base.feed_grade,
+        route=base.route,
+        revenue=base.revenue,
+        coproduct_metal=base.coproduct_metal,
+    )
+
+
 def optimise_pit(  # noqa: PLR0913 - options are keyword-only
     model: BlockModel,
     grade_attribute: str,
@@ -116,32 +163,31 @@ def optimise_pit(  # noqa: PLR0913 - options are keyword-only
     max_levels: int | None = None,
     rock_attribute: str | None = None,
     progress: Progress | None = None,
+    price_factor: float = 1.0,
 ) -> PitResult:
     """Nested shells for ``revenue_factors`` and their report.
 
     ``rock_attribute`` (1 = rock, 0 = air above topography) zeroes the tonnage,
-    cost and value of air blocks.
+    cost and value of air blocks. ``price_factor`` scales every metal price (or
+    the NSR) for a price scenario: the block values are at ``price_factor`` and
+    shell ``n`` at ``price_factor * revenue_factors[n]``.
     """
+    if not (price_factor > 0 and math.isfinite(price_factor)):
+        raise PitOptError("price factor must be > 0")
     factors = tuple(sorted(float(f) for f in revenue_factors))
     if not factors or factors[0] <= 0:
         raise PitOptError("revenue factors must be > 0")
     if mining_rate <= 0 or discount_rate < 0:
         raise PitOptError("mining rate must be > 0 and discount rate >= 0")
     grid = model.grid
-    nx, ny, nz = grid.count
-    grade = model.values(grade_attribute)
-    unit = model.attributes[grade_attribute].get("unit")
-    tonnes = _block_tonnes(model, econ, rock_attribute)
-    k = np.arange(grid.blocks) // (nx * ny)
-    bench = (nz - 1 - k).astype(np.int64)
-    co_grades = _coproduct_grades(model, econ)
-    base = block_values(grade, unit, tonnes, bench, econ, coproduct_grades=co_grades)
+    grade, unit, tonnes, bench, co_grades = _inputs(model, grade_attribute, econ, rock_attribute)
+    base = block_values(grade, unit, tonnes, bench, econ, price_factor, co_grades)
     if progress is not None:
         progress.update(0.02, "eğim kısıtları")
     arcs = precedence_arcs(grid, slope, max_levels)
     shell = np.zeros(grid.blocks, np.int64)
     for n, rf in enumerate(factors, start=1):
-        econ_rf = block_values(grade, unit, tonnes, bench, econ, rf, co_grades)
+        econ_rf = block_values(grade, unit, tonnes, bench, econ, rf * price_factor, co_grades)
         cents = np.round(econ_rf.value * 100.0).astype(np.int64)
         pit = np.asarray(max_closure(cents, arcs), bool)
         shell[pit & (shell == 0)] = n

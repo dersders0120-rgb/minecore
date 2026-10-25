@@ -6,7 +6,7 @@ import math
 
 import numpy as np
 import pytest
-from hypothesis import given, settings
+from hypothesis import example, given, settings
 from hypothesis import strategies as st
 
 from minecore.pitopt.cutoff import LaneInputs, LaneResult, constant_cutoff_npv, optimise_cutoffs
@@ -64,6 +64,8 @@ def test_mill_limited_balances_opportunity_cost() -> None:
     st.floats(0.0, 3e6),
     st.floats(0.0, 0.2),
 )
+# Mine-mill balance inside one grade class: needs the split class (balancing point).
+@example(2525386.0, 1969849.0, 2524447.0, 0.001953125)
 def test_lane_beats_every_constant_cutoff(mine: float, mill: float, fixed: float, d: float) -> None:
     inp = _inputs(mine_capacity=mine, mill_capacity=mill, fixed=fixed, discount=d)
     lane = optimise_cutoffs(inp, GRADES, TONNES).npv

@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any, TextIO
 
 import numpy as np
+import numpy.typing as npt
 
 from minecore import strings, surfaces
 from minecore.blockmodel import BlockModel, BlockModelError, Grid
@@ -51,6 +52,14 @@ from minecore.pitopt.design import edge_blocks, export_pit, period_surfaces
 from minecore.pitopt.economics import PitOptError, parse_products, parse_routes
 from minecore.pitopt.optimise import PitResult, Schedule, route_tonnes, store
 from minecore.pitopt.scheduling import ConstrainedSchedule, Limits, schedule_constrained
+from minecore.pitopt.sensitivity import (
+    Case,
+    Input,
+    Plan,
+    Sensitivity,
+    parse_changes,
+    sensitivity,
+)
 from minecore.pitopt.width import apply_mining_width
 from minecore.plots import SectionSpec, section_plot
 from minecore.project import Project
@@ -333,6 +342,20 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
         help="stockpile t of each route, main route first (with --plant; default unlimited)",
     )
     opt.add_argument("--rehandle-cost", type=float, default=0.0, help="per t reclaimed")
+    opt.add_argument(
+        "--sensitivity",
+        nargs="*",
+        choices=[i.value for i in Input],
+        help="NPV sensitivity to these inputs (none listed: all; with --plant)",
+    )
+    opt.add_argument(
+        "--changes",
+        default="-20;-10;10;20",
+        help="sensitivity changes in percent, e.g. --changes=-20;-10;10;20",
+    )
+    opt.add_argument(
+        "--reoptimise", action="store_true", help="re-optimise the pit in every sensitivity case"
+    )
     des = pit_cmds.add_parser("design", help="bench design around the optimised pit")
     des.add_argument("project")
     des.add_argument("model")
@@ -902,6 +925,9 @@ def pit_optimise(project: Project, args: argparse.Namespace, out: TextIO) -> int
         phase = apply_mining_width(model.grid, phase, slope, args.min_width).phase
     sched: Schedule | ConstrainedSchedule
     flow: CashFlow | None = None
+    sens: Sensitivity | None = None
+    if args.sensitivity is not None and not args.plant:
+        raise PitOptError("the sensitivity analysis needs the constrained schedule: give --plant")
     if args.plant:
         limits = Limits(
             args.rate,
@@ -916,6 +942,27 @@ def pit_optimise(project: Project, args: argparse.Namespace, out: TextIO) -> int
         )
         sched = schedule_constrained(result, phase, limits)
         flow = cash_flow(sched.rows, terms)
+        if args.sensitivity is not None:
+            plan = Plan(
+                model,
+                args.grade,
+                econ,
+                slope,
+                limits,
+                terms,
+                tuple(factors),
+                args.final_rf,
+                phase_ore,
+                args.min_width,
+                args.rock,
+            )
+            sens = sensitivity(
+                plan,
+                [Input(i) for i in args.sensitivity] or tuple(Input),
+                parse_changes(args.changes),
+                reoptimise=args.reoptimise,
+                base=(result, phase),
+            )
     else:
         sched = schedule(result, phase, args.rate, args.discount)
     store(model, result, econ, slope, phase, sched)
@@ -926,30 +973,50 @@ def pit_optimise(project: Project, args: argparse.Namespace, out: TextIO) -> int
             "it may be truncated (create the model with padding)\n"
         )
     if args.json:
-        json.dump(
-            {
-                "shells": [r.__dict__ for r in result.rows],
-                "schedule": [p.__dict__ for p in sched.rows],
-                "npv": sched.npv,
-                **(
-                    {
-                        "cash_flow": [r.__dict__ for r in flow.rows],
-                        "project": {
-                            "npv": flow.npv,
-                            "irr": _finite(flow.irr()),
-                            "payback": _finite(flow.payback()),
-                            "undiscounted": flow.undiscounted,
-                        },
-                    }
-                    if flow is not None
-                    else {}
-                ),
-            },
-            out,
-            indent=2,
-        )
+        json.dump(_optimise_json(result, sched, flow, sens), out, indent=2)
         out.write("\n")
         return 0
+    _write_optimise(result, econ, final, phase, sched, flow, sens, out)
+    return 0
+
+
+def _optimise_json(
+    result: PitResult,
+    sched: Schedule | ConstrainedSchedule,
+    flow: CashFlow | None,
+    sens: Sensitivity | None,
+) -> dict[str, object]:
+    return {
+        "shells": [r.__dict__ for r in result.rows],
+        "schedule": [p.__dict__ for p in sched.rows],
+        "npv": sched.npv,
+        **(
+            {
+                "cash_flow": [r.__dict__ for r in flow.rows],
+                "project": {
+                    "npv": flow.npv,
+                    "irr": _finite(flow.irr()),
+                    "payback": _finite(flow.payback()),
+                    "undiscounted": flow.undiscounted,
+                },
+            }
+            if flow is not None
+            else {}
+        ),
+        **({"sensitivity": _sensitivity_json(sens)} if sens is not None else {}),
+    }
+
+
+def _write_optimise(  # noqa: PLR0913, PLR0917 - the parts of one report
+    result: PitResult,
+    econ: Economics,
+    final: int,
+    phase: npt.NDArray[np.int64],
+    sched: Schedule | ConstrainedSchedule,
+    flow: CashFlow | None,
+    sens: Sensitivity | None,
+    out: TextIO,
+) -> None:
     out.write(
         f"{'shell':>5} {'RF':>5} {'ore t':>14} {'waste t':>14} {'best NPV':>14} {'worst NPV':>14}\n"
     )
@@ -969,7 +1036,42 @@ def pit_optimise(project: Project, args: argparse.Namespace, out: TextIO) -> int
             out.write(f"stockpiles: {reclaimed:,.0f} t reclaimed, {lost:,.0f} t ore to waste\n")
     if flow is not None:
         _write_cash_flow(flow, out)
-    return 0
+    if sens is not None:
+        _write_sensitivity(sens, out)
+
+
+def _case_json(c: Case) -> dict[str, object]:
+    return {
+        "input": None if c.input is None else c.input.value,
+        "change": c.change,
+        "npv": _finite(c.npv),
+        "irr": _finite(c.irr),
+        "ore_t": _finite(c.ore_t),
+        "metal": _finite(c.metal),
+        "years": c.years,
+        "pit_t": _finite(c.pit_t),
+    }
+
+
+def _sensitivity_json(s: Sensitivity) -> dict[str, object]:
+    return {
+        "reoptimised": s.reoptimised,
+        "base": _case_json(s.base),
+        "cases": [_case_json(c) for c in s.cases],
+    }
+
+
+def _write_sensitivity(s: Sensitivity, out: TextIO) -> None:
+    changes = sorted({c.change for c in s.cases})
+    mode = "re-optimised pit" if s.reoptimised else "fixed pit design"
+    out.write(f"sensitivity of the project NPV ({mode}; base {s.base.npv:,.0f})\n")
+    out.write(f"{'input':<11}" + "".join(f"{c:>+15.0%}" for c in changes) + "\n")
+    for which in dict.fromkeys(c.input for c in s.cases):
+        cells = []
+        for change in changes:
+            npv = next(c.npv for c in s.cases if c.input == which and c.change == change)
+            cells.append(f"{npv:>15,.0f}" if math.isfinite(npv) else f"{'-':>15}")
+        out.write(f"{which.value if which else '':<11}" + "".join(cells) + "\n")
 
 
 def _finite(value: float) -> float | None:
