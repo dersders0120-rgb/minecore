@@ -13,6 +13,12 @@ stope's lowest block layer), richest value first within a level, filling
 each year to the mining capacity; a stope can span two years. Stopes with a
 negative value are left out unless asked. The rows are the pit schedule's
 ``PeriodRow`` so the project cash flow (capital, tax, closure) is shared.
+
+With ``ready_years`` (one per value, from ``devschedule``) a stope cannot
+start before the year its level is ready: stopes are taken in order of
+readiness first, and the mine waits (an idle part-year) when nothing is
+ready. ``extra_costs`` (year -> cost, e.g. development) are added to the
+years' mining cost, also in years without production.
 """
 
 from __future__ import annotations
@@ -74,13 +80,18 @@ def schedule_stopes(  # noqa: PLR0913 - options are keyword-only
     bottom_up: bool = True,
     include_negative: bool = False,
     development_cost: float = 0.0,
+    ready_years: list[float] | None = None,
+    extra_costs: dict[int, float] | None = None,
 ) -> tuple[ConstrainedSchedule, list[tuple[StopeValue, int]]]:
     """Yearly schedule and the (stope, first year) of each scheduled stope."""
     if capacity_t <= 0:
         raise PitOptError("the mining capacity must be > 0")
+    if ready_years is not None and len(ready_years) != len(values):
+        raise PitOptError("one ready year per stope is needed")
+    ready = dict(zip(map(id, values), ready_years or [0.0] * len(values), strict=True))
     chosen = [v for v in values if include_negative or v.value > 0]
     sign = 1 if bottom_up else -1
-    chosen.sort(key=lambda v: (sign * v.stope.k, -v.value))
+    chosen.sort(key=lambda v: (int(ready[id(v)]), sign * v.stope.k, -v.value))
     years: list[dict[str, float]] = []
     starts: list[tuple[StopeValue, int]] = []
 
@@ -91,6 +102,8 @@ def schedule_stopes(  # noqa: PLR0913 - options are keyword-only
 
     t, room = 0, capacity_t
     for v in chosen:
+        if int(ready[id(v)]) > t:
+            t, room = int(ready[id(v)]), capacity_t
         left = v.mined_t
         starts.append((v, t + 1))
         if left <= 0:
@@ -111,9 +124,12 @@ def schedule_stopes(  # noqa: PLR0913 - options are keyword-only
             room -= take
             if room <= 1e-9:
                 t, room = t + 1, capacity_t
+    for year_no, cost in (extra_costs or {}).items():
+        if year_no >= 1:
+            year(year_no - 1)["cost"] += cost
     rows = []
     for i, y in enumerate(years):
-        if y["t"] <= 0:
+        if y["t"] <= 0 and y["cost"] == 0:
             continue
         cash = y["revenue"] - y["cost"]
         rows.append(
@@ -122,7 +138,7 @@ def schedule_stopes(  # noqa: PLR0913 - options are keyword-only
                 mined_t=y["t"],
                 ore_mined_t=y["t"],
                 ore_fed_t=y["t"],
-                feed_grade=y["gt"] / y["t"],
+                feed_grade=y["gt"] / y["t"] if y["t"] > 0 else float("nan"),
                 metal=y["metal"],
                 stockpile_t=0.0,
                 cash=cash,
