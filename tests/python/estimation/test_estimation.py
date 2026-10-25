@@ -184,3 +184,52 @@ def test_block_model_and_grade_tonnage(tmp_path: Path) -> None:
     assert gt.unestimated_blocks == 1
     project.undo()
     assert "au" not in BlockModel.open(project, "bm").attributes
+
+
+def test_native_kriging_matches_a_direct_numpy_solve() -> None:
+    """Independent check of the Rust kernel: dense NumPy OK system per block."""
+    from minecore.estimation import (  # noqa: PLC0415
+        Ellipsoid,
+        Method,
+        ModelType,
+        Search,
+        Structure,
+        VariogramModel,
+        estimate,
+    )
+
+    rng = np.random.default_rng(11)
+    xyz = rng.uniform(0, 100, (80, 3))
+    val = rng.lognormal(0, 0.7, 80)
+    vg = VariogramModel(
+        0.1,
+        (
+            Structure(ModelType.SPHERICAL, 0.6, Ellipsoid(60.0, 40.0, 20.0, 30.0, 10.0, 5.0)),
+            Structure(ModelType.EXPONENTIAL, 0.3, Ellipsoid.isotropic(120.0)),
+        ),
+    )
+    targets = rng.uniform(10, 90, (25, 3))
+    size, disc = (10.0, 10.0, 5.0), (2, 2, 2)
+    res = estimate(
+        xyz,
+        val,
+        targets,
+        Search(Ellipsoid.isotropic(1e4), 1, 80),
+        Method.ORDINARY_KRIGING,
+        variogram=vg,
+        block_size=size,
+        discretisation=disc,
+    )
+    axes = [(np.arange(n) + 0.5) / n * s - s / 2 for s, n in zip(size, disc, strict=True)]
+    off = np.stack(np.meshgrid(*axes, indexing="ij"), -1).reshape(-1, 3)
+    n = len(val)
+    a = np.ones((n + 1, n + 1))
+    a[:n, :n] = vg.covariance(xyz[:, None, :] - xyz[None, :, :])
+    a[n, n] = 0.0
+    cbb = vg.covariance(off[:, None, :] - off[None, :, :]).mean()
+    for t, target in enumerate(targets):
+        b = np.ones(n + 1)
+        b[:n] = vg.covariance(xyz[:, None, :] - (target + off)[None, :, :]).mean(axis=1)
+        sol = np.linalg.solve(a, b)
+        assert res.value[t] == pytest.approx(sol[:n] @ val, rel=1e-9)
+        assert res.variance[t] == pytest.approx(cbb - sol[:n] @ b[:n] - sol[n], rel=1e-7, abs=1e-10)

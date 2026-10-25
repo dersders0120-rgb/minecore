@@ -26,9 +26,10 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
 - Validation: swath plots and leave-one-hole-out cross-validation exist
   (isotropic search in the dialog); no kriging neighbourhood analysis,
   no declustered statistics, no change-of-support checks yet.
-- Estimation loop is Python/NumPy. Measured (3000 samples, 16 per block, 2x2x2
-  discretisation): IDW about 67k blocks/s, ordinary kriging about 1.8k blocks/s,
-  so a 1 M block OK run takes about 10 minutes. Rust port of the OK loop planned.
+- Estimation kernels run in Rust (`mc-core::kriging`) on all cores; neighbour
+  search is a SciPy KD-tree. Measured on 4 cores (3000 samples, 16 per block,
+  2x2x2 discretisation, release build): IDW about 230k blocks/s, ordinary
+  kriging about 143k blocks/s.
 - No CLI commands for import, block model, estimation or reporting yet (rule 5
   debt): the workbench calls the public Python API, which scripts can call.
 - Grade-tonnage is a report, not a resource classification (rule 8).

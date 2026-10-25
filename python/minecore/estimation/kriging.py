@@ -21,6 +21,7 @@ import numpy as np
 import numpy.typing as npt
 from scipy.spatial import cKDTree
 
+from minecore._core import estimate_neighbourhood
 from minecore.estimation.variogram import Ellipsoid, EstimationError, VariogramModel
 from minecore.jobs import Progress
 
@@ -65,7 +66,7 @@ def _discretise(size: tuple[float, float, float], n: tuple[int, int, int]) -> Fl
     return np.column_stack([gx.ravel(), gy.ravel(), gz.ravel()])
 
 
-def estimate(  # noqa: PLR0913, PLR0912, PLR0915 - one loop per target, kept explicit
+def estimate(  # noqa: PLR0913 - options are keyword-only
     samples: Floats,
     values: Floats,
     targets: Floats,
@@ -109,75 +110,47 @@ def estimate(  # noqa: PLR0913, PLR0912, PLR0915 - one loop per target, kept exp
         if holes is None:
             raise EstimationError("exclude_hole needs hole_ids")
         k = min(len(values), search.max_samples * 4 + 200)
-    dist, idx = tree.query(targets @ transform, k=k, distance_upper_bound=1.0)
-    dist = np.atleast_2d(dist).reshape(m, -1)
-    idx = np.atleast_2d(idx).reshape(m, -1)
-
-    if block_size is not None:
+    if block_size is not None and method is Method.ORDINARY_KRIGING:
         offsets = _discretise(block_size, discretisation)
     else:
         offsets = np.zeros((1, 3))
-    cbb = None
+    structures = []
     if method is Method.ORDINARY_KRIGING:
         assert variogram is not None
-        diff = offsets[:, None, :] - offsets[None, :, :]
-        cbb = float(variogram.covariance(diff).mean())
-
-    for t in range(m):
-        valid = np.isfinite(dist[t])
-        cand, cd = idx[t][valid], dist[t][valid]
-        if exclude_hole is not None:
-            assert holes is not None
-            other = holes[cand] != exclude_hole[t]
-            cand, cd = cand[other], cd[other]
-        if holes is not None and search.max_per_hole:
-            taken: dict[int, int] = {}
-            keep = []
-            for c in cand:
-                h = int(holes[c])
-                if taken.get(h, 0) < search.max_per_hole:
-                    taken[h] = taken.get(h, 0) + 1
-                    keep.append(True)
-                else:
-                    keep.append(False)
-            mask = np.array(keep, bool)
-            cand, cd = cand[mask], cd[mask]
-        cand, cd = cand[: search.max_samples], cd[: search.max_samples]
-        if len(cand) < search.min_samples:
-            continue
-        used[t] = len(cand)
-        mean_dist[t] = float(cd.mean())
-        v = values[cand]
-        if method is Method.NEAREST:
-            value[t] = v[0]
-        elif method is Method.INVERSE_DISTANCE:
-            if cd[0] < 1e-12:
-                value[t] = v[0]
-            else:
-                w = 1.0 / cd**power
-                value[t] = float((w * v).sum() / w.sum())
-        else:
-            assert variogram is not None
-            assert cbb is not None
-            p = samples[cand]
-            n = len(cand)
-            a = np.ones((n + 1, n + 1))
-            a[:n, :n] = variogram.covariance(p[:, None, :] - p[None, :, :])
-            a[n, n] = 0.0
-            points = targets[t] + offsets
-            b = np.ones(n + 1)
-            b[:n] = variogram.covariance(p[:, None, :] - points[None, :, :]).mean(axis=1)
-            try:
-                sol = np.linalg.solve(a, b)
-            except np.linalg.LinAlgError:
-                sol = np.linalg.lstsq(a, b, rcond=None)[0]
-            w, mu = sol[:n], sol[n]
-            value[t] = float(w @ v)
-            variance[t] = cbb - float(w @ b[:n]) - mu
-        if progress is not None and t % 2000 == 0:
-            progress.update(t / m, f"{t}/{m}")
-    if progress is not None:
-        progress.update(1.0, f"{m}/{m}")
+        for s in variogram.structures:
+            e = s.ranges
+            rows = e.axes() / np.array([[e.major], [e.semi], [e.minor]])
+            structures.append((s.type.value, float(s.sill), rows.tolist()))
+    scaled_targets = targets @ transform
+    chunk = 100_000
+    for lo in range(0, m, chunk):
+        hi = min(lo + chunk, m)
+        dist, idx = tree.query(scaled_targets[lo:hi], k=k, distance_upper_bound=1.0)
+        dist = np.asarray(dist, np.float64).reshape(hi - lo, -1)
+        idx = np.asarray(idx).reshape(hi - lo, -1)
+        idx = np.where(idx >= len(values), np.iinfo(np.uint32).max, idx).astype(np.uint32)
+        v, var, n_used, md = estimate_neighbourhood(
+            method.value,
+            samples,
+            values,
+            targets[lo:hi],
+            idx,
+            dist,
+            min_samples=search.min_samples,
+            max_samples=search.max_samples,
+            max_per_hole=search.max_per_hole if holes is not None else 0,
+            holes=None if holes is None else holes.astype(np.int64),
+            exclude_hole=None
+            if exclude_hole is None
+            else np.asarray(exclude_hole[lo:hi], np.int64),
+            power=power,
+            nugget=0.0 if variogram is None else variogram.nugget,
+            structures=structures,
+            offsets=offsets,
+        )
+        value[lo:hi], variance[lo:hi], used[lo:hi], mean_dist[lo:hi] = v, var, n_used, md
+        if progress is not None:
+            progress.update(hi / m, f"{hi}/{m}")
     unestimated = int(np.count_nonzero(np.isnan(value)))
     return EstimationResult(value, variance, used, mean_dist, unestimated)
 

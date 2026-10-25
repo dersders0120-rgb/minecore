@@ -135,3 +135,28 @@ class OptimisationError(MineCoreError):
 
 def max_closure(values: npt.ArrayLike, precedence: npt.ArrayLike) -> npt.NDArray[np.bool_]:
     """Smallest maximum-weight closure: True for nodes inside the ultimate pit."""
+
+class EstimationKernelError(MineCoreError):
+    """Invalid input to an estimation kernel."""
+
+def estimate_neighbourhood(
+    method: str,
+    samples: npt.ArrayLike,
+    values: npt.ArrayLike,
+    targets: npt.ArrayLike,
+    candidates: npt.ArrayLike,
+    distances: npt.ArrayLike,
+    *,
+    min_samples: int,
+    max_samples: int,
+    max_per_hole: int = 0,
+    holes: npt.ArrayLike | None = None,
+    exclude_hole: npt.ArrayLike | None = None,
+    power: float = 2.0,
+    nugget: float = 0.0,
+    structures: list[tuple[str, float, list[list[float]]]] = ...,
+    offsets: npt.ArrayLike | None = None,
+) -> tuple[
+    npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.int64], npt.NDArray[np.float64]
+]:
+    """Estimate targets from KD-tree candidates; returns value, variance, used, mean distance."""

@@ -9,6 +9,7 @@
 //! crate; this crate never depends on them.
 
 pub mod coords;
+pub mod kriging;
 pub mod pitopt;
 pub mod units;
 
