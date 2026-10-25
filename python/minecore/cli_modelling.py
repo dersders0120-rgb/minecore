@@ -125,6 +125,8 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     opt.add_argument("--selling-cost", type=float, default=0.0)
     opt.add_argument("--bench-cost", type=float, default=0.0)
     opt.add_argument("--density", default="2.7")
+    opt.add_argument("--mining-recovery", type=float, default=1.0, help="fraction of ore mined")
+    opt.add_argument("--dilution", type=float, default=0.0, help="zero-grade dilution fraction")
     opt.add_argument("--slope", type=float, default=45.0)
     opt.add_argument("--revenue-factors", type=float, nargs="+", default=[0.5, 0.75, 1.0, 1.25])
     opt.add_argument("--final-rf", type=float, default=1.0)
@@ -313,6 +315,8 @@ def pit_command(args: argparse.Namespace, out: TextIO) -> int:
             args.selling_cost,
             args.bench_cost,
             _density(args.density),
+            args.mining_recovery,
+            args.dilution,
         )
         slope = SlopeProfile(args.slope)
         factors = sorted(set(args.revenue_factors) | {args.final_rf})

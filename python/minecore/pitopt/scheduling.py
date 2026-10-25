@@ -108,11 +108,11 @@ def _increments(result: PitResult, phase: Ints) -> list[_Increment]:
                 int(result.bench[blocks[0]]),
                 blocks,
                 float(t[blocks].sum()),
-                float(t[ore].sum()),
+                float(result.feed[ore].sum()),
                 float((result.value[ore] + result.mining[ore]).sum()),
                 float(result.mining[blocks].sum()),
                 float(result.metal[ore].sum()),
-                float((t[ore] * result.grade[ore]).sum()),
+                float((result.feed[ore] * result.feed_grade[ore]).sum()),
             )
         )
     return out

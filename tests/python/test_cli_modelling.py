@@ -70,6 +70,10 @@ def test_csv_to_pit_schedule(tmp_path: Path) -> None:
             "300000",
             "--min-width",
             "40",
+            "--mining-recovery",
+            "0.95",
+            "--dilution",
+            "0.05",
             "--json",
         )
     )

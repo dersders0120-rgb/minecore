@@ -112,12 +112,16 @@ class PitDialog(QDialog):
         self.mining = _spin(2.5, 0.0, 1e4, 0.1)
         self.bench_cost = _spin(0.0, 0.0, 100.0, 0.01, 3)
         self.processing = _spin(20.0, 0.0, 1e5, 0.5)
+        self.mine_recovery = _spin(100.0, 1.0, 100.0, 1, 1)
+        self.dilution = _spin(0.0, 0.0, 100.0, 1, 1)
         ef.addRow("Metal fiyatı", _row(self.price, self.price_unit))
         ef.addRow("Satış maliyeti (fiyat biriminde)", self.selling)
         ef.addRow("Kazanım %", self.recovery)
         ef.addRow("Madencilik maliyeti $/t", self.mining)
         ef.addRow("Basamak başına ek maliyet $/t", self.bench_cost)
         ef.addRow("Zenginleştirme maliyeti $/t cevher", self.processing)
+        ef.addRow("Madencilik kazanımı % (cevher kaybı)", self.mine_recovery)
+        ef.addRow("Seyrelme % (sıfır tenörlü pasa)", self.dilution)
         left.addWidget(econ_box)
 
         geo = QGroupBox("Şev ve kabuklar")
@@ -270,6 +274,8 @@ class PitDialog(QDialog):
             selling_cost=self.selling.value(),
             mining_cost_per_bench=self.bench_cost.value(),
             density=self.density.value() if d == "(sabit)" else d,
+            mining_recovery=self.mine_recovery.value() / 100.0,
+            dilution=self.dilution.value() / 100.0,
         )
 
     def slope_profile(self) -> SlopeProfile:

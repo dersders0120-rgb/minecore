@@ -52,6 +52,25 @@ def test_copper_percent_and_bench_cost() -> None:
     assert out.value[0] == pytest.approx(metal_t * 8500 - 1000 - 100 * 3.0)
 
 
+def test_mining_recovery_and_dilution_by_hand() -> None:
+    econ = Economics(
+        1800.0, PriceUnit.TROY_OUNCE, 0.9, 2.0, 15.0, mining_recovery=0.95, dilution=0.1
+    )
+    out = block_values(np.array([1.0]), "g/t", np.array([1000.0]), np.array([0]), econ)
+    feed = 1000 * 0.95 * 1.1  # 1045 t to the plant
+    oz = 1000 * 1000 * 1e-6 * 0.95 * 0.9 / 0.0311034768
+    assert out.feed[0] == pytest.approx(feed)
+    assert out.feed_grade[0] == pytest.approx(1.0 / 1.1)
+    assert out.metal[0] == pytest.approx(oz)
+    assert out.value[0] == pytest.approx(oz * 1800 - feed * 15 - 2_000)
+    # Contained metal of the feed equals the recovered in-situ metal.
+    assert out.feed[0] * out.feed_grade[0] == pytest.approx(1000 * 0.95 * 1.0)
+    with pytest.raises(PitOptError):
+        Economics(10.0, PriceUnit.GRAM, 0.9, 1, 1, mining_recovery=0.0)
+    with pytest.raises(PitOptError):
+        Economics(10.0, PriceUnit.GRAM, 0.9, 1, 1, dilution=-0.1)
+
+
 def test_invalid_economics() -> None:
     with pytest.raises(PitOptError):
         Economics(0.0, PriceUnit.GRAM, 0.9, 1, 1)
