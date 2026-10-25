@@ -218,3 +218,27 @@ def flag_blocks(model: BlockModel, solid: Solid, attribute: str) -> int:
         f"Flag blocks inside solid as {attribute!r}",
     )
     return int(inside.sum())
+
+
+def grade_shell(model: BlockModel, attribute: str, cutoff: float) -> Solid:
+    """Closed iso-surface of ``attribute`` at ``cutoff`` (marching cubes over block centres).
+
+    Missing values count as below the cut-off. The block grid is padded by one
+    layer below the cut-off on every side so the surface is always closed.
+    """
+    import pyvista as pv  # noqa: PLC0415
+
+    grid = model.grid
+    nx, ny, nz = grid.count
+    values = model.values(attribute).reshape(nz, ny, nx)
+    low = cutoff - 1.0
+    padded = np.full((nz + 2, ny + 2, nx + 2), low)
+    padded[1:-1, 1:-1, 1:-1] = np.where(np.isfinite(values), values, low)
+    first = np.asarray(grid.origin) + 0.5 * np.asarray(grid.size) - np.asarray(grid.size)
+    image = pv.ImageData(dimensions=(nx + 2, ny + 2, nz + 2), spacing=grid.size, origin=first)
+    image.point_data["v"] = padded.ravel()  # x fastest, then y, then z
+    surface = image.contour([cutoff], scalars="v").triangulate().clean()
+    if surface.n_cells == 0:
+        raise SolidError(f"no blocks reach {cutoff:g} in {attribute!r}")
+    faces = np.asarray(surface.faces).reshape(-1, 4)[:, 1:]
+    return Solid(np.asarray(surface.points, np.float64), faces.astype(np.int64))

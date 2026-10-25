@@ -180,3 +180,21 @@ def test_store_and_flag_blocks(tmp_path: Path) -> None:
     # Block centroids inside [0,10]x[0,20]x[0,5]: 4 x 8 x 2.
     assert n == 4 * 8 * 2
     project.close()
+
+
+def test_grade_shell_of_a_spherical_grade_is_closed_and_has_the_right_volume(
+    tmp_path: Path,
+) -> None:
+    from minecore.solids import grade_shell  # noqa: PLC0415
+
+    project = Project.create(tmp_path / "g.mcproj", "g")
+    grid = Grid((-30.0, -30.0, -30.0), (2.0, 2.0, 2.0), (30, 30, 30))
+    model = BlockModel.create(project, "bm", grid)
+    r = np.linalg.norm(grid.centroids(), axis=1)
+    model.set_attributes({"g": 20.0 - r}, {"g": {"unit": None}}, "g")
+    shell = grade_shell(model, "g", 0.0)  # sphere of radius 20 m
+    assert shell.open_edges() == 0
+    assert shell.volume() == pytest.approx(4 / 3 * np.pi * 20**3, rel=0.02)
+    pts = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 25.0], [15.0, 0.0, 0.0]])
+    assert shell.inside(pts).tolist() == [True, False, True]
+    project.close()

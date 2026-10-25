@@ -245,6 +245,7 @@ class MainWindow(QMainWindow):
         surf.addSeparator()
         action(surf, "Katı model (wireframe) içe aktar: OBJ, STL, DXF...", self.import_solid)
         action(surf, "Blok modelini katı ile işaretle (domen)...", self.flag_solid)
+        action(surf, "Tenör kabuğu katısı oluştur (blok modelinden)...", self.make_grade_shell)
         pit = self.menuBar().addMenu("&Açık Ocak")
         action(pit, "Ocak optimizasyonu, pushback ve çizelge...", self.optimise_pit)
         help_menu = self.menuBar().addMenu("&Yardım")
@@ -558,6 +559,34 @@ class MainWindow(QMainWindow):
         self.refresh()
         QMessageBox.information(
             self, "Domen", f"'{attribute}': {count:,} blok katının içinde (1), diğerleri 0."
+        )
+
+    def make_grade_shell(self) -> None:
+        project = self._need_project()
+        models = block_models(project)
+        if not models:
+            raise RuntimeError("Projede blok modeli yok.")
+        model_name, ok = QInputDialog.getItem(
+            self, "Tenör kabuğu", "Blok modeli:", models, 0, False
+        )
+        if not ok:
+            return
+        model = BlockModel.open(project, model_name)
+        attrs = [a for a in model.attributes if not a.endswith(("_n", "_dist", "_kv"))]
+        attr, ok = QInputDialog.getItem(self, "Tenör kabuğu", "Öznitelik:", attrs, 0, False)
+        if not ok:
+            return
+        cutoff, ok = QInputDialog.getDouble(self, "Tenör kabuğu", "Sınır tenör:", 0.5, -1e9, 1e9, 4)
+        if not ok:
+            return
+        solid = solids.grade_shell(model, attr, cutoff)
+        name = f"kabuk_{attr}_{cutoff:g}"
+        solids.save_solid(project, name, solid)
+        self.refresh()
+        QMessageBox.information(
+            self,
+            "Tenör kabuğu",
+            f"'{name}': {len(solid.triangles):,} üçgen, hacim {solid.volume():,.0f} m³.",
         )
 
     def optimise_pit(self) -> None:
