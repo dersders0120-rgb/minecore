@@ -312,6 +312,7 @@ class MainWindow(QMainWindow):
         action(pit, "Basamak tasarımı (şev açısı, basamak yüksekliği, berm)...", self.bench_design)
         action(pit, "Cut-off optimizasyonu (Lane, yıllara göre)...", self.lane_cutoff)
         action(pit, "Ocağı DXF olarak dışa aktar, ocak yüzeyi oluştur...", self.export_pit)
+        action(pit, "Dönem sonu yüzeyleri (çizelgeden), DXF...", self.export_periods)
         ug = self.menuBar().addMenu("Yer&altı")
         action(ug, "Pano zarfı (floating stope) ve pano seçimi...", self.stopes)
         help_menu = self.menuBar().addMenu("&Yardım")
@@ -833,6 +834,42 @@ class MainWindow(QMainWindow):
         solid = solids.load_solid(project, name)
         count = write_dxf(Path(path), faces=[(name, solid.vertices[solid.triangles])])
         self.statusBar().showMessage(f"{count:,} üçgen yazıldı: {path}")
+
+    def export_periods(self) -> None:
+        from minecore.pitopt.design import period_surfaces  # noqa: PLC0415
+
+        project = self._need_project()
+        models = [
+            m
+            for m in block_models(project)
+            if "pit_period" in BlockModel.open(project, m).attributes
+        ]
+        if not models:
+            raise RuntimeError("Önce ocak optimizasyonunu çizelgeyle çalıştırıp kaydedin.")
+        model_name, ok = QInputDialog.getItem(self, "Dönemler", "Blok modeli:", models, 0, False)
+        if not ok:
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Dönem çizgileri (DXF)", "donemler.dxf", "DXF (*.dxf)"
+        )
+        names = [
+            n
+            for n in surfaces.surface_names(project)
+            if not n.startswith(("ocak_", "donem_", "tasarim"))
+        ]
+        rows = period_surfaces(
+            project,
+            BlockModel.open(project, model_name),
+            topography=names[0] if names else None,
+            dxf=Path(path) if path else None,
+        )
+        self.refresh()
+        QMessageBox.information(
+            self,
+            "Dönemler",
+            f"{len(rows)} dönem sonu yüzeyi kaydedildi (donem_1 ... donem_{len(rows)})"
+            + (f"; dönem çizgileri: {path}." if path else "."),
+        )
 
     def export_pit(self) -> None:
         project = self._need_project()

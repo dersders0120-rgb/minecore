@@ -117,6 +117,9 @@ def test_csv_to_pit_schedule(tmp_path: Path) -> None:  # noqa: PLR0915 - one end
     assert len(result["shells"]) == 4
     assert "npv" in result
     assert all(p["ore_fed_t"] <= 300000 * (1 + 1e-9) for p in result["schedule"])
+    periods = _run("pit", "periods", p, "BM", "--dxf", str(tmp_path / "y.dxf"))
+    assert "donem_1:" in periods
+    assert "Y1_CREST" in (tmp_path / "y.dxf").read_text()
     dxf = tmp_path / "pit.dxf"
     text = _run("pit", "export", p, "BM", str(dxf), "--phases", "--save-surface", "pit")
     assert "outlines" in text

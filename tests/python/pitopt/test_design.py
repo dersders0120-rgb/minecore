@@ -9,9 +9,10 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 from hypothesis.extra.numpy import arrays
 
-from minecore.blockmodel import Grid
+from minecore.blockmodel import BlockModel, Grid
 from minecore.io.dxf import Polyline, write_dxf
 from minecore.pitopt.design import _loops, bench_outlines, edge_blocks, pit_solid, pit_surface
+from minecore.project import Project
 from minecore.solids import read_dxf_3dfaces
 from minecore.surfaces import Surface
 
@@ -98,3 +99,25 @@ def test_edge_blocks() -> None:
     wide = mined.reshape(6, 8, 8).copy()
     wide[5, 0, 3] = True
     assert edge_blocks(grid, wide.ravel()) == 1
+
+
+def test_period_surfaces_follow_the_schedule(tmp_path: Path) -> None:
+    from minecore.pitopt.design import period_surfaces  # noqa: PLC0415
+    from minecore.surfaces import load_surface  # noqa: PLC0415
+
+    project = Project.create(tmp_path / "y.mcproj", "y")
+    grid = Grid((0.0, 0.0, 0.0), (10.0, 10.0, 10.0), (3, 1, 3))
+    period = np.zeros((3, 1, 3))
+    period[2, 0, 1] = 1  # top block of the middle column in year 1
+    period[1, 0, 1] = 2  # the block below it in year 2
+    period[2, 0, 0] = 2
+    model = BlockModel.create(project, "BM", grid)
+    model.set_attributes({"pit_period": period.ravel()}, {}, "schedule")
+    rows = period_surfaces(project, model, dxf=tmp_path / "y.dxf")
+    assert [(r.period, r.blocks, r.cumulative_blocks) for r in rows] == [(1, 1, 1), (2, 2, 3)]
+    first = load_surface(project, "donem_1").points[:, 2].tolist()
+    second = load_surface(project, "donem_2").points[:, 2].tolist()
+    assert first == [30.0, 20.0, 30.0]
+    assert second == [20.0, 10.0, 30.0]
+    assert "Y2_TOE" in (tmp_path / "y.dxf").read_text()
+    project.close()

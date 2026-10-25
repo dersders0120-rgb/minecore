@@ -332,6 +332,38 @@ def test_print_section_from_the_window(
     project.close()
 
 
+def test_period_surfaces_from_the_menu(
+    qapp: QApplication, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from PySide6.QtWidgets import QFileDialog, QInputDialog, QMessageBox  # noqa: PLC0415
+
+    from minecore.blockmodel import Grid  # noqa: PLC0415
+    from minecore.gui.app import MainWindow  # noqa: PLC0415
+    from minecore.surfaces import surface_names  # noqa: PLC0415
+
+    project = Project.create(tmp_path / "d.mcproj", "d")
+    grid = Grid((0.0, 0.0, 0.0), (10.0, 10.0, 10.0), (4, 4, 3))
+    period = np.zeros((3, 4, 4))
+    period[2] = 1.0
+    period[1, 1:3, 1:3] = 2.0
+    BlockModel.create(project, "BM", grid).set_attributes(
+        {"pit_period": period.ravel()}, {}, "schedule"
+    )
+    window = MainWindow()
+    window.project = project
+    out = tmp_path / "d.dxf"
+    monkeypatch.setattr(QInputDialog, "getItem", lambda *a, **k: ("BM", True))
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: (str(out), "DXF"))
+    shown: list[str] = []
+    monkeypatch.setattr(QMessageBox, "information", lambda *a: shown.append(a[2]))
+    window.export_periods()
+    assert {"donem_1", "donem_2"} <= set(surface_names(project))
+    assert "2 dönem" in shown[0]
+    assert "Y2_CREST" in out.read_text()
+    window.close()
+    project.close()
+
+
 def test_classification_dialog_and_filtered_report(qapp: QApplication, tmp_path: Path) -> None:
     from minecore.blockmodel import Grid  # noqa: PLC0415
 

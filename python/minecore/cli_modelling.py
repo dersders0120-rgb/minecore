@@ -46,7 +46,7 @@ from minecore.geology.implicit import interval_contacts, model_domain
 from minecore.pitopt import Economics, PriceUnit, SlopeProfile, optimise_pit, pushbacks, schedule
 from minecore.pitopt.benchdesign import BenchGeometry, Ramp, design_from_model
 from minecore.pitopt.cutoff import cutoffs_from_model
-from minecore.pitopt.design import edge_blocks, export_pit
+from minecore.pitopt.design import edge_blocks, export_pit, period_surfaces
 from minecore.pitopt.economics import PitOptError
 from minecore.pitopt.optimise import Schedule, store
 from minecore.pitopt.scheduling import ConstrainedSchedule, Limits, schedule_constrained
@@ -269,6 +269,12 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     des.add_argument("--ramp-gradient", type=float, default=0.10, help="e.g. 0.10 for 10 %%")
     des.add_argument("--ramp-exit", type=float, default=0.0, help="exit azimuth, degrees")
     des.add_argument("--ramp-ccw", action="store_true", help="spiral counter-clockwise going down")
+    per = pit_cmds.add_parser("periods", help="end-of-period surfaces from the schedule")
+    per.add_argument("project")
+    per.add_argument("model")
+    per.add_argument("--topography")
+    per.add_argument("--prefix", default="donem")
+    per.add_argument("--dxf")
     exp = pit_cmds.add_parser("export", help="pit outlines, surface and solid to DXF")
     exp.add_argument("project")
     exp.add_argument("model")
@@ -664,6 +670,17 @@ def pit_command(args: argparse.Namespace, out: TextIO) -> int:
             return pit_design(project, args, out)
         if args.pit_command == "cutoff":
             return pit_cutoff(project, args, out)
+        if args.pit_command == "periods":
+            ends = period_surfaces(
+                project,
+                BlockModel.open(project, args.model),
+                topography=args.topography,
+                prefix=args.prefix,
+                dxf=Path(args.dxf) if args.dxf else None,
+            )
+            for e in ends:
+                out.write(f"{e.name}: {e.blocks} blocks (cumulative {e.cumulative_blocks})\n")
+            return 0
         model = BlockModel.open(project, args.model)
         if not args.nsr and None in (args.price, args.price_unit, args.recovery):
             raise PitOptError("--price, --price-unit and --recovery are required without --nsr")
