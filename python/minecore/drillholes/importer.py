@@ -17,8 +17,10 @@ stored with the table and appear in every validation report.
 
 from __future__ import annotations
 
+import csv
 import math
 import re
+import tempfile
 import unicodedata
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -365,15 +367,65 @@ def import_table(  # noqa: PLR0912, PLR0915 - one linear pass over the columns
     return ImportResult(result, dialect, info["mapping"], tuple(issues))
 
 
+EXCEL_SUFFIXES = (".xlsx", ".xlsm")
+
+
+def excel_to_csv(path: Path, target: Path) -> list[Path]:
+    """Write each non-empty sheet of an Excel workbook as ``<sheet>.csv`` in ``target``.
+
+    Cells are written as text exactly as Excel stores them (numbers with a
+    dot decimal separator, dates in ISO form); formulas give their cached
+    values. Semicolon-separated so commas in text survive.
+    """
+    from openpyxl import load_workbook  # noqa: PLC0415
+
+    book = load_workbook(path, read_only=True, data_only=True)
+    out = []
+    try:
+        for sheet in book.worksheets:
+            rows = [
+                ["" if v is None else (repr(v) if isinstance(v, float) else str(v)) for v in row]
+                for row in sheet.iter_rows(values_only=True)
+            ]
+            rows = [r for r in rows if any(c.strip() for c in r)]
+            if len(rows) < 2:
+                continue
+            safe = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in sheet.title)
+            file = target / f"{safe or 'sheet'}.csv"
+            with file.open("w", newline="", encoding="utf-8") as fh:
+                csv.writer(fh, delimiter=";").writerows(rows)
+            out.append(file)
+    finally:
+        book.close()
+    return out
+
+
 def import_folder(db: DrillholeDatabase, folder: Path) -> list[ImportResult]:
     """Import collar, survey and interval files from ``folder`` by file name.
 
     ``collar*``/``kuyu*`` is the collar table, ``survey*``/``sapma*`` the
     survey table, every other ``*.csv``/``*.txt`` an interval table named
-    after the file. Files whose name contains ``truth`` are skipped.
+    after the file. Each sheet of an Excel workbook (``.xlsx``) counts as a
+    file named after the sheet. Files whose name contains ``truth`` are skipped.
     """
-    files = sorted(p for p in folder.iterdir() if p.suffix.lower() in (".csv", ".txt", ".tsv"))
-    files = [p for p in files if "truth" not in p.stem.lower()]
+    with tempfile.TemporaryDirectory(prefix="minecore-xlsx-") as tmp:
+        files = sorted(p for p in folder.iterdir() if p.suffix.lower() in (".csv", ".txt", ".tsv"))
+        for book in sorted(p for p in folder.iterdir() if p.suffix.lower() in EXCEL_SUFFIXES):
+            if book.name.startswith("~$"):
+                continue  # Excel lock file
+            sheet_dir = Path(tmp) / book.stem
+            sheet_dir.mkdir()
+            files.extend(excel_to_csv(book, sheet_dir))
+        return _import_files(db, [p for p in files if "truth" not in p.stem.lower()])
+
+
+def import_workbook(db: DrillholeDatabase, path: Path) -> list[ImportResult]:
+    """Import every sheet of one Excel workbook (roles from sheet names)."""
+    with tempfile.TemporaryDirectory(prefix="minecore-xlsx-") as tmp:
+        return _import_files(db, excel_to_csv(path, Path(tmp)))
+
+
+def _import_files(db: DrillholeDatabase, files: list[Path]) -> list[ImportResult]:
 
     def role_of(p: Path) -> Role:
         stem = fold(p.stem)

@@ -55,7 +55,12 @@ from minecore.drillholes import (
     ValidationReport,
     validate,
 )
-from minecore.drillholes.importer import ImportOptions, import_folder, import_table
+from minecore.drillholes.importer import (
+    ImportOptions,
+    import_folder,
+    import_table,
+    import_workbook,
+)
 from minecore.drillholes.workflow import composite_table, hole_geometry, save_composites
 from minecore.gui.resource import (
     BlockModelDialog,
@@ -316,9 +321,23 @@ class MainWindow(QMainWindow):
     def import_file(self) -> None:
         db = self._need_db()
         path, _ = QFileDialog.getOpenFileName(
-            self, "Sondaj dosyası", "", "Metin tabloları (*.csv *.txt *.tsv)"
+            self, "Sondaj dosyası", "", "Tablolar (*.csv *.txt *.tsv *.xlsx *.xlsm)"
         )
         if not path:
+            return
+        if Path(path).suffix.lower() in (".xlsx", ".xlsm"):
+            results = import_workbook(db, Path(path))
+            self.refresh()
+            QMessageBox.information(
+                self,
+                "İçe aktarıldı",
+                "\n".join(
+                    f"{r.table.name}: {ROLE_TR[r.table.role]}, {r.table.rows} satır"
+                    for r in results
+                )
+                + "\n\nSayfa adları tablo türünü belirler: "
+                "collar/kuyu, survey/sapma, diğerleri aralık.",
+            )
             return
         roles = [ROLE_TR[r] for r in Role]
         choice, ok = QInputDialog.getItem(self, "Tablo türü", "Bu dosya nedir?", roles, 2, False)
