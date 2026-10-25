@@ -97,9 +97,10 @@
       "milestone": "M1",
       "title": "Competitive capability matrix from public documentation",
       "owner": "gemini",
-      "status": "READY",
+      "status": "VERIFIED",
       "depends_on": [],
-      "brief": "docs/tasks/T-002.md"
+      "brief": "docs/tasks/T-002.md",
+      "evidence": "Reviewed by architect; committed to docs/research/CAPABILITY_MATRIX.md with review note. Citations unchecked (no web access from dev environment)."
     },
     {
       "id": "T-003",
@@ -128,18 +129,18 @@
       "milestone": "M1",
       "title": "Project package v1: SQLite schema, versioning, migrations",
       "owner": "opus",
-      "status": "READY",
+      "status": "SUBMITTED",
       "depends_on": [
         "T-001"
       ],
-      "brief": null
+      "brief": "docs/adr/0004-project-package-persistence.md"
     },
     {
       "id": "T-006",
       "milestone": "M1",
       "title": "Operation log and undo/redo model",
       "owner": "opus",
-      "status": "BACKLOG",
+      "status": "READY",
       "depends_on": [
         "T-005"
       ],
@@ -173,9 +174,10 @@
       "milestone": "M2",
       "title": "Independent reference cases for minimum-curvature desurvey",
       "owner": "chatgpt",
-      "status": "READY",
+      "status": "VERIFIED",
       "depends_on": [],
-      "brief": "docs/tasks/T-009.md"
+      "brief": "docs/tasks/T-009.md",
+      "evidence": "Independent re-computation (Rodrigues + ratio factor, stdlib) max deviation 7.8e-7 m = output rounding; runs in CI as tests/python/test_reference_desurvey.py"
     }
   ]
 }

@@ -10,9 +10,10 @@ mining engineer; reply to them in Turkish. Code, identifiers and docs are Englis
    Never write that something works unless you executed it.
 2. No placeholders. No inert buttons, hardcoded results, fake progress, stub
    algorithms or skipped tests. Unfinished work goes to `docs/KNOWN_LIMITATIONS.md`.
-3. Contracts have one owner. Units, coordinates, geometry, block model schema
-   and the project file format live in `crates/mc-core` and are changed only by
-   the architect, with an ADR and a compatibility or migration test.
+3. Contracts have one owner: the architect. Units, coordinates, geometry and
+   block model schema live in `crates/mc-core`; the project format lives in
+   `python/minecore/project` (SQL migrations). Changes need an ADR and a
+   compatibility or migration test. Never edit an applied migration.
 4. Independent verification. Numerical algorithms are checked against analytic
    cases, synthetic data with known answers, or an independent implementation.
 5. One-way dependencies: core <- domain modules <- workbench. Core never imports
@@ -27,6 +28,7 @@ mining engineer; reply to them in Turkish. Code, identifiers and docs are Englis
 - `crates/mc-core` — Rust core engine (contracts, geometry, numerics).
 - `crates/mc-py` — PyO3 bindings, built as `minecore._core`.
 - `python/minecore` — application layer, CLI (`minecore`), scripting API.
+- `python/minecore/project` — `.mcproj` package, schema migrations (ADR-0004).
 - `tests/python` — pytest + hypothesis. Rust unit tests live next to the code.
 - `tools/verify_submission.py` — automatic check of delegated work.
 - `docs/ARCHITECTURE.md` — layers, conventions, contract ownership.
