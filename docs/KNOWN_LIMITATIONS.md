@@ -71,8 +71,14 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
   Partial blocks are not prorated (centroid test). Unestimated rock blocks are
   valued as waste. Mining cost depth increment counts benches from the model
   top, not from the surface.
-- One value attribute per run: a grade (single element) or an NSR value per
-  tonne (several elements combined with the block calculator).
+- Several metals: a main grade plus co-products (`--coproduct
+  ATTR:PRICE:UNIT:REC[:PAYABLE[:SELLING[:R2/R3]]]`, GUI "Yan ürünler"), each
+  with its own price, recovery, payable fraction, selling cost and recovery
+  per process route; or an NSR value per tonne. Not modelled: penalty
+  elements (As, Hg, F deductions), minimum deductions and treatment/refining
+  charges per concentrate tonne, concentrate grade and mass pull, price
+  escalation per metal. The schedule's metal columns report the main metal
+  only; co-product revenue is in the period revenue.
 - Process routes (`--route NAME:RECOVERY:COST`, GUI "Ek işleme yolları"):
   each block goes to the route with the best margin at the shell's revenue
   factor (`pit_route` stores the choice at factor 1). Routes differ only in
@@ -117,7 +123,8 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
 - Lane's depletion assumption: the remaining reserve keeps the pit's grade
   distribution every year (no link to the pushback/bench sequence). Mining
   recovery, dilution and bench-dependent costs are not applied; stockpiles
-  are not modelled. Single element (or NSR).
+  are not modelled. Co-products enter as an exact main-metal equivalent
+  grade, so the reported cut-off and metal are equivalent units.
 
 ## Pit design outputs
 

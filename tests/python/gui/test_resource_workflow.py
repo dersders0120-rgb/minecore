@@ -197,6 +197,34 @@ def test_pit_dialog_shells_pushbacks_and_save(qapp: QApplication, tmp_path: Path
     _export_pit_from_main_window(tmp_path / "pit.mcproj", tmp_path / "ocak.dxf")
 
 
+def test_pit_dialog_values_co_products(qapp: QApplication, tmp_path: Path) -> None:
+    from minecore.blockmodel import Grid  # noqa: PLC0415
+    from minecore.gui.pit import PitDialog  # noqa: PLC0415
+
+    project = Project.create(tmp_path / "co.mcproj", "co")
+    grid = Grid((0.0, 0.0, 0.0), (10.0, 10.0, 10.0), (12, 10, 6))
+    c = grid.centroids()
+    near = np.clip(2.0 - np.hypot(c[:, 0] - 60, c[:, 1] - 50) / 20, 0, None)
+    BlockModel.create(project, "BM", grid).set_attributes(
+        {"au": near * 0.3, "ag": near * 60}, {"au": {"unit": "g/t"}, "ag": {"unit": "g/t"}}, "g"
+    )
+    parent = QWidget()
+    dialog = PitDialog(project, parent)
+    dialog.inform = lambda title, text: None  # type: ignore[method-assign]
+    dialog.grade.setCurrentText("au")
+    dialog.price.setValue(1800.0)
+    dialog.run()
+    assert dialog.pit is not None
+    gold_only = dialog.pit.rows[-1].ore_t
+    dialog.coproducts.setText("ag:25:ozt:70:95")
+    dialog.run()
+    assert dialog.pit.rows[-1].ore_t > gold_only
+    assert "ag" in dialog.route_label.text()
+    dialog.nsr.setChecked(True)
+    assert not dialog.coproducts.isEnabled()
+    project.close()
+
+
 def _write_pit_reports(dialog: PitDialog, folder: Path) -> None:
     from minecore.gui.pit import write_pit_reports, write_pit_reports_xlsx  # noqa: PLC0415
 

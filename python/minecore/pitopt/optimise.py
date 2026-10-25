@@ -49,6 +49,7 @@ class ShellRow:
     best_npv: float
     worst_npv: float
     years: float
+    coproduct_metal: tuple[float, ...] = ()  # recovered co-product metal, ``econ.coproducts`` order
 
 
 @dataclass(frozen=True)
@@ -68,6 +69,7 @@ class PitResult:
     feed_grade: Floats  # diluted feed grade
     route: Ints  # process route of each block at revenue factor 1 (0 = waste)
     revenue: Floats  # sales revenue of ore blocks at factor 1, after payables and royalty
+    coproduct_metal: Floats  # (blocks, co-products) recovered co-product metal at factor 1
 
 
 def _discounted(order: Ints, tonnes: Floats, value: Floats, rate: float, discount: float) -> float:
@@ -75,6 +77,31 @@ def _discounted(order: Ints, tonnes: Floats, value: Floats, rate: float, discoun
     mid = np.cumsum(t) - t / 2
     years = mid / rate
     return float((value[order] * (1.0 + discount) ** -years).sum())
+
+
+def _block_tonnes(model: BlockModel, econ: Economics, rock_attribute: str | None) -> Floats:
+    """Tonnes of each block; air blocks (``rock_attribute`` 0) weigh nothing."""
+    if isinstance(econ.density, str):
+        rho = model.values(econ.density)
+        rho = np.where(np.isfinite(rho) & (rho > 0), rho, np.nan)
+        if np.isnan(rho).any():
+            raise PitOptError(f"density attribute {econ.density!r} has missing values")
+    else:
+        rho = np.full(model.grid.blocks, float(econ.density))
+    tonnes: Floats = rho * model.grid.block_volume
+    if rock_attribute is not None:
+        rock = np.nan_to_num(model.values(rock_attribute), nan=1.0)
+        tonnes = tonnes * np.clip(rock, 0.0, 1.0)
+    return tonnes
+
+
+def _coproduct_grades(model: BlockModel, econ: Economics) -> list[tuple[Floats, str | None]]:
+    out = []
+    for p in econ.coproducts:
+        if p.attribute not in model.attributes:
+            raise PitOptError(f"co-product attribute {p.attribute!r} is not in the model")
+        out.append((model.values(p.attribute), model.attributes[p.attribute].get("unit")))
+    return out
 
 
 def optimise_pit(  # noqa: PLR0913 - options are keyword-only
@@ -104,26 +131,17 @@ def optimise_pit(  # noqa: PLR0913 - options are keyword-only
     nx, ny, nz = grid.count
     grade = model.values(grade_attribute)
     unit = model.attributes[grade_attribute].get("unit")
-    if isinstance(econ.density, str):
-        rho = model.values(econ.density)
-        rho = np.where(np.isfinite(rho) & (rho > 0), rho, np.nan)
-        if np.isnan(rho).any():
-            raise PitOptError(f"density attribute {econ.density!r} has missing values")
-    else:
-        rho = np.full(grid.blocks, float(econ.density))
-    tonnes = rho * grid.block_volume
-    if rock_attribute is not None:
-        rock = np.nan_to_num(model.values(rock_attribute), nan=1.0)
-        tonnes = tonnes * np.clip(rock, 0.0, 1.0)
+    tonnes = _block_tonnes(model, econ, rock_attribute)
     k = np.arange(grid.blocks) // (nx * ny)
     bench = (nz - 1 - k).astype(np.int64)
-    base = block_values(grade, unit, tonnes, bench, econ)
+    co_grades = _coproduct_grades(model, econ)
+    base = block_values(grade, unit, tonnes, bench, econ, coproduct_grades=co_grades)
     if progress is not None:
         progress.update(0.02, "eğim kısıtları")
     arcs = precedence_arcs(grid, slope, max_levels)
     shell = np.zeros(grid.blocks, np.int64)
     for n, rf in enumerate(factors, start=1):
-        econ_rf = block_values(grade, unit, tonnes, bench, econ, rf)
+        econ_rf = block_values(grade, unit, tonnes, bench, econ, rf, co_grades)
         cents = np.round(econ_rf.value * 100.0).astype(np.int64)
         pit = np.asarray(max_closure(cents, arcs), bool)
         shell[pit & (shell == 0)] = n
@@ -159,6 +177,7 @@ def optimise_pit(  # noqa: PLR0913 - options are keyword-only
                 best,
                 worst,
                 total / mining_rate,
+                tuple(float(v) for v in base.coproduct_metal[ore].sum(axis=0)),
             )
         )
     if progress is not None:
@@ -179,6 +198,7 @@ def optimise_pit(  # noqa: PLR0913 - options are keyword-only
         base.feed_grade,
         base.route,
         base.revenue,
+        base.coproduct_metal,
     )
 
 

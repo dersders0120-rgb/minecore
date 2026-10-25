@@ -56,7 +56,8 @@ GUIDE = """
 1. **Açık Ocak > Ocak optimizasyonu**: iç içe kabuklar (Lerchs-Grossmann ile aynı sonuç),
    en iyi/en kötü NPV, pushback'ler (minimum kazı genişliği), kısıtlı üretim çizelgesi,
    pushback-basamak envanteri, Excel raporu. Kazanım, seyrelme, ödenebilir metal,
-   royalty (devlet hakkı), NSR modu ve ek işleme yolları (ör. `liç:60:4`; her blok en
+   royalty (devlet hakkı), NSR modu, yan ürünler (ör. `ag:25:ozt:70:95`; blok geliri
+   tüm metallerin toplamıdır) ve ek işleme yolları (ör. `liç:60:4`; her blok en
    yüksek marjlı yola gider) desteklenir. **Proje nakit akışı** bölümünde yatırım
    (ör. `0:250; 4:40`, yıl:M$), sabit gider, kapanış maliyeti, vergi ve amortisman
    girilir; "Nakit akışı" sekmesi yıl yıl FAVÖK, vergi, nakit akışı ve proje NPV, İVO
