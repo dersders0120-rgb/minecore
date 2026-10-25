@@ -47,6 +47,7 @@ from minecore.pitopt.optimise import Schedule, store
 from minecore.pitopt.scheduling import ConstrainedSchedule, Limits, schedule_constrained
 from minecore.pitopt.width import apply_mining_width
 from minecore.project import Project
+from minecore.underground.stopes import stopes_from_model
 
 METHODS = {"nn": Method.NEAREST, "idw": Method.INVERSE_DISTANCE, "ok": Method.ORDINARY_KRIGING}
 
@@ -139,6 +140,16 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     cls.add_argument("--samples", type=int, nargs="+", required=True, help="per category")
     cls.add_argument("--kv", type=float, nargs="+", help="max KV / sill per category (0 = none)")
 
+    ug = commands.add_parser("ug", help="underground: stope envelope and stopes")
+    ug.add_argument("project")
+    ug.add_argument("model")
+    ug.add_argument("grade")
+    ug.add_argument("--size", type=float, nargs=3, required=True, metavar=("X", "Y", "Z"))
+    ug.add_argument("--cutoff", type=float, required=True)
+    ug.add_argument("--density", default="2.7")
+    ug.add_argument("--rock")
+    ug.add_argument("--dxf")
+
     pit = commands.add_parser("pit", help="open-pit optimisation")
     pit_cmds = pit.add_subparsers(dest="pit_command", metavar="ACTION", required=True)
     opt = pit_cmds.add_parser("optimise", help="nested shells, pushbacks, schedule")
@@ -203,6 +214,26 @@ def _source(text: str) -> tuple[str, str]:
         raise SystemExit("source must be table/field")
     table, field = text.split("/", 1)
     return table, field
+
+
+def ug_command(args: argparse.Namespace, out: TextIO) -> int:
+    with Project.open(args.project) as project:
+        r = stopes_from_model(
+            BlockModel.open(project, args.model),
+            args.grade,
+            tuple(args.size),
+            args.cutoff,
+            density=_density(args.density),
+            rock_attribute=args.rock,
+            dxf=Path(args.dxf) if args.dxf else None,
+        )
+        tonnes = sum(s.tonnes for s in r.stopes)
+        metal = sum(s.metal for s in r.stopes)
+        out.write(
+            f"envelope {r.envelope_tonnes:,.0f} t at {r.envelope_grade:.4g}; "
+            f"{len(r.stopes)} stopes {tonnes:,.0f} t at {metal / tonnes if tonnes else 0:.4g}\n"
+        )
+    return 0
 
 
 def drillholes_command(args: argparse.Namespace, out: TextIO) -> int:
@@ -492,4 +523,5 @@ HANDLERS = {
     "surface": surface_command,
     "bm": bm_command,
     "pit": pit_command,
+    "ug": ug_command,
 }

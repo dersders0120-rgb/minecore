@@ -132,3 +132,20 @@ def test_csv_to_pit_schedule(tmp_path: Path) -> None:
     common = ["--mining-cost", "2.5", "--processing-cost", "15", "--rock", "kaya", "--json"]
     nsr = json.loads(_run("pit", "optimise", p, "BM", "nsr", "--nsr", *common))
     assert nsr["shells"][-1]["ore_t"] > 0
+    ug = _run(
+        "ug",
+        p,
+        "BM",
+        "au_ok",
+        "--size",
+        "20",
+        "20",
+        "10",
+        "--cutoff",
+        "0.5",
+        "--rock",
+        "kaya",
+        "--dxf",
+        str(tmp_path / "ug.dxf"),
+    )
+    assert "stopes" in ug
