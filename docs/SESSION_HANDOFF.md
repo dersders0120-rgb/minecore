@@ -12,8 +12,9 @@ Updated: 2026-10-25 ~05:00 UTC (architect, thread "Build block model and estimat
 - Open-source libraries welcome if permissive (MIT/BSD/Apache); no GPL.
 
 ## State
-- `main`: PRs #1-#23 merged (PR #21-#22: process routes in pit optimisation
-  and per-route plant capacity in the scheduler; PR #23: ore drives).
+- `main`: PRs #1-#24 merged (PR #21-#22: process routes in pit optimisation
+  and per-route plant capacity in the scheduler; PR #23: ore drives; PR #24:
+  self-test covers routes, Lane cut-off, sectors and the decline).
 - Overnight additions (PR #15-#20): string import and section linking, user
   guide (F1), re-blocking, Lane cut-off optimisation, partial-block solid
   fractions and weighted reports, solid CLI, CLI swath, spiral haul ramp in
@@ -45,7 +46,7 @@ Updated: 2026-10-25 ~05:00 UTC (architect, thread "Build block model and estimat
 - Limits: `docs/KNOWN_LIMITATIONS.md` (kept current).
 
 ## Next actions
-1. Merge PR #20 when CI (incl. the packaged self-test) is green.
+1. Owner feedback on the Windows build with real data comes first.
 2. Rotated block models and sub-cells (contract change in mc-core: needs an ADR).
 3. Pit design: switchback ramps, multiple pit bottoms, blended sector changes.
 4. Routes and stockpiles in Lane; re-routing ore when a route is full.
