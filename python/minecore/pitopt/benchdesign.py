@@ -26,7 +26,15 @@ start angle is adjusted so the road exits at the requested azimuth. The road
 cells then act as extra floor points at the road elevation, so the same
 envelope cuts the road into the wall and sets the benches above it back (the
 road is excavated, not placed on the wall). The road surface is flat across
-its width; no switchbacks or road-specific batters are designed.
+its width; no road-specific batters are designed.
+
+Switchback ramp (``switchback_span`` > 0): instead of circling the pit, the
+road climbs back and forth across one wall, inside an arc of the given span
+centred on the exit azimuth. At each end of the arc the road turns on a flat
+pad (``turn_length``, default 1.5 road widths); the leg just climbed is cut
+into the wall before the turn, so the next leg runs above it and the benches
+above both legs are set back. The road exits wherever its last leg meets the
+original surface, inside the arc.
 
 Geotechnical sectors (optional): the wall geometry may change with the wall
 position. A sector starts at an azimuth (degrees from north, clockwise, seen
@@ -124,10 +132,25 @@ class Ramp:
     gradient: float  # rise over run, e.g. 0.10 for 10 %
     exit_azimuth: float = 0.0  # degrees from north, clockwise; where the road leaves the pit
     clockwise: bool = True  # direction of travel going down
+    switchback_span: float = 0.0  # arc of wall (degrees) a switchback road uses; 0 = spiral
+    turn_length: float | None = None  # flat road at each switchback (m); default 1.5 x width
 
     def __post_init__(self) -> None:
         if self.width <= 0 or not 0.01 <= self.gradient <= 0.25:
             raise PitOptError("ramp width must be > 0 and gradient between 1 % and 25 %")
+        if self.switchback_span != 0.0 and not 20.0 <= self.switchback_span <= 300.0:
+            raise PitOptError("switchback span must be 0 (spiral) or 20 to 300 degrees")
+        if self.turn_length is not None and self.turn_length < 0:
+            raise PitOptError("switchback turn length must be >= 0")
+
+    @property
+    def switchback(self) -> bool:
+        return self.switchback_span > 0.0
+
+    @property
+    def pad(self) -> float:
+        """Flat road length at each switchback."""
+        return 1.5 * self.width if self.turn_length is None else self.turn_length
 
 
 @dataclass(frozen=True)
@@ -330,10 +353,14 @@ def _trace_ramp(  # noqa: PLR0913, PLR0917, PLR0915 - raster inputs, one tracing
         lowered = h + smooth.rise(np.maximum(d - ramp.width / 2, 0.0))
         current[j0:j1, i0:i1] = np.minimum(current[j0:j1, i0:i1], lowered)
 
+    target = math.radians(ramp.exit_azimuth)
+    half = math.radians(ramp.switchback_span) / 2
+
     def walk(start: float, gradient: float) -> tuple[Floats, float]:
         current = design.copy()
         theta, h, travelled = start, bottom, 0.0
-        pts: list[tuple[float, float]] = []
+        heading, flat_left = up, 0.0
+        pts: list[tuple[float, float, float]] = []
         pending: list[tuple[float, tuple[float, float], float]] = []
         for _ in range(200_000):
             ray = lookup(current, cx + radii * math.sin(theta), cy + radii * math.cos(theta))
@@ -345,8 +372,9 @@ def _trace_ramp(  # noqa: PLR0913, PLR0917, PLR0915 - raster inputs, one tracing
             if pts:
                 step = math.hypot(p[0] - pts[-1][0], p[1] - pts[-1][1])
                 travelled += step
-                h += gradient * step
-            pts.append(p)
+                h += gradient * max(step - flat_left, 0.0)  # switchback pads are flat
+                flat_left = max(flat_left - step, 0.0)
+            pts.append((p[0], p[1], h))
             if lookup(top, np.array([p[0]]), np.array([p[1]]))[0] <= h:
                 break  # the road has reached the original surface: exit
             # A section's cut is applied half a lap later: it shapes the wall for the
@@ -356,22 +384,31 @@ def _trace_ramp(  # noqa: PLR0913, PLR0917, PLR0915 - raster inputs, one tracing
             while pending and travelled - pending[0][0] > delay:
                 _, q, hq = pending.pop(0)
                 cut(current, q, hq)
-            theta += up * res / max(r_road, res)  # about one raster cell of road per step
+            if ramp.switchback and heading * math.remainder(theta - target, 2 * math.pi) >= half:
+                # Switchback: the leg below is cut now, so the next leg runs above it,
+                # and the road turns on a flat pad.
+                for _, q, hq in pending:
+                    cut(current, q, hq)
+                pending.clear()
+                heading, flat_left = -heading, ramp.pad
+            theta += heading * res / max(r_road, res)  # about one raster cell of road per step
         if len(pts) < 3:
             raise PitOptError("the pit is too small for a ramp of this width and gradient")
         return np.asarray(pts, np.float64), theta
 
-    target = math.radians(ramp.exit_azimuth)
-    start = target
-    for _ in range(5):  # move the start until the exit lands on the target azimuth
-        xy, end = walk(start, ramp.gradient)
-        miss = math.remainder(target - end, 2 * math.pi)
-        if abs(miss) < math.radians(2.0):
-            break
-        start += miss
-        xy, end = walk(start, ramp.gradient)
-    run = np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(xy, axis=0), axis=1))]
-    line = np.column_stack([xy, bottom + ramp.gradient * run])[::-1]
+    if ramp.switchback:
+        # Legs sweep the wall arc centred on the exit, starting from one end at the floor.
+        xyz, _ = walk(target - up * half, ramp.gradient)
+    else:
+        start = target
+        for _ in range(5):  # move the start until the exit lands on the target azimuth
+            xyz, end = walk(start, ramp.gradient)
+            miss = math.remainder(target - end, 2 * math.pi)
+            if abs(miss) < math.radians(2.0):
+                break
+            start += miss
+            xyz, end = walk(start, ramp.gradient)
+    line = xyz[::-1]
     road = np.full(design.shape, np.inf)
     nearest = np.full(design.shape, np.inf)  # each road cell takes its nearest section
     for (x0, y0, z0), (x1, y1, z1) in itertools.pairwise(line):

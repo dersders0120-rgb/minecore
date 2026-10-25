@@ -125,9 +125,11 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
   boundaries). One bench height for all sectors; no sectors by rock type or
   depth; the ramp is placed using the per-sector overall slope and cut with
   the flattest sector.
-- Ramp: one spiral haul road per pit, traced bottom-up around the pit
-  centroid at constant gradient and cut into the wall (benches above are set
-  back). No switchbacks, no multiple pit bottoms/exits, no road batters or
+- Ramp: one haul road per pit, traced bottom-up around the pit centroid and
+  cut into the wall (benches above are set back): a spiral at constant
+  gradient, or a switchback road on one wall arc with flat turning pads. The
+  switchback turn is a hairpin of raster steps, not a designed curve. No
+  multiple pit bottoms/exits, no road batters or
   safety bunds, and the road is not checked against a minimum curve radius;
   it starts at the deepest floor cell nearest its traced start, so a
   multi-bottom pit gets one road around the centroid only. Because the optimiser treats the block model edge as
