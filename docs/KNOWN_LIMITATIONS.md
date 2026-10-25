@@ -24,8 +24,9 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
 - Variogram GUI fits one structure; nested structures are supported by the
   engine and JSON but are entered one structure at a time in the dialog.
 - No cross-validation, no swath plots, no kriging neighbourhood analysis yet.
-- Kriging loop is Python/NumPy (about 10-20k blocks per second for 16 samples);
-  a Rust port is planned if real models need it.
+- Estimation loop is Python/NumPy. Measured (3000 samples, 16 per block, 2x2x2
+  discretisation): IDW about 67k blocks/s, ordinary kriging about 1.8k blocks/s,
+  so a 1 M block OK run takes about 10 minutes. Rust port of the OK loop planned.
 - No CLI commands for import, block model, estimation or reporting yet (rule 5
   debt): the workbench calls the public Python API, which scripts can call.
 - Grade-tonnage is a report, not a resource classification (rule 8).
