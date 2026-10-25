@@ -231,11 +231,16 @@ def test_separate_pits_each_get_a_ramp() -> None:
     assert (pit.z <= plain.z + 1e-9).all()
 
 
-def test_merged_pit_counts_bottoms_and_gets_one_ramp() -> None:
+def test_merged_pit_gets_a_main_ramp_and_a_connector() -> None:
     grid, mined = _two_cones(gap=150.0)  # the cones overlap above their floors
     pit = design_pit(grid, mined, BenchGeometry(70.0, 10.0, 6.0), ramp=Ramp(25.0, 0.10))
     assert (pit.pits, pit.bottoms) == (1, 2)
-    assert len(pit.ramps) == 1
+    assert len(pit.ramps) == 2
+    main, link = pit.ramps
+    assert main[0, 2] == pytest.approx(float(pit.top.max()), abs=1.0)  # main road to surface
+    # The connector climbs from the other floor to the saddle, below the surface.
+    assert link[0, 2] > link[-1, 2] + 5.0
+    assert link[0, 2] < main[0, 2] - 5.0
 
 
 def test_shallow_satellite_pit_gets_its_own_road(monkeypatch: pytest.MonkeyPatch) -> None:

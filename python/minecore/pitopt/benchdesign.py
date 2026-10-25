@@ -161,8 +161,11 @@ class Ramp:
     switchback_span: float = 0.0  # arc of wall (degrees) a switchback road uses; 0 = spiral
     turn_length: float | None = None  # flat road at each switchback (m); default 1.5 x width
     exits: tuple[float, ...] = ()  # exit azimuths of the 2nd, 3rd... separate pit
+    bund: float = 0.0  # safety bund width on the open side, inside the road width (m)
 
     def __post_init__(self) -> None:
+        if not 0 <= self.bund < self.width:
+            raise PitOptError("the safety bund must be narrower than the road")
         if self.width <= 0 or not 0.01 <= self.gradient <= 0.25:
             raise PitOptError("ramp width must be > 0 and gradient between 1 % and 25 %")
         if self.switchback_span != 0.0 and not 20.0 <= self.switchback_span <= 300.0:
@@ -201,6 +204,8 @@ class DesignedPit:
     pits: int = 1  # separate openings of the design at the original surface
     bottoms: int = 1  # separate mined floors (a merged pit can have several)
     pits_without_ramp: int = 0  # separate pits too small for the road
+    road_width: float = 0.0  # m; > 0 adds road edge and safety bund strings
+    bund: float = 0.0  # safety bund width on the open side of the road, m
 
     @property
     def ramp_length(self) -> float:
@@ -262,7 +267,36 @@ class DesignedPit:
         for road in self.ramps or ((self.ramp,) if self.ramp is not None else ()):
             if len(road) >= 2:
                 lines.append(Polyline(f"{name}_RAMP", road, closed=False))
+                lines += self._road_edges(road, name)
         return lines
+
+    def _road_edges(self, road: Floats, name: str) -> list[Polyline]:
+        """Both road edges, and the bund toe on the side away from the wall."""
+        if self.road_width <= 0 or len(road) < 2:
+            return []
+        d = np.gradient(road[:, :2], axis=0)
+        n = np.column_stack([-d[:, 1], d[:, 0]])
+        n /= np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-12)
+        half = self.road_width / 2
+        out = []
+        side_z = []
+        for sign in (1.0, -1.0):
+            edge = road.copy()
+            edge[:, :2] += sign * half * n
+            out.append(Polyline(f"{name}_RAMP_EDGE", edge, closed=False))
+            side_z.append(float(np.mean(self._z_at(edge[:, :2]) - road[:, 2])))
+        if self.bund > 0:
+            sign = 1.0 if side_z[0] < side_z[1] else -1.0  # the lower side is the open one
+            toe = road.copy()
+            toe[:, :2] += sign * (half - self.bund) * n
+            out.append(Polyline(f"{name}_RAMP_BUND", toe, closed=False))
+        return out
+
+    def _z_at(self, xy: Floats) -> Floats:
+        dx, dy = self.x[1] - self.x[0], self.y[1] - self.y[0]
+        i = np.clip(np.round((xy[:, 0] - self.x[0]) / dx).astype(int), 0, len(self.x) - 1)
+        j = np.clip(np.round((xy[:, 1] - self.y[0]) / dy).astype(int), 0, len(self.y) - 1)
+        return np.asarray(self.z[j, i], np.float64)
 
 
 def design_pit(  # noqa: PLR0913 - options are keyword-only
@@ -391,6 +425,16 @@ def _design_on_raster(  # noqa: PLR0913, PLR0917 - raster inputs
                 continue
             roads.append(line)
             road_floor = np.minimum(road_floor, cells)
+            for sub, spill, azimuth in _side_bottoms(x, y, own, design, geometry.bench_height):
+                # Connector from a side bottom up to where its basin joins the main pit.
+                link = replace(ramp, exit_azimuth=azimuth, switchback_span=0.0, exits=())
+                lid = np.full(top.shape, spill)
+                try:
+                    line, cells = _trace_ramp(x, y, design, lid, sub, link, geometry, res, sectors)
+                except PitOptError:
+                    continue
+                roads.append(line)
+                road_floor = np.minimum(road_floor, cells)
         design = _envelope(np.minimum(floor, road_floor), geometry, res, sectors)
     z = np.minimum(design, top)
     below = design < top - 1e-6
@@ -409,6 +453,8 @@ def _design_on_raster(  # noqa: PLR0913, PLR0917 - raster inputs
         max(len(openings), 1),
         max(bottoms, 1),
         skipped,
+        ramp.width if ramp is not None else 0.0,
+        ramp.bund if ramp is not None else 0.0,
     )
 
 
@@ -424,6 +470,59 @@ def _bottoms(floor: Floats) -> int:
             ring = binary_dilation(labels == k, structure=eight)
             count += not (ring & lower).any()
     return count
+
+
+def _side_bottoms(
+    x: Floats, y: Floats, floor: Floats, design: Floats, bench: float
+) -> list[tuple[Floats, float, float]]:
+    """Bottoms of one pit other than the deepest: (floor of its basin, spill level,
+    azimuth towards the deepest bottom). The spill level is the lowest design
+    elevation at which the basin joins the deepest bottom's basin."""
+    eight = np.ones((3, 3), bool)
+    regions: list[tuple[float, Mask]] = []
+    for level in np.unique(floor[np.isfinite(floor)]):
+        labels, n = label(floor == level, structure=eight)
+        lower = floor < level
+        for k in range(1, n + 1):
+            area = labels == k
+            if not (binary_dilation(area, structure=eight) & lower).any():
+                regions.append((float(level), area))
+    if len(regions) < 2:
+        return []
+    regions.sort(key=lambda r: r[0])
+    deep = regions[0][1]
+    finite = design[np.isfinite(design)]
+    levels = np.unique(np.round(finite / (bench / 4)) * (bench / 4))
+    jj, ii = np.nonzero(deep)
+    dx, dy = float(x[ii].mean()), float(y[jj].mean())
+    out = []
+    for level, area in regions[1:]:
+        cand = levels[levels > level]
+        lo, hi = 0, len(cand) - 1
+        if hi < 0:
+            continue
+        while lo < hi:  # lowest level whose basin holds both bottoms
+            mid = (lo + hi) // 2
+            labels, _ = label(design <= cand[mid] + 1e-6, structure=eight)
+            ids = set(np.unique(labels[area]).tolist()) - {0}
+            if ids & set(np.unique(labels[deep]).tolist()):
+                hi = mid
+            else:
+                lo = mid + 1
+        spill = float(cand[lo])
+        if spill - level < bench:
+            continue
+        below = float(cand[lo - 1]) if lo > 0 else level
+        labels, _ = label(design <= below + 1e-6, structure=eight)
+        ids = list(set(np.unique(labels[area]).tolist()) - {0})
+        basin = np.isin(labels, ids) & np.isfinite(floor)
+        if (basin & deep).any():
+            continue
+        jj, ii = np.nonzero(area)
+        sx, sy = float(x[ii].mean()), float(y[jj].mean())
+        azimuth = math.degrees(math.atan2(dx - sx, dy - sy)) % 360.0
+        out.append((np.where(basin, floor, np.inf), spill, azimuth))
+    return out
 
 
 def _openings(design: Floats, top: Floats, floor: Floats) -> list[Mask]:
