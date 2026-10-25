@@ -283,3 +283,33 @@ def test_section_slab_and_controls(qapp: QApplication) -> None:
     window._step_section(1)
     assert window.section_at.value() == 100.0 + window.section_width.value()
     window.close()
+
+
+def test_classification_dialog_and_filtered_report(qapp: QApplication, tmp_path: Path) -> None:
+    from minecore.blockmodel import Grid  # noqa: PLC0415
+
+    project = Project.create(tmp_path / "k.mcproj", "k")
+    model = BlockModel.create(project, "BM", Grid((0.0, 0.0, 0.0), (10.0, 10.0, 10.0), (2, 2, 1)))
+    model.set_attributes(
+        {
+            "au": np.array([1.0, 2.0, 3.0, 4.0]),
+            "au_n": np.array([10.0, 5.0, 2.0, 1.0]),
+            "au_dist": np.array([10.0, 40.0, 80.0, 500.0]),
+        },
+        {"au": {"unit": "g/t"}},
+        "estimate",
+    )
+    parent = QWidget()
+    dialog = resource.ClassificationDialog(project, parent)
+    assert dialog.attribute.currentText() == "au"
+    dialog.run()
+    assert dialog.counts == {0: 1, 1: 1, 2: 1, 3: 1}
+    gt = resource.GradeTonnageDialog(project, parent)
+    gt.filter_attr.setCurrentText("kat_au")
+    gt.f0.setValue(1.0)
+    gt.f1.setValue(2.0)
+    gt.c0.setValue(0.0)
+    gt.compute()
+    assert gt.report is not None
+    assert gt.report.rows[0].blocks == 2
+    project.close()

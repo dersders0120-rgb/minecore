@@ -35,6 +35,15 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
   validation are GUI and Python API only.
 - Grade-tonnage is a report, not a resource classification (rule 8).
 
+## Confidence categories
+
+- `blockmodel.classify` assigns categories from user thresholds on mean
+  sample distance, sample count and kriging variance / total sill. It is a
+  screening aid, not a JORC/NI 43-101/PERC classification (rule 8); no
+  drill-spacing, slope-of-regression or smoothing of isolated blocks yet.
+- Grade-tonnage reports can be restricted to an attribute range (domain,
+  category, pit shell).
+
 ## Open-pit optimisation (M7 alpha)
 
 - Ultimate pit by maximum closure (Dinic max-flow in `mc-core::pitopt`, same

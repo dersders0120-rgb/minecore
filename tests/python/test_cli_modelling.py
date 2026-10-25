@@ -43,8 +43,28 @@ def test_csv_to_pit_schedule(tmp_path: Path) -> None:
         "--rock-only",
     )
     assert "estimated" in out
+    assert "category 1" in _run(
+        "bm", "classify", p, "BM", "au_ok", "--distance", "30", "60", "--samples", "8", "4"
+    )
+    sub = json.loads(
+        _run(
+            "bm",
+            "report",
+            p,
+            "BM",
+            "au_ok",
+            "--cutoffs",
+            "0",
+            "--json",
+            "--filter",
+            "kat_au_ok",
+            "1",
+            "2",
+        )
+    )
     report = json.loads(_run("bm", "report", p, "BM", "au_ok", "--cutoffs", "0", "0.3", "--json"))
     assert report[0]["tonnes"] >= report[1]["tonnes"] > 0
+    assert 0 < sub[0]["tonnes"] <= report[0]["tonnes"]
     result = json.loads(
         _run(
             "pit",
