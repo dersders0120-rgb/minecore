@@ -171,3 +171,9 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
   non-overlapping stope selection by metal. Not a Mineable Shape Optimiser:
   no variable stope shapes, dip/strike following, pillars, dilution skins,
   development or scheduling. Stopes are aligned with the block grid.
+- `underground.development`: concept access layout only: one straight portal
+  leg plus a circular spiral decline at constant gradient beside the orebody
+  (standoff checked in plan against ore block centroids), and one straight
+  horizontal crosscut per level to the nearest ore block. No ore drives,
+  ventilation raises, sumps, passing bays, switchbacks, geotechnical or
+  clash checks against other excavations, and no development scheduling.

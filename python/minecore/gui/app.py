@@ -315,6 +315,7 @@ class MainWindow(QMainWindow):
         action(pit, "Dönem sonu yüzeyleri (çizelgeden), DXF...", self.export_periods)
         ug = self.menuBar().addMenu("Yer&altı")
         action(ug, "Pano zarfı (floating stope) ve pano seçimi...", self.stopes)
+        action(ug, "Dekline ve kat galerileri...", self.decline)
         help_menu = self.menuBar().addMenu("&Yardım")
         action(help_menu, "Adım adım kullanım kılavuzu", self.guide, "F1")
         action(help_menu, "Örnek sondaj projesini aç", self.open_sample)
@@ -919,6 +920,15 @@ class MainWindow(QMainWindow):
         if not block_models(project):
             raise RuntimeError("Önce bir blok modeli oluşturun veya içe aktarın.")
         StopeDialog(project, self).exec()
+        self.refresh()
+
+    def decline(self) -> None:
+        from minecore.gui.underground import DeclineDialog  # noqa: PLC0415
+
+        project = self._need_project()
+        if not block_models(project):
+            raise RuntimeError("Önce bir blok modeli ve pano seçimi gerekli.")
+        DeclineDialog(project, self).exec()
         self.refresh()
 
     def bench_design(self) -> None:

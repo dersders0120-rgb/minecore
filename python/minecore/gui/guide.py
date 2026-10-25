@@ -59,6 +59,8 @@ GUIDE = """
 ## 5. Yeraltı
 - **Yeraltı > Pano zarfı**: sabit boyutlu pano ile yüzen pano zarfı ve çakışmasız pano
   seçimi; DXF.
+- **Yeraltı > Dekline ve kat galerileri**: ağızdan spiral dekline (eğim, dönüş yarıçapı,
+  cevherden uzaklık) ve her kata yatay galeri; metraj, hacim, tonaj; DXF.
 
 ## 6. Görünüm
 - **3B Görünüm** sekmesinde renklendirme, blok sınır tenörü ve **kesit** (K-G, D-B, plan)

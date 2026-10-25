@@ -495,6 +495,17 @@ def test_stope_dialog(qapp: QApplication, tmp_path: Path) -> None:
     assert len(dialog.stopes.stopes) == 4
     assert dialog.table.rowCount() == 4
     assert "ug_pano" in BlockModel.open(project, "BM").attributes
+    from minecore.gui.underground import DeclineDialog  # noqa: PLC0415
+    from minecore.strings import string_names  # noqa: PLC0415
+
+    dec = DeclineDialog(project, parent)
+    dec.ore.setCurrentText("ug_pano")
+    dec.pz.setValue(100.0)
+    dec.interval.setValue(10.0)
+    dec.run(None)
+    assert dec.dev is not None
+    assert dec.dev.accesses
+    assert "dekline" in string_names(project)
     project.close()
 
 

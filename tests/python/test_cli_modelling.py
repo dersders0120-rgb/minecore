@@ -188,4 +188,11 @@ def test_csv_to_pit_schedule(tmp_path: Path) -> None:  # noqa: PLR0915 - one end
         str(tmp_path / "ug.dxf"),
     )
     assert "stopes" in ug
+    dec = _run(
+        "decline", p, "BM", "--portal", str(_centre_x(p) + 400), "4400000", "1200",
+        "--dxf", str(tmp_path / "dec.dxf"),
+    )  # fmt: skip
+    assert "crosscut" in dec
+    assert "decline" in dec
+    assert "DECLINE" in (tmp_path / "dec.dxf").read_text()
     assert "blocks of" in _run("bm", "reblock", p, "BM", "BM2", "--factors", "2", "2", "1")

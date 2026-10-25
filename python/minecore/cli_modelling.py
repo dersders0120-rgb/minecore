@@ -54,6 +54,7 @@ from minecore.pitopt.width import apply_mining_width
 from minecore.plots import SectionSpec, section_plot
 from minecore.project import Project
 from minecore.solids import flag_blocks, load_solid, read_solid, save_solid
+from minecore.underground.development import DeclineDesign, development_from_model
 from minecore.underground.stopes import stopes_from_model
 
 METHODS = {"nn": Method.NEAREST, "idw": Method.INVERSE_DISTANCE, "ok": Method.ORDINARY_KRIGING}
@@ -225,6 +226,22 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     ug.add_argument("--density", default="2.7")
     ug.add_argument("--rock")
     ug.add_argument("--dxf")
+
+    dec = commands.add_parser("decline", help="underground decline and level crosscuts")
+    dec.add_argument("project")
+    dec.add_argument("model")
+    dec.add_argument("--portal", type=float, nargs=3, required=True, metavar=("X", "Y", "Z"))
+    dec.add_argument("--ore", default="ug_pano", help="ore flag attribute (default ug_pano)")
+    dec.add_argument("--levels", type=float, nargs="+", help="level elevations")
+    dec.add_argument("--level-interval", type=float, default=25.0)
+    dec.add_argument("--gradient", type=float, default=1 / 7)
+    dec.add_argument("--radius", type=float, default=25.0)
+    dec.add_argument("--standoff", type=float, default=40.0)
+    dec.add_argument("--drive", type=float, nargs=2, default=[5.0, 5.5], metavar=("W", "H"))
+    dec.add_argument("--density", type=float, default=2.7)
+    dec.add_argument("--anticlockwise", action="store_true")
+    dec.add_argument("--dxf")
+    dec.add_argument("--save", default="dekline", help="store centrelines as a string set")
 
     pit = commands.add_parser("pit", help="open-pit optimisation")
     pit_cmds = pit.add_subparsers(dest="pit_command", metavar="ACTION", required=True)
@@ -401,6 +418,37 @@ def plot_command(args: argparse.Namespace, out: TextIO) -> int:
         out.write(
             f"{args.out}: {r.blocks} blocks, {r.holes} holes, {r.samples} samples, "
             f"surfaces {r.surface_lines}, solids {r.solid_segments}\n"
+        )
+    return 0
+
+
+def decline_command(args: argparse.Namespace, out: TextIO) -> int:
+    with Project.open(args.project) as project:
+        design = DeclineDesign(
+            args.gradient,
+            args.radius,
+            args.standoff,
+            args.drive[0],
+            args.drive[1],
+            args.density,
+            not args.anticlockwise,
+        )
+        dev = development_from_model(
+            BlockModel.open(project, args.model),
+            (args.portal[0], args.portal[1], args.portal[2]),
+            design,
+            ore_attribute=args.ore,
+            level_interval=args.level_interval,
+            levels=args.levels,
+            dxf=Path(args.dxf) if args.dxf else None,
+            project=project,
+            save_as=args.save,
+        )
+        for a in dev.accesses:
+            out.write(f"level {a.elevation:.1f}: crosscut {a.length:,.0f} m\n")
+        out.write(
+            f"decline {dev.decline_length:,.0f} m, crosscuts {dev.crosscut_length:,.0f} m, "
+            f"total {dev.total_length:,.0f} m, {dev.volume:,.0f} m3, {dev.tonnes:,.0f} t\n"
         )
     return 0
 
@@ -808,4 +856,5 @@ HANDLERS = {
     "solid": solid_command,
     "geo": geo_command,
     "plot": plot_command,
+    "decline": decline_command,
 }
