@@ -721,3 +721,134 @@ def export_block_model_csv(path: Path, model: BlockModel) -> int:
                 ]
             )
     return grid.blocks
+
+
+class ValidationDialog(QDialog):
+    """Swath plots and leave-one-hole-out cross-validation."""
+
+    def __init__(self, db: DrillholeDatabase, project: Project, parent: QWidget) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Kestirim doğrulama")
+        self.resize(1200, 760)
+        self.db = db
+        self.project = project
+        self.variograms = load_variograms(project)
+        layout = QHBoxLayout(self)
+        left = QFormLayout()
+        layout.addLayout(left, 0)
+        self.source = QComboBox()
+        self.source.addItems(numeric_interval_fields(db))
+        self.model = QComboBox()
+        self.model.addItems(block_models(project))
+        self.attribute = QComboBox()
+        self.axis = QComboBox()
+        self.axis.addItems(["X (Doğu)", "Y (Kuzey)", "Z (Kot)"])
+        self.slice_width = _spin(20.0, 0.1, 1e5, 5)
+        swath_btn = QPushButton("Swath grafiği")
+        swath_btn.clicked.connect(self.run_swath)
+        left.addRow("Veri", self.source)
+        left.addRow("Blok modeli", self.model)
+        left.addRow("Kestirim özniteliği", self.attribute)
+        left.addRow("Eksen", self.axis)
+        left.addRow("Dilim genişliği (m)", self.slice_width)
+        left.addRow(swath_btn)
+        self.method = QComboBox()
+        for m in Method:
+            self.method.addItem(METHOD_TR[m], m)
+        self.variogram = QComboBox()
+        self.variogram.addItems(list(self.variograms))
+        self.radius = _spin(100.0, 1.0, 1e5, 10)
+        self.max_s = QSpinBox(minimum=1, maximum=200, value=16)
+        cv_btn = QPushButton("Çapraz doğrulama (kuyu dışarıda bırakarak)")
+        cv_btn.clicked.connect(self.run_cv)
+        left.addRow(QLabel(" "))
+        left.addRow("Yöntem", self.method)
+        left.addRow("Variogram", self.variogram)
+        left.addRow("İzotrop arama yarıçapı (m)", self.radius)
+        left.addRow("En çok örnek", self.max_s)
+        left.addRow(cv_btn)
+        self.summary = QLabel()
+        self.summary.setWordWrap(True)
+        left.addRow(self.summary)
+        self.figure = Figure(figsize=(7, 5))
+        self.canvas = FigureCanvasQTAgg(self.figure)  # type: ignore[no-untyped-call]
+        layout.addWidget(self.canvas, 1)
+        self.model.currentTextChanged.connect(self._fill)
+        self._fill(self.model.currentText())
+
+    def _fill(self, name: str) -> None:
+        self.attribute.clear()
+        if name:
+            attrs = BlockModel.open(self.project, name).attributes
+            self.attribute.addItems(
+                [a for a in attrs if not a.endswith(("_n", "_dist", "_kv")) and "pit_" not in a]
+            )
+
+    def run_swath(self) -> None:
+        from minecore.blockmodel.validation import swath  # noqa: PLC0415
+
+        samples = _samples(self.db, self.source.currentText())
+        model = BlockModel.open(self.project, self.model.currentText())
+        axis = self.axis.currentIndex()
+        rows = swath(samples, model, self.attribute.currentText(), axis, self.slice_width.value())
+        self.figure.clear()
+        ax = self.figure.add_subplot(111)
+        c = [r.centre for r in rows]
+        ax.plot(
+            c, [r.sample_mean for r in rows], marker="o", color="#1565c0", label="Kompozit ort."
+        )
+        ax.plot(c, [r.block_mean for r in rows], marker="s", color="#c62828", label="Blok ort.")
+        ax2 = ax.twinx()
+        ax2.bar(
+            c,
+            [r.samples for r in rows],
+            width=self.slice_width.value() * 0.8,
+            alpha=0.2,
+            color="#757575",
+            label="Örnek sayısı",
+        )
+        ax2.set_ylabel("Örnek sayısı")
+        ax.set_xlabel(self.axis.currentText() + " (m)")
+        ax.set_ylabel("Ortalama tenör")
+        ax.set_title("Swath grafiği")
+        ax.legend(loc="upper left")
+        ax.grid(alpha=0.3)
+        self.figure.tight_layout()
+        self.canvas.draw_idle()  # type: ignore[no-untyped-call]
+        self.summary.setText(f"{len(rows)} dilim.")
+
+    def run_cv(self) -> None:
+        from minecore.blockmodel.validation import cross_validate  # noqa: PLC0415
+
+        samples = _samples(self.db, self.source.currentText())
+        method = Method(self.method.currentData())
+        variogram = self.variograms.get(self.variogram.currentText())
+        if method is Method.ORDINARY_KRIGING and variogram is None:
+            raise RuntimeError("Kriging için kayıtlı bir variogram gerekli.")
+        search = Search(Ellipsoid.isotropic(self.radius.value()), 1, self.max_s.value())
+        cv = _with_progress(
+            self,
+            "Çapraz doğrulama...",
+            lambda progress: cross_validate(
+                samples, method=method, search=search, variogram=variogram, progress=progress
+            ),
+        )
+        self.figure.clear()
+        ax = self.figure.add_subplot(111)
+        ok = np.isfinite(cv.estimate)
+        ax.scatter(cv.estimate[ok], cv.true[ok], s=6, alpha=0.5, color="#1565c0")
+        hi = float(max(cv.estimate[ok].max(initial=0), cv.true[ok].max(initial=0)))
+        ax.plot([0, hi], [0, hi], color="#9e9e9e", ls="--")
+        ax.set_xlabel("Kestirim")
+        ax.set_ylabel("Gerçek")
+        ax.set_title("Çapraz doğrulama: gerçek / kestirim")
+        ax.grid(alpha=0.3)
+        self.figure.tight_layout()
+        self.canvas.draw_idle()  # type: ignore[no-untyped-call]
+        self.summary.setText(
+            f"n = {cv.n} (kestirilemeyen {cv.unestimated})\n"
+            f"Ortalama gerçek {cv.mean_true:.4g}, kestirim {cv.mean_estimate:.4g}\n"
+            f"Ortalama hata {cv.mean_error:.4g}, KOH {cv.mse:.4g}\n"
+            f"Korelasyon {cv.correlation:.3f}, regresyon eğimi {cv.slope:.3f} "
+            "(1'e yakın = koşullu yansız)"
+        )

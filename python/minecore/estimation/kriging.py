@@ -77,9 +77,14 @@ def estimate(  # noqa: PLR0913, PLR0912, PLR0915 - one loop per target, kept exp
     block_size: tuple[float, float, float] | None = None,
     discretisation: tuple[int, int, int] = (1, 1, 1),
     hole_ids: npt.NDArray[np.int64] | None = None,
+    exclude_hole: npt.NDArray[np.int64] | None = None,
     progress: Progress | None = None,
 ) -> EstimationResult:
-    """Estimate ``values`` known at ``samples`` (n, 3) at ``targets`` (m, 3)."""
+    """Estimate ``values`` known at ``samples`` (n, 3) at ``targets`` (m, 3).
+
+    ``exclude_hole[t]`` (with ``hole_ids``) drops every sample of that hole
+    from target ``t``'s neighbourhood: leave-one-hole-out cross-validation.
+    """
     samples = np.asarray(samples, np.float64)
     values = np.asarray(values, np.float64)
     targets = np.asarray(targets, np.float64)
@@ -100,6 +105,10 @@ def estimate(  # noqa: PLR0913, PLR0912, PLR0915 - one loop per target, kept exp
     transform = (ell.axes().T / np.array([ell.major, ell.semi, ell.minor])).astype(np.float64)
     tree = cKDTree(samples @ transform)
     k = min(len(values), search.max_samples * (4 if search.max_per_hole else 1))
+    if exclude_hole is not None:
+        if holes is None:
+            raise EstimationError("exclude_hole needs hole_ids")
+        k = min(len(values), search.max_samples * 4 + 200)
     dist, idx = tree.query(targets @ transform, k=k, distance_upper_bound=1.0)
     dist = np.atleast_2d(dist).reshape(m, -1)
     idx = np.atleast_2d(idx).reshape(m, -1)
@@ -117,6 +126,10 @@ def estimate(  # noqa: PLR0913, PLR0912, PLR0915 - one loop per target, kept exp
     for t in range(m):
         valid = np.isfinite(dist[t])
         cand, cd = idx[t][valid], dist[t][valid]
+        if exclude_hole is not None:
+            assert holes is not None
+            other = holes[cand] != exclude_hole[t]
+            cand, cd = cand[other], cd[other]
         if holes is not None and search.max_per_hole:
             taken: dict[int, int] = {}
             keep = []

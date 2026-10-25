@@ -155,3 +155,30 @@ def test_pit_dialog_shells_pushbacks_and_save(qapp: QApplication, tmp_path: Path
     write_pit_reports(out, dialog.pit, dialog.sched)
     assert out.read_text(encoding="utf-8-sig").startswith("shell;")
     project.close()
+
+
+def test_validation_dialog(qapp: QApplication, tmp_path: Path) -> None:
+    project, db, field = _project(tmp_path)
+    samples = resource._samples(db, f"komp / {field}")
+    from minecore.blockmodel import Grid  # noqa: PLC0415
+    from minecore.blockmodel.workflow import estimate_blocks  # noqa: PLC0415
+    from minecore.estimation import Ellipsoid, Search  # noqa: PLC0415
+
+    model = BlockModel.create(project, "BM", Grid.covering(samples.xyz, (25.0, 25.0, 10.0)))
+    estimate_blocks(
+        model,
+        samples,
+        "au",
+        method=Method.INVERSE_DISTANCE,
+        search=Search(Ellipsoid.isotropic(150)),
+    )
+    parent = QWidget()
+    dialog = resource.ValidationDialog(db, project, parent)
+    dialog.source.setCurrentText(f"komp / {field}")
+    dialog.attribute.setCurrentText("au")
+    dialog.run_swath()
+    assert "dilim" in dialog.summary.text()
+    dialog.method.setCurrentIndex(list(Method).index(Method.INVERSE_DISTANCE))
+    dialog.run_cv()
+    assert "Korelasyon" in dialog.summary.text()
+    project.close()

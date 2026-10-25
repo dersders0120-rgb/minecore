@@ -61,6 +61,7 @@ from minecore.gui.resource import (
     BlockModelDialog,
     EstimationDialog,
     GradeTonnageDialog,
+    ValidationDialog,
     VariogramDialog,
     block_models,
     export_block_model_csv,
@@ -233,6 +234,7 @@ class MainWindow(QMainWindow):
         action(bm, "Blok modeli oluştur...", self.new_block_model)
         action(bm, "Variogram analizi...", self.variogram)
         action(bm, "Tenör kestirimi (NN / IDW / Kriging)...", self.estimate)
+        action(bm, "Kestirim doğrulama (swath, çapraz doğrulama)...", self.validate_estimate)
         bm.addSeparator()
         action(bm, "Tenör-tonaj raporu...", self.grade_tonnage)
         action(bm, "Blok modelini CSV olarak dışa aktar...", self.export_block_model)
@@ -421,6 +423,12 @@ class MainWindow(QMainWindow):
         if index >= 0:
             self.block_by.setCurrentIndex(index)
         QMessageBox.information(self, "Kestirim", message)
+
+    def validate_estimate(self) -> None:
+        project = self._need_project()
+        if not block_models(project):
+            raise RuntimeError("Projede blok modeli yok.")
+        ValidationDialog(self._need_db(), project, self).exec()
 
     def grade_tonnage(self) -> None:
         project = self._need_project()
