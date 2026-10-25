@@ -169,6 +169,14 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
   NSR) with selling costs unchanged; recovery is capped at 100 %. Scenarios
   are not stored in the project; each run is recomputed.
 
+## Inventory by category
+
+- `pitopt.reserves` (GUI "Envanter (kategori)"): plant feed, grade, metal and
+  waste per pushback and confidence category of the scheduled pit. Categories
+  are statistical confidence classes, not a JORC/NI 43-101 reserve
+  statement. No economic re-test per category (Inferred material is not
+  excluded from the pit or schedule). Smoke-tested only.
+
 ## Truck and loader fleet
 
 - `pitopt.fleet` (GUI "Ekipman"): average-cycle fleet sizing per schedule

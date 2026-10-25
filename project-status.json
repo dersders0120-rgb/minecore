@@ -43,25 +43,25 @@
       "id": "M6",
       "title": "Resource reporting (alpha)",
       "status": "IN_PROGRESS",
-      "evidence": "Grade-tonnage table/curve/CSV/XLSX with domain/category/pit filters and partial-block weights; confidence categories (not JORC) (PR #9-#16)."
+      "evidence": "Grade-tonnage table/curve/CSV/XLSX with domain/category/pit filters and partial-block weights; confidence categories (not JORC) (PR #9-#16). Mineable inventory by pushback and category (PR #37)."
     },
     {
       "id": "M7",
       "title": "Open-pit optimisation",
       "status": "IN_PROGRESS",
-      "evidence": "Max-closure pit in Rust, nested shells, best/worst NPV, pushbacks with minimum mining width, recovery/dilution, NSR, Lane cut-off optimisation with exact balancing points, process routes (PR #10-#21, #32); payables, royalty and co-products (PR #29-#30); project cash flow with capital, tax, closure, IRR, payback (PR #29); sensitivity analysis (PR #32). Technical audit v1: docs/audit/AUDIT_2026-10.md (PR #28)."
+      "evidence": "Max-closure pit in Rust, nested shells, best/worst NPV, pushbacks with minimum mining width, recovery/dilution, NSR, Lane cut-off optimisation with exact balancing points, process routes (PR #10-#21, #32); payables, royalty and co-products (PR #29-#30); project cash flow with capital, tax, closure, IRR, payback (PR #29); sensitivity analysis (PR #32). Technical audit v1: docs/audit/AUDIT_2026-10.md (PR #28). Pushbacks chosen by NPV (PR #34); Lane constant-cut-off fallback (PR #35); pit scenarios (PR #36)."
     },
     {
       "id": "M8",
       "title": "Open-pit design and scheduling",
       "status": "IN_PROGRESS",
-      "evidence": "Constrained schedule, bench inventory, bench design with spiral and switchback ramps (PR #28), pit/design DXF, end-of-period surfaces, section/plan PDF plots, geotechnical sectors (PR #11-#20); stockpile grade bins, capacity, rehandling (PR #31); NPV-maximising MILP schedule with HiGHS (PR #33). Multiple pit bottoms pending."
+      "evidence": "Constrained schedule, bench inventory, bench design with spiral and switchback ramps (PR #28), pit/design DXF, end-of-period surfaces, section/plan PDF plots, geotechnical sectors (PR #11-#20); stockpile grade bins, capacity, rehandling (PR #31); NPV-maximising MILP schedule with HiGHS (PR #33). One ramp per separate pit (PR #35); truck/loader fleet, drill and blast, waste dumps (PR #36)."
     },
     {
       "id": "M9",
       "title": "Underground",
       "status": "IN_PROGRESS",
-      "evidence": "Floating stope envelope and greedy stope selection (PR #14); decline and level crosscut concept layout (PR #20)."
+      "evidence": "Floating stope envelope and greedy stope selection (PR #14); decline and level crosscut concept layout (PR #20). Stope economics, level schedule and cash flow (PR #36)."
     },
     {
       "id": "M10",

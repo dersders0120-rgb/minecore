@@ -77,6 +77,7 @@ from minecore.pitopt.fleet import Fleet, FleetRow, fleet_by_period, period_lifts
 from minecore.pitopt.milp import OptimisedSchedule, schedule_optimised
 from minecore.pitopt.optimise import route_tonnes, store
 from minecore.pitopt.phases import best_pushbacks
+from minecore.pitopt.reserves import InventoryLine, inventory_by_category
 from minecore.pitopt.scenarios import (
     Scenario,
     comparison,
@@ -406,6 +407,7 @@ class PitDialog(QDialog):
         self.cash_table.setHorizontalHeaderLabels(CASH_HEADERS)
         right.addTab(self.cash_table, "Nakit akışı")
         right.addTab(self._sensitivity_page(), "Duyarlılık")
+        right.addTab(self._reserve_page(), "Envanter (kategori)")
         right.addTab(self._fleet_page(), "Ekipman")
         right.addTab(self._scenario_page(), "Senaryolar")
         self.flow: CashFlow | None = None
@@ -452,6 +454,13 @@ class PitDialog(QDialog):
             box.clear()
             box.addItem("(yok)")
             box.addItems(grades)
+        self.res_category.clear()
+        self.res_category.addItem("(kategori yok)")
+        self.res_category.addItems(grades)
+        for g in grades:
+            if g.startswith("kat_"):
+                self.res_category.setCurrentText(g)
+                break
         self.density_attr.addItems(grades)
         self.rock.addItems(grades)
         if "kaya" in grades:
@@ -807,6 +816,48 @@ class PitDialog(QDialog):
                 self.fleet,
                 list_scenarios(self.project),
             )
+
+    def _reserve_page(self) -> QWidget:
+        page = QWidget()
+        v = QVBoxLayout(page)
+        self.res_category = QComboBox()
+        run = QPushButton("Tabloyu oluştur")
+        run.clicked.connect(self._guard(self.run_reserves))
+        v.addLayout(_row(QLabel("Kategori özniteliği"), self.res_category, run))
+        self.res_table = QTableWidget(0, len(RESERVE_HEADERS))
+        self.res_table.setHorizontalHeaderLabels(RESERVE_HEADERS)
+        v.addWidget(self.res_table, 1)
+        note = QLabel(
+            "Kazılabilir envanterdir (kazı kazanımı ve seyrelme sonrası tesis beslemesi). "
+            "Kategoriler istatistiksel güven sınıflarıdır; JORC/NI 43-101 rezerv beyanı "
+            "değildir, yetkin kişi gerekir."
+        )
+        note.setWordWrap(True)
+        v.addWidget(note)
+        self.reserves: list[InventoryLine] = []
+        return page
+
+    def run_reserves(self) -> None:
+        if self.pit is None or self.phase is None:
+            raise RuntimeError("Önce kabukları hesaplayıp pushback ve çizelge oluşturun.")
+        model = BlockModel.open(self.project, self.model.currentText())
+        name = self.res_category.currentText()
+        cat = None if self.res_category.currentIndex() <= 0 else model.values(name)
+        self.reserves = lines = inventory_by_category(self.pit, self.phase, cat)
+        self.res_table.setRowCount(len(lines))
+        for n, ln in enumerate(lines):
+            strip = ln.waste_t / ln.ore_t if ln.ore_t > 0 else math.nan
+            cells = [
+                "Tümü" if ln.phase == 0 else str(ln.phase),
+                ln.category,
+                f"{ln.ore_t / 1e6:,.3f}",
+                f"{ln.grade:.3f}" if math.isfinite(ln.grade) else "-",
+                f"{ln.metal:,.0f}",
+                f"{ln.waste_t / 1e6:,.3f}",
+                f"{strip:.2f}" if math.isfinite(strip) else "-",
+            ]
+            for c, text in enumerate(cells):
+                _cell(self.res_table, n, c, text)
 
     def _fleet_page(self) -> QWidget:
         page = QWidget()
@@ -1595,6 +1646,16 @@ def _length(road: npt.NDArray[np.float64]) -> float:
 LANE_HEADERS = (
     "Yıl", "Cut-off", "Malzeme t", "Cevher t", "Tenör", "Metal", "Nakit akışı", "Kısıt",
 )  # fmt: skip
+RESERVE_HEADERS = [
+    "Pushback",
+    "Kategori",
+    "Cevher Mt",
+    "Tenör",
+    "Metal",
+    "Pasa Mt",
+    "Dekapaj",
+]
+
 FLEET_HEADERS = [
     "Yıl",
     "Kazı Mt",
