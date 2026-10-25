@@ -539,3 +539,17 @@ def test_guide_dialog(qapp: QApplication) -> None:
     parent = QWidget()
     dialog = GuideDialog(parent)
     assert "Açık ocak" in dialog.text.toPlainText()
+
+
+def test_self_test_from_the_help_menu(qapp: QApplication, monkeypatch: pytest.MonkeyPatch) -> None:
+    from PySide6.QtWidgets import QMessageBox  # noqa: PLC0415
+
+    from minecore.gui.app import MainWindow  # noqa: PLC0415
+
+    shown: list[str] = []
+    monkeypatch.setattr(QMessageBox, "information", lambda *a: shown.append(a[2]))
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a: shown.append("FAILED " + a[2]))
+    window = MainWindow()
+    window.self_test()
+    assert shown[0].startswith("Tüm adımlar başarılı"), shown[0]
+    window.close()

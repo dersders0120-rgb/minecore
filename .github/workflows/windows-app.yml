@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    paths: [".github/workflows/windows-app.yml", "packaging/**", "python/minecore/gui/**", "pyproject.toml"]
+    paths: [".github/workflows/windows-app.yml", "packaging/**", "python/minecore/**", "pyproject.toml"]
   workflow_dispatch:
 
 concurrency:
@@ -53,6 +53,14 @@ jobs:
           print("MineCore", minecore.__version__, minecore.core_build_profile())
           PY
           uv run --no-sync python smoke.py
+
+      - name: Self-test the packaged executable (whole chain on the sample data)
+        shell: pwsh
+        run: |
+          $report = Join-Path $PWD "selftest.txt"
+          $p = Start-Process -FilePath "dist/MineCore/MineCore.exe" -ArgumentList "--self-test", "`"$report`"" -Wait -PassThru
+          if (Test-Path $report) { Get-Content $report } else { Write-Output "no report written" }
+          if ($p.ExitCode -ne 0) { exit 1 }
 
       - uses: actions/upload-artifact@v4
         with:

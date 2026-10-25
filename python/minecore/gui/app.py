@@ -319,6 +319,7 @@ class MainWindow(QMainWindow):
         help_menu = self.menuBar().addMenu("&Yardım")
         action(help_menu, "Adım adım kullanım kılavuzu", self.guide, "F1")
         action(help_menu, "Örnek sondaj projesini aç", self.open_sample)
+        action(help_menu, "Kurulumu sına (örnek veriyle tüm zincir)", self.self_test)
         action(help_menu, "Hakkında", self.about)
 
     def _guard(self, slot: Any) -> None:
@@ -957,6 +958,30 @@ class MainWindow(QMainWindow):
             raise RuntimeError("Önce bir blok modeli oluşturup tenör kestirin.")
         PitDialog(project, self).exec()
         self.refresh()
+
+    def self_test(self) -> None:
+        import tempfile  # noqa: PLC0415
+
+        from minecore.selftest import run_steps  # noqa: PLC0415
+
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            with tempfile.TemporaryDirectory(prefix="minecore-selftest-") as tmp:
+                steps = run_steps(Path(tmp))
+        finally:
+            QApplication.restoreOverrideCursor()
+        failed = [s for s in steps if not s.ok]
+        lines = [f"{'✓' if s.ok else '✗'} {s.name} ({s.seconds:.1f} s)" for s in steps]
+        if failed:
+            lines.append("\nHata ayrıntısı:\n" + failed[0].detail[-1500:])
+        box = QMessageBox.warning if failed else QMessageBox.information
+        box(
+            self,
+            "Kurulum sınaması",
+            ("Bir adım başarısız oldu." if failed else "Tüm adımlar başarılı.")
+            + "\n\n"
+            + "\n".join(lines),
+        )
 
     def open_sample(self) -> None:
         """Create a project from the bundled 30-hole sample (with deliberate errors)."""
