@@ -302,6 +302,7 @@ class MainWindow(QMainWindow):
         action(surf, "Kesit çizgilerini bağlayarak katı oluştur...", self.link_strings)
         action(surf, "Blok modelini katı ile işaretle (domen)...", self.flag_solid)
         action(surf, "Tenör kabuğu katısı oluştur (blok modelinden)...", self.make_grade_shell)
+        action(surf, "Örtük (implicit) domen modeli (sondajlardan)...", self.implicit_domain)
         action(surf, "Katı modeli DXF olarak dışa aktar...", self.export_solid)
         pit = self.menuBar().addMenu("&Açık Ocak")
         action(pit, "Ocak optimizasyonu, pushback ve çizelge...", self.optimise_pit)
@@ -653,6 +654,15 @@ class MainWindow(QMainWindow):
             f"'{target}': {len(ordered)} kesit bağlandı, {len(solid.triangles):,} üçgen, "
             f"hacim {solid.volume():,.0f} m³, açık kenar {solid.open_edges()}.",
         )
+
+    def implicit_domain(self) -> None:
+        from minecore.gui.geology import ImplicitDialog  # noqa: PLC0415
+
+        project = self._need_project()
+        if not block_models(project):
+            raise RuntimeError("Önce bir blok modeli oluşturun (çözünürlük için).")
+        ImplicitDialog(project, self._need_db(), self).exec()
+        self.refresh()
 
     def flag_solid(self) -> None:
         project = self._need_project()

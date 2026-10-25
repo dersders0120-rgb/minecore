@@ -143,6 +143,20 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
   still selects blocks by centroid.
 - Grade shells: marching cubes over block centres (VTK), not an implicit model.
 
+## Implicit domain modelling (M10 start)
+
+- `geology.implicit`: one domain at a time from interval classification
+  (numeric threshold or category codes). Contacts are placed only where an
+  inside and an outside interval touch. Midpoints carry the distance to the
+  nearest drilled contact (capped), which overestimates the distance to the
+  true surface between holes, so domains tend to be slightly conservative
+  with wide drill spacing (synthetic sphere: -7 % volume at 15 m spacing).
+- Global polyharmonic RBF (dense solve); above 4,000 points a regular subset
+  of interval points is used (all contacts kept). No structural trends,
+  faults, younging, vein/hanging-wall-footwall modelling, interval selection
+  (short internal waste is not merged) or editing of the surface. The surface
+  resolution is the block size of the chosen model.
+
 ## Underground (M9 start)
 
 - `underground.stopes`: floating stope envelope (fixed stope size in whole

@@ -66,6 +66,8 @@ def test_csv_to_pit_schedule(tmp_path: Path) -> None:
         )
     )
     report = json.loads(_run("bm", "report", p, "BM", "au_ok", "--cutoffs", "0", "0.3", "--json"))
+    imp = _run("geo", "implicit", p, "assay/AU_PPM", "BM", "cevher", "--threshold", "0.5")
+    assert "open edges 0" in imp
     sw = _run("bm", "swath", p, "BM", "au_ok", "assay_komp_2m/AU_PPM", "--width", "50")
     assert "estimate" in sw.splitlines()[0]
     assert len(sw.splitlines()) > 2
