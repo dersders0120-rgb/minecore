@@ -323,7 +323,13 @@ def surface_command(args: argparse.Namespace, out: TextIO) -> int:
     return 0
 
 
-def _bm_derive(model: BlockModel, args: argparse.Namespace, out: TextIO) -> int:
+def _bm_derive(project: Project, model: BlockModel, args: argparse.Namespace, out: TextIO) -> int:
+    if args.bm_command == "reblock":
+        new = reblock(
+            project, model, args.name, tuple(args.factors), density=_density(args.density)
+        )
+        out.write(f"{args.name}: {new.grid.count} blocks of {new.grid.size}\n")
+        return 0
     if args.bm_command == "calc":
         values = calculate(model, args.attribute, args.expression, args.unit)
         known = int(np.isfinite(values).sum())
@@ -402,14 +408,8 @@ def bm_command(args: argparse.Namespace, out: TextIO) -> int:
             )
             out.write(f"{args.attribute}: estimated; {missed} blocks without enough samples\n")
             return 0
-        if args.bm_command == "reblock":
-            new = reblock(
-                project, model, args.name, tuple(args.factors), density=_density(args.density)
-            )
-            out.write(f"{args.name}: {new.grid.count} blocks of {new.grid.size}\n")
-            return 0
-        if args.bm_command in ("calc", "classify"):
-            return _bm_derive(model, args, out)
+        if args.bm_command in ("calc", "classify", "reblock"):
+            return _bm_derive(project, model, args, out)
         density: float | str = _density(args.density)
         mask = None
         if args.filter:
