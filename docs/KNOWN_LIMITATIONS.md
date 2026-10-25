@@ -98,9 +98,17 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
   widened. Measured: 123k blocks, 3.2 M arcs, 3.4 s. Ramp access is not
   enforced.
 - Schedule (`pitopt.scheduling`): greedy, rule-based sequence with mining and
-  plant capacity, bench lag, sinking rate and one blended stockpile. Not an
+  plant capacity, bench lag, sinking rate and stockpiles. Not an
   optimised (MILP) schedule; no blending targets, no cut-off optimisation, no
   equipment or haulage model; periods are years of equal capacity.
+- Stockpiles: one per route and grade bin (`--grade-bins`, GUI "Stok tenör
+  sınıfları"), fed highest bin first, fresh before stock within a bin;
+  capacity per route (`--stockpile-capacity`) with the overflow sent to waste,
+  and a rehandling cost per tonne reclaimed. Bins use the main feed grade (or
+  the NSR), not the co-product grades. No stockpile losses, oxidation or grade
+  degradation, no reclaim rate limit, no change of bin boundaries over time;
+  a full stockpile does not slow the mine (the overflow is lost ore, reported
+  per period).
 
 ## Project cash flow
 

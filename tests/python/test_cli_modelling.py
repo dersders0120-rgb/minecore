@@ -313,3 +313,23 @@ def test_project_cash_flow_from_the_cli(tmp_path: Path) -> None:
     assert co["npv"] > plain["npv"]
     assert "co-product au:" in _run(*econ[:-1], "--coproduct", "au:200:ozt:50:90")
     assert main([*econ, "--coproduct", "au:200:kg:50"], io.StringIO()) == 1
+    # Stockpile grade bins, capacity and rehandling.
+    piles = json.loads(
+        _run(
+            *econ,
+            "--grade-bins",
+            "1",
+            "2",
+            "--stockpile-capacity",
+            "1e5",
+            "--rehandle-cost",
+            "1.5",
+        )
+    )
+    rows = piles["schedule"]
+    assert len(rows[0]["stock_by_bin"]) == 3
+    assert max(r["stockpile_t"] for r in rows) <= 1e5 * (1 + 1e-9)
+    assert sum(r["rehandle"] for r in rows) == pytest.approx(
+        1.5 * sum(r["reclaimed_t"] for r in rows)
+    )
+    assert "stockpiles:" in _run(*econ[:-1], "--grade-bins", "1", "2")

@@ -58,10 +58,12 @@ GUIDE = """
    pushback-basamak envanteri, Excel raporu. Kazanım, seyrelme, ödenebilir metal,
    royalty (devlet hakkı), NSR modu, yan ürünler (ör. `ag:25:ozt:70:95`; blok geliri
    tüm metallerin toplamıdır) ve ek işleme yolları (ör. `liç:60:4`; her blok en
-   yüksek marjlı yola gider) desteklenir. **Proje nakit akışı** bölümünde yatırım
-   (ör. `0:250; 4:40`, yıl:M$), sabit gider, kapanış maliyeti, vergi ve amortisman
-   girilir; "Nakit akışı" sekmesi yıl yıl FAVÖK, vergi, nakit akışı ve proje NPV, İVO
-   (IRR) ve geri ödeme süresini verir.
+   yüksek marjlı yola gider) desteklenir. Çizelgede stok tenör sınıfları (ör. `1; 2`),
+   stok kapasitesi ve geri yükleme maliyeti verilebilir: tesis önce yüksek tenörlü
+   cevherle beslenir, düşük tenör stokta bekler, dolu stoktan taşan cevher döküme gider.
+   **Proje nakit akışı** bölümünde yatırım (ör. `0:250; 4:40`, yıl:M$), sabit gider,
+   kapanış maliyeti, vergi ve amortisman girilir; "Nakit akışı" sekmesi yıl yıl FAVÖK,
+   vergi, nakit akışı ve proje NPV, İVO (IRR) ve geri ödeme süresini verir.
 2. **Basamak tasarımı**: şev açısı, basamak yüksekliği ve berm ile tasarım yüzeyi,
    tasarım içindeki bloklar ve değer karşılaştırması; isteğe bağlı spiral rampa
    (genişlik, eğim, çıkış yönü); geoteknik sektörler (ör. `0:70:6; 180:55:8`:
