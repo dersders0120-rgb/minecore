@@ -787,6 +787,11 @@ def test_pit_dialog_scenarios(qapp: QApplication, tmp_path: Path) -> None:
     dialog.plant.setValue(0.02)
     dialog.min_ore.setValue(0.02)
     dialog.make_phases()
+    dialog.run_reserves()  # no category attribute: one line per pushback plus the total
+    assert dialog.reserves[-1].category == "Toplam"
+    assert dialog.reserves[-1].ore_t == pytest.approx(
+        float(dialog.pit.feed[dialog.pit.ore & (dialog.phase > 0)].sum())
+    )  # type: ignore[union-attr]
     dialog.run_fleet()
     assert dialog.fleet
     assert dialog.fleet_table.rowCount() == len(dialog.sched.rows)  # type: ignore[union-attr]

@@ -1,7 +1,7 @@
 # Session handoff
 
-Updated: 2026-10-25 ~10:50 UTC (architect, thread "Continue MineCore development":
-PR #27-#33)
+Updated: 2026-10-25 ~13:55 UTC (architect, thread "Continue MineCore development":
+PR #27-#37). Work continues in a fresh thread.
 
 ## Owner direction (binding)
 - Windows 11 only. Wants a usable program fast, accepts some bugs, tests the GUI
@@ -13,6 +13,17 @@ PR #27-#33)
 - Open-source libraries welcome if permissive (MIT/BSD/Apache); no GPL.
 
 ## State
+- Same thread, later (2026-10-25): #34 pushbacks chosen by NPV
+  (`pitopt/phases.py`); #35 one ramp per separate pit, pit bottoms counted,
+  Lane never below the best constant cut-off (hypothesis counterexample
+  fixed); #36 pit scenarios (save/compare/reload), underground stope
+  economics + schedule + cash flow, truck/loader fleet by period, drill and
+  blast design with hole layout, waste dump design, Excel fleet/scenario
+  sheets; #37 mineable inventory by pushback and confidence category
+  ("Envanter (kategori)" tab). From 11:16 UTC the owner asked for speed over
+  tests: #36-#37 features have smoke tests only (listed in
+  KNOWN_LIMITATIONS). The owner ran the Windows build of #36 and said every
+  feature worked (11:53 UTC).
 - Thread "Continue MineCore development" (2026-10-25): PR #27 rotated block
   models (ADR-0009); #28 switchback ramps and technical audit v1
   (`docs/audit/AUDIT_2026-10.md`, known-answer tests A-H, pushback ore-target
@@ -70,14 +81,15 @@ PR #27-#33)
 
 ## Next actions
 1. Owner feedback on the Windows build with real data comes first.
-2. Audit plan (docs/audit/AUDIT_2026-10.md) P1/P2 left: scenario storage and
-   side-by-side comparison; pushbacks chosen by NPV (best phase selection);
-   multiple pit bottoms in bench design.
+2. Deeper tests for the smoke-tested features of #36-#37 (scenarios, stope
+   economics, fleet, drill and blast, dumps, category inventory).
 3. Sub-cells (needs its own ADR).
 4. Routes and stockpiles in Lane; blending targets in the MILP schedule.
 5. Underground: stope shapes beyond grid boxes, footwall drives and drawpoints,
-   development schedule.
-6. Interoperability: OMF export (check licence of the `omf` package first).
+   development schedule, development lead times in the stope schedule.
+6. Haulage cost from the fleet model into the schedule cash flow; dump
+   ramps and haul distance per destination.
+7. Interoperability: OMF export (check licence of the `omf` package first).
 
 ## Owner owes
 - Try the Windows build with real data and report problems (Yardım → Kurulumu
