@@ -46,6 +46,7 @@ from minecore.drillholes.workflow import composite_table, hole_geometry, save_co
 from minecore.estimation import Ellipsoid, Method, Search, experimental, fit_spherical
 from minecore.geology.implicit import interval_contacts, model_domain
 from minecore.gradecontrol import GradeControlError, grade_control, read_holes_csv
+from minecore.haulroads import RoadNetwork
 from minecore.io.dxf import Polyline, write_dxf
 from minecore.pitopt import Economics, PriceUnit, SlopeProfile, optimise_pit, pushbacks, schedule
 from minecore.pitopt.benchdesign import (
@@ -303,6 +304,14 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     ug.add_argument("--rock")
     ug.add_argument("--dxf")
 
+    hr = commands.add_parser("haul", help="shortest haul route along road strings")
+    hr.add_argument("project")
+    hr.add_argument("roads", help="string set with the road centrelines")
+    hr.add_argument("--from", dest="start", type=float, nargs=3, required=True)
+    hr.add_argument("--to", dest="end", type=float, nargs=3, required=True)
+    hr.add_argument("--snap", type=float, default=1.0, help="join vertices closer than this, m")
+    hr.add_argument("--ramp-grade", type=float, default=0.03)
+    hr.add_argument("--save", help="store the route as a string set")
     gcp = commands.add_parser("gc", help="grade control: blasthole grades to dig lines")
     gcp.add_argument("project")
     gcp.add_argument("outline", help="string set with the closed blast outline (z = bench toe)")
@@ -734,6 +743,20 @@ def plot_command(args: argparse.Namespace, out: TextIO) -> int:
             f"{args.out}: {r.blocks} blocks, {r.holes} holes, {r.samples} samples, "
             f"surfaces {r.surface_lines}, solids {r.solid_segments}\n"
         )
+    return 0
+
+
+def haul_command(args: argparse.Namespace, out: TextIO) -> int:
+    with Project.open(args.project) as project:
+        net = RoadNetwork(strings.load_strings(project, args.roads), args.snap)
+        r = net.route(tuple(args.start), tuple(args.end), args.ramp_grade)
+        if args.save:
+            strings.save_strings(project, args.save, [strings.String(r.points, False)])
+    out.write(
+        f"route {r.length:,.0f} m (ramp {r.ramp_m:,.0f} m, flat {r.flat_m:,.0f} m), "
+        f"climb {r.climb:,.1f} m, descent {r.descent:,.1f} m; "
+        f"start {r.snap_start:,.1f} m and end {r.snap_end:,.1f} m off the network\n"
+    )
     return 0
 
 
@@ -1591,4 +1614,5 @@ HANDLERS = {
     "plot": plot_command,
     "decline": decline_command,
     "gc": gc_command,
+    "haul": haul_command,
 }

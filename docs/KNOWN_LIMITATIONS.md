@@ -391,3 +391,13 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
   self-intersection test). Booleans and surface cuts are voxel-based: the
   result is closed but rounded at the voxel size, and slow for fine voxels
   on large solids (pure-Python inside test). Lightly tested.
+
+## Haul roads
+
+- `haulroads` (CLI `haul`, GUI "Taşıma yolu mesafesi"): shortest route along
+  road strings (Dijkstra on string vertices). Roads join only where vertices
+  lie within the snap tolerance; crossings without a shared vertex are not
+  junctions. Ramp/flat split by a single grade threshold; no rolling
+  resistance, rimpull curves or speed limits per road. The route length is
+  not yet fed automatically into the fleet or dump haul distances (type it
+  in). Smoke-tested only.

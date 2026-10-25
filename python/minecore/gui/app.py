@@ -357,6 +357,7 @@ class MainWindow(QMainWindow):
         action(surf, "Kesit çizgilerini bağlayarak katı oluştur...", self.link_strings)
         action(surf, "Blok modelini katı ile işaretle (domen)...", self.flag_solid)
         action(surf, "Katı model araçları (doğrula, onar, birleştir, kes)...", self.solid_tools)
+        action(surf, "Taşıma yolu mesafesi (yol ağı)...", self.haul_route)
         action(surf, "Tenör kabuğu katısı oluştur (blok modelinden)...", self.make_grade_shell)
         action(surf, "Örtük (implicit) domen modeli (sondajlardan)...", self.implicit_domain)
         action(surf, "Katı modeli DXF olarak dışa aktar...", self.export_solid)
@@ -1089,6 +1090,12 @@ class MainWindow(QMainWindow):
         from minecore.gui.solidtools import SolidToolsDialog  # noqa: PLC0415
 
         SolidToolsDialog(self._need_project(), self).exec()
+        self.refresh()
+
+    def haul_route(self) -> None:
+        from minecore.gui.haulroads import HaulRouteDialog  # noqa: PLC0415
+
+        HaulRouteDialog(self._need_project(), self).exec()
         self.refresh()
 
     def edit_strings(self) -> None:
