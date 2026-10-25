@@ -828,3 +828,27 @@ def test_blast_dialog(qapp: QApplication, tmp_path: Path) -> None:
     assert len(load_strings(project, "sinir_delikler")) == n
     assert "BLAST_HOLES" in (tmp_path / "d.dxf").read_text()
     project.close()
+
+
+def test_dump_dialog(qapp: QApplication, tmp_path: Path) -> None:
+    from minecore.gui.dump import DumpDialog  # noqa: PLC0415
+    from minecore.strings import String, save_strings  # noqa: PLC0415
+
+    project = Project.create(tmp_path / "w.mcproj", "w")
+    square = np.array([[0, 0, 0], [400, 0, 0], [400, 400, 0], [0, 400, 0]], float)
+    save_strings(project, "saha", [String(square, True)])
+    parent = QWidget()
+    dialog = DumpDialog(project, parent)
+    dialog.face.setValue(45.0)
+    dialog.berm.setValue(10.0)
+    dialog.max_h.setValue(30.0)
+    dialog.run()
+    d = dialog.dump
+    assert d is not None
+    assert d.top == pytest.approx(30.0)
+    # Stair 10 m lift: 10 m face + 10 m berm per lift -> crest square shrinks by 2 x 50 m
+    # (two full lifts + the last face). Prismoid bounds: below the 400 m box, above the crest.
+    assert 300.0**2 * 30 < d.volume() < 400.0**2 * 30
+    assert dialog.table.rowCount() == 3
+    assert "Kapasite" in dialog.summary.text()
+    project.close()

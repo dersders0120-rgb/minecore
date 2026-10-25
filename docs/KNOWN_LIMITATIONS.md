@@ -170,6 +170,15 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
   air-blast or flyrock prediction, no timing design, no decking, no free-face
   or crest-burden checks. Smoke-tested only.
 
+## Waste dumps
+
+- `pitopt.dump` (GUI "Döküm sahası tasarımı"): stair surface from the toe
+  on the footprint edge (ground at the nearest edge point), capped at a
+  maximum height above the lowest toe. One footprint per run (the first
+  closed string); no ramps, no stability or foundation checks, no dump
+  scheduling or haul-distance link; footprint edges are rasterised.
+  Smoke-tested only.
+
 ## Pit scenarios
 
 - `pitopt.scenarios` (GUI "Senaryolar", CLI `pit optimise --save-scenario`,

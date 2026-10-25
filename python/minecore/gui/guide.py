@@ -94,6 +94,11 @@ taban delgisi ve sıkılamayı, delik başına şarjı, özgül şarjı (kg/m³,
 yıllık delik/patlayıcı ihtiyacını verir; kapalı bir sınır çizgisi içinde şaşırtmalı
 delik planı oluşturup DXF'e yazar.
 
+Döküm sahası: **Açık Ocak > Döküm sahası tasarımı** kapalı bir sınır içinde kat
+yüksekliği, şev açısı ve bermle döküm yüzeyini oluşturur (zemin yüzeyi seçilebilir);
+gevşek hacim, kabarma ve yoğunlukla yerinde ton kapasitesi, kat kat hacim ve
+gereken pasa için yeterlilik verir.
+
 ## 5. Yeraltı
 - **Yeraltı > Pano zarfı**: sabit boyutlu pano ile yüzen pano zarfı ve çakışmasız pano
   seçimi; DXF.
