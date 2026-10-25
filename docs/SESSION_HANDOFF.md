@@ -1,7 +1,7 @@
 # Session handoff
 
-Updated: 2026-10-25 ~13:55 UTC (architect, thread "Continue MineCore development":
-PR #27-#37). Work continues in a fresh thread.
+Updated: 2026-10-25 ~14:35 UTC (architect, thread "Match Datamine Studio OP and
+NPVS": PR #38).
 
 ## Owner direction (binding)
 - Windows 11 only. Wants a usable program fast, accepts some bugs, tests the GUI
@@ -13,6 +13,19 @@ PR #27-#37). Work continues in a fresh thread.
 - Open-source libraries welcome if permissive (MIT/BSD/Apache); no GPL.
 
 ## State
+- Thread "Match Datamine Studio OP and NPVS" (2026-10-25): gap list vs Studio
+  OP + NPVS from public knowledge (no inspection of the installed software;
+  rule 7). PR #38 closes it: MILP blending targets; variable period lengths
+  and per-period capacities (discounting, fixed cost, depreciation, IRR,
+  payback in years); MCAF/PCAF cost factors; concentrate TC and penalties;
+  bench reserves between surfaces and cut/fill volume (`minecore.reserves`);
+  plan string editor (`gui/strings_editor.py`); pit design from toe strings
+  (`benchdesign.design_from_toes`, `pit design-toes`); grade control dig
+  lines (`minecore.gradecontrol`, CLI `gc`); dump sequencing by haul distance
+  feeding the fleet; solid verify/repair/voxel booleans/cut
+  (`minecore.solidtools`); connector ramps from side pit bottoms, road edge
+  and safety bund strings. Owner asked (14:25 UTC) to delegate simple work
+  to Haiku subagents and verify it.
 - Same thread, later (2026-10-25): #34 pushbacks chosen by NPV
   (`pitopt/phases.py`); #35 one ramp per separate pit, pit bottoms counted,
   Lane never below the best constant cut-off (hypothesis counterexample
@@ -84,11 +97,12 @@ PR #27-#37). Work continues in a fresh thread.
 2. Deeper tests for the smoke-tested features of #36-#37 (scenarios, stope
    economics, fleet, drill and blast, dumps, category inventory).
 3. Sub-cells (needs its own ADR).
-4. Routes and stockpiles in Lane; blending targets in the MILP schedule.
+4. Routes and stockpiles in Lane; short-term (monthly shot) scheduling;
+   blending in the greedy schedule.
 5. Underground: stope shapes beyond grid boxes, footwall drives and drawpoints,
    development schedule, development lead times in the stope schedule.
-6. Haulage cost from the fleet model into the schedule cash flow; dump
-   ramps and haul distance per destination.
+6. Haulage cost from the fleet model into the schedule cash flow; road
+   network shortest paths; dump ramps.
 7. Interoperability: OMF export (check licence of the `omf` package first).
 
 ## Owner owes

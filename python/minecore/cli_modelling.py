@@ -45,18 +45,21 @@ from minecore.drillholes.importer import import_folder
 from minecore.drillholes.workflow import composite_table, hole_geometry, save_composites
 from minecore.estimation import Ellipsoid, Method, Search, experimental, fit_spherical
 from minecore.geology.implicit import interval_contacts, model_domain
+from minecore.gradecontrol import GradeControlError, grade_control, read_holes_csv
+from minecore.io.dxf import Polyline, write_dxf
 from minecore.pitopt import Economics, PriceUnit, SlopeProfile, optimise_pit, pushbacks, schedule
 from minecore.pitopt.benchdesign import (
     BenchGeometry,
     Ramp,
     design_from_model,
+    design_from_toes,
     parse_exits,
     parse_sectors,
 )
 from minecore.pitopt.cashflow import CashFlow, FinancialTerms, cash_flow, parse_capital
 from minecore.pitopt.cutoff import cutoffs_from_model
 from minecore.pitopt.design import edge_blocks, export_pit, period_surfaces
-from minecore.pitopt.economics import PitOptError, parse_products, parse_routes
+from minecore.pitopt.economics import PitOptError, parse_penalties, parse_products, parse_routes
 from minecore.pitopt.milp import OptimisedSchedule, schedule_optimised
 from minecore.pitopt.optimise import PitResult, Schedule, route_tonnes, store
 from minecore.pitopt.phases import best_pushbacks
@@ -69,7 +72,14 @@ from minecore.pitopt.scenarios import (
     save_scenario,
     write_comparison,
 )
-from minecore.pitopt.scheduling import ConstrainedSchedule, Limits, schedule_constrained
+from minecore.pitopt.scheduling import (
+    ConstrainedSchedule,
+    Limits,
+    parse_blends,
+    parse_periods,
+    resolve_blends,
+    schedule_constrained,
+)
 from minecore.pitopt.sensitivity import (
     Case,
     Input,
@@ -81,7 +91,9 @@ from minecore.pitopt.sensitivity import (
 from minecore.pitopt.width import apply_mining_width
 from minecore.plots import SectionSpec, section_plot
 from minecore.project import Project
+from minecore.reserves import bench_reserves, between_fraction, volume_between
 from minecore.solids import flag_blocks, load_solid, read_solid, save_solid
+from minecore.solidtools import Boolean, boolean, cut_by_surface, repair, verify
 from minecore.underground.development import DeclineDesign, development_from_model
 from minecore.underground.stopes import stopes_from_model
 
@@ -113,6 +125,11 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     s_col = sf_cmds.add_parser("from-collars", help="surface through the collars")
     s_col.add_argument("project")
     s_col.add_argument("name")
+    s_vol = sf_cmds.add_parser("volume", help="cut and fill volume between two surfaces")
+    s_vol.add_argument("project")
+    s_vol.add_argument("upper", help="surface a (cut where a is above b)")
+    s_vol.add_argument("lower", help="surface b")
+    s_vol.add_argument("--cell", type=float, default=5.0, help="raster cell, m")
     s_flag = sf_cmds.add_parser("flag", help="write kaya=1 below the surface into a block model")
     s_flag.add_argument("project")
     s_flag.add_argument("surface")
@@ -135,6 +152,24 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     so_imp.add_argument("project")
     so_imp.add_argument("name")
     so_imp.add_argument("file")
+    so_ver = sol_cmds.add_parser("verify", help="check a solid; --repair stores a fixed copy")
+    so_ver.add_argument("project")
+    so_ver.add_argument("solid")
+    so_ver.add_argument("--repair", metavar="NAME", help="store the repaired solid as NAME")
+    so_bool = sol_cmds.add_parser("boolean", help="union, intersection or difference (voxel)")
+    so_bool.add_argument("project")
+    so_bool.add_argument("a")
+    so_bool.add_argument("op", choices=[b.value for b in Boolean])
+    so_bool.add_argument("b")
+    so_bool.add_argument("name", help="result solid name")
+    so_bool.add_argument("--voxel", type=float, default=1.0, help="voxel size, m")
+    so_cut = sol_cmds.add_parser("cut", help="part of a solid below/above a surface (voxel)")
+    so_cut.add_argument("project")
+    so_cut.add_argument("solid")
+    so_cut.add_argument("surface")
+    so_cut.add_argument("name", help="result solid name")
+    so_cut.add_argument("--above", action="store_true", help="keep the part above")
+    so_cut.add_argument("--voxel", type=float, default=1.0, help="voxel size, m")
     so_flag = sol_cmds.add_parser("flag", help="dom_<solid> (and _pct fractions) in a model")
     so_flag.add_argument("project")
     so_flag.add_argument("solid")
@@ -267,6 +302,19 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     ug.add_argument("--rock")
     ug.add_argument("--dxf")
 
+    gcp = commands.add_parser("gc", help="grade control: blasthole grades to dig lines")
+    gcp.add_argument("project")
+    gcp.add_argument("outline", help="string set with the closed blast outline (z = bench toe)")
+    gcp.add_argument("holes", help="CSV with x, y and the grade column")
+    gcp.add_argument("--grade", required=True, help="grade column in the CSV")
+    gcp.add_argument("--cutoff", type=float, action="append", required=True, help="repeat")
+    gcp.add_argument("--bench-height", type=float, default=10.0)
+    gcp.add_argument("--density", type=float, default=2.7)
+    gcp.add_argument("--cell", type=float, default=1.0)
+    gcp.add_argument("--radius", type=float, default=15.0)
+    gcp.add_argument("--smu", type=float, default=5.0, help="minimum mining width, m")
+    gcp.add_argument("--save", help="store the dig lines as this string set")
+    gcp.add_argument("--dxf")
     dec = commands.add_parser("decline", help="underground decline, level crosscuts and ore drives")
     dec.add_argument("project")
     dec.add_argument("model")
@@ -370,6 +418,47 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
         help="greedy rules or NPV-maximising MILP (with --plant)",
     )
     opt.add_argument("--time-limit", type=float, default=60.0, help="MILP time limit, s")
+    opt.add_argument("--mining-factor", help="attribute multiplying the mining cost (MCAF)")
+    opt.add_argument("--processing-factor", help="attribute multiplying the processing cost (PCAF)")
+    opt.add_argument(
+        "--concentrate-grade",
+        type=float,
+        default=0.0,
+        help="main metal fraction in the concentrate, e.g. 0.25 (enables TC and penalties)",
+    )
+    opt.add_argument("--treatment-charge", type=float, default=0.0, help="per concentrate tonne")
+    opt.add_argument(
+        "--penalty",
+        action="append",
+        default=[],
+        metavar="ATTR:REC:LIMIT:STEP:RATE",
+        help="penalty element in the concentrate, e.g. as:30:2000:1000:3; repeat",
+    )
+    opt.add_argument(
+        "--period-years",
+        default="",
+        metavar="LIST",
+        help="length of each period in years, e.g. '0.25*4; 1' (last repeats; with --plant)",
+    )
+    opt.add_argument(
+        "--mining-rates",
+        default="",
+        metavar="LIST",
+        help="mining t/year by period, e.g. '20e6*2; 30e6' (last repeats; default --rate)",
+    )
+    opt.add_argument(
+        "--plant-rates",
+        default="",
+        metavar="LIST",
+        help="plant ore t/year by period (ramp-up; last repeats; default --plant)",
+    )
+    opt.add_argument(
+        "--blend",
+        action="append",
+        default=[],
+        metavar="ATTR:MIN:MAX[:ROUTE]",
+        help="feed blending target per period, e.g. grade:0.8:- or as:-:500 (needs milp)",
+    )
     opt.add_argument(
         "--best-pushbacks",
         action="store_true",
@@ -419,12 +508,32 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     )
     des.add_argument("--turn-length", type=float, help="flat road at each switchback, m")
     des.add_argument(
+        "--bund", type=float, default=0.0, help="safety bund width on the open side of the road, m"
+    )
+    des.add_argument(
         "--sector",
         action="append",
         default=[],
         metavar="AZ:FACE:BERM",
         help="geotechnical sector from azimuth AZ (0 = north wall); repeat for each sector",
     )
+    toe = pit_cmds.add_parser("design-toes", help="bench design expanded from closed toe strings")
+    toe.add_argument("project")
+    toe.add_argument("strings", help="string set with closed toe outlines (z = floor)")
+    toe.add_argument("--topography", help="ground surface (else --ground)")
+    toe.add_argument("--ground", type=float, help="flat ground elevation, m")
+    toe.add_argument("--face", type=float, default=70.0)
+    toe.add_argument("--height", type=float, default=10.0)
+    toe.add_argument("--berm", type=float, default=6.0)
+    toe.add_argument("--ramp-width", type=float, default=0.0, help="0 = no ramp")
+    toe.add_argument("--ramp-gradient", type=float, default=0.1)
+    toe.add_argument("--ramp-exit", type=float, default=0.0)
+    toe.add_argument(
+        "--bund", type=float, default=0.0, help="safety bund width on the open side of the road, m"
+    )
+    toe.add_argument("--resolution", type=float, default=2.0)
+    toe.add_argument("--save", default="tasarim_taban", help="surface and string set name")
+    toe.add_argument("--dxf")
     scn = pit_cmds.add_parser("scenarios", help="list, compare or delete saved pit scenarios")
     scn.add_argument("project")
     scn.add_argument("--delete", metavar="NAME")
@@ -435,6 +544,17 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     per.add_argument("--topography")
     per.add_argument("--prefix", default="donem")
     per.add_argument("--dxf")
+    res = pit_cmds.add_parser("reserves", help="ore and waste per bench between two surfaces")
+    res.add_argument("project")
+    res.add_argument("model")
+    res.add_argument("grade")
+    res.add_argument("--bottom", required=True, help="pit design (or period) surface")
+    res.add_argument("--top", help="upper surface, e.g. topography (default: none)")
+    res.add_argument("--cutoff", type=float, required=True)
+    res.add_argument("--density", default="2.7", help="t/m3 or a density attribute")
+    res.add_argument("--bench-height", type=float, help="default: block height")
+    res.add_argument("--by", help="split each bench by this attribute (rock type, category)")
+    res.add_argument("--json", action="store_true")
     exp = pit_cmds.add_parser("export", help="pit outlines, surface and solid to DXF")
     exp.add_argument("project")
     exp.add_argument("model")
@@ -516,6 +636,8 @@ def solid_command(args: argparse.Namespace, out: TextIO) -> int:
                 f"{solid.volume():,.0f} m3, open edges {solid.open_edges()}\n"
             )
             return 0
+        if args.solid_command in ("verify", "boolean", "cut"):
+            return _solid_tools(project, args, out)
         model = BlockModel.open(project, args.model)
         attribute = f"dom_{args.solid}"
         n = flag_blocks(model, load_solid(project, args.solid), attribute, args.subdivisions)
@@ -523,6 +645,40 @@ def solid_command(args: argparse.Namespace, out: TextIO) -> int:
         if args.subdivisions > 1:
             pct = model.values(f"{attribute}_pct")
             out.write(f"{attribute}_pct: volume {pct.sum() * model.grid.block_volume:,.0f} m3\n")
+    return 0
+
+
+def _solid_tools(project: Project, args: argparse.Namespace, out: TextIO) -> int:
+    if args.solid_command == "verify":
+        r = verify(load_solid(project, args.solid))
+        out.write(
+            f"{args.solid}: {r.triangles:,} triangles, {r.shells} shells, "
+            f"volume {r.volume:,.0f} m3, "
+            f"open edges {r.open_edges}, non-manifold {r.non_manifold_edges}, degenerate "
+            f"{r.degenerate}, duplicates {r.duplicates}, flipped {r.flipped_edges}: "
+            + ("valid\n" if r.valid else "needs repair\n")
+        )
+        if args.repair:
+            fixed = repair(load_solid(project, args.solid))
+            save_solid(project, args.repair, fixed)
+            f = verify(fixed)
+            out.write(f"{args.repair}: volume {f.volume:,.0f} m3, open edges {f.open_edges}\n")
+        return 0
+    if args.solid_command == "boolean":
+        result = boolean(
+            load_solid(project, args.a), load_solid(project, args.b), Boolean(args.op), args.voxel
+        )
+    else:
+        result = cut_by_surface(
+            load_solid(project, args.solid),
+            surfaces.load_surface(project, args.surface),
+            not args.above,
+            args.voxel,
+        )
+    save_solid(project, args.name, result)
+    out.write(
+        f"{args.name}: {len(result.triangles):,} triangles, volume {result.volume():,.0f} m3\n"
+    )
     return 0
 
 
@@ -569,6 +725,43 @@ def plot_command(args: argparse.Namespace, out: TextIO) -> int:
             f"{args.out}: {r.blocks} blocks, {r.holes} holes, {r.samples} samples, "
             f"surfaces {r.surface_lines}, solids {r.solid_segments}\n"
         )
+    return 0
+
+
+def gc_command(args: argparse.Namespace, out: TextIO) -> int:
+    with Project.open(args.project) as project:
+        rings = [s.points for s in strings.load_strings(project, args.outline) if s.closed]
+        if not rings:
+            raise GradeControlError(f"{args.outline!r} holds no closed outline")
+        gc = grade_control(
+            rings[0],
+            read_holes_csv(Path(args.holes), args.grade),
+            tuple(sorted(args.cutoff)),
+            bench_height=args.bench_height,
+            density=args.density,
+            cell=args.cell,
+            radius=args.radius,
+            smu=args.smu,
+        )
+        lines = [Polyline(f"GC_CLASS_{c}", p, True) for c, p in gc.lines]
+        if args.save:
+            found = [strings.String(p.points, True, p.layer) for p in lines]
+            strings.save_strings(project, args.save, found)
+        if args.dxf:
+            write_dxf(Path(args.dxf), lines)
+    out.write(
+        f"{'class':>5} {'area m2':>10} {'tonnes':>12} {'grade':>8} {'ideal t':>12} {'polys':>5}\n"
+    )
+    for r in gc.rows:
+        grade = f"{r.grade:8.3f}" if math.isfinite(r.grade) else f"{'-':>8}"
+        out.write(
+            f"{r.cls:5d} {r.area:10,.0f} {r.tonnes:12,.0f} {grade} {r.ideal_tonnes:12,.0f} "
+            f"{r.polygons:5d}\n"
+        )
+    out.write(
+        f"ore loss {gc.ore_loss_t:,.0f} t, dilution {gc.dilution_t:,.0f} t, "
+        f"misrouted ore {gc.misrouted_t:,.0f} t\n"
+    )
     return 0
 
 
@@ -664,6 +857,16 @@ def surface_command(args: argparse.Namespace, out: TextIO) -> int:
             s = surfaces.read_points_csv(Path(args.file))
             surfaces.save_surface(project, args.name, s)
             out.write(f"surface {args.name}: {len(s.points)} points\n")
+        elif args.sf_command == "volume":
+            v = volume_between(
+                surfaces.load_surface(project, args.upper),
+                surfaces.load_surface(project, args.lower),
+                args.cell,
+            )
+            out.write(
+                f"cut {v.cut:,.0f} m3, fill {v.fill:,.0f} m3, net {v.net:,.0f} m3 "
+                f"over {v.area:,.0f} m2 ({v.cells} cells of {args.cell:g} m)\n"
+            )
         elif args.sf_command == "from-collars":
             db = _db(project)
             geo = hole_geometry(db, validate(db))
@@ -858,6 +1061,7 @@ def pit_design(project: Project, args: argparse.Namespace, out: TextIO) -> int:
             args.switchback,
             args.turn_length,
             parse_exits(args.ramp_exits),
+            bund=args.bund,
         )
         if args.ramp_width
         else None,
@@ -896,7 +1100,7 @@ def _write_routes(result: PitResult, econ: Economics, final: int, out: TextIO) -
             out.write(f"route {name}: {feed_t:,.0f} t feed, {metal:,.1f} metal\n")
 
 
-def pit_command(args: argparse.Namespace, out: TextIO) -> int:
+def pit_command(args: argparse.Namespace, out: TextIO) -> int:  # noqa: PLR0911 - dispatch
     with Project.open(args.project) as project:
         if args.pit_command == "export":
             return pit_export(project, args, out)
@@ -904,6 +1108,10 @@ def pit_command(args: argparse.Namespace, out: TextIO) -> int:
             return pit_design(project, args, out)
         if args.pit_command == "cutoff":
             return pit_cutoff(project, args, out)
+        if args.pit_command == "reserves":
+            return pit_reserves(project, args, out)
+        if args.pit_command == "design-toes":
+            return pit_design_toes(project, args, out)
         if args.pit_command == "scenarios":
             if args.delete:
                 delete_scenario(project, args.delete)
@@ -977,6 +1185,11 @@ def pit_optimise(project: Project, args: argparse.Namespace, out: TextIO) -> int
         args.payable,
         args.royalty,
         parse_products(";".join(args.coproduct)),
+        mining_factor=args.mining_factor or "",
+        processing_factor=args.processing_factor or "",
+        concentrate_grade=args.concentrate_grade,
+        treatment_charge=args.treatment_charge,
+        penalties=parse_penalties(";".join(args.penalty)),
     )
     terms = FinancialTerms(
         parse_capital(args.capex),
@@ -1005,7 +1218,7 @@ def pit_optimise(project: Project, args: argparse.Namespace, out: TextIO) -> int
     )
     final = factors.index(args.final_rf) + 1
     phase_ore = args.phase_ore or max(result.rows[final - 1].ore_t / 3, 1.0)
-    limits = _limits(args)
+    limits = _limits(args, model)
     if limits is not None and args.best_pushbacks:
         choice = best_pushbacks(
             result, final, limits, min_ore_t=phase_ore, max_pushbacks=args.max_pushbacks
@@ -1068,10 +1281,14 @@ def pit_optimise(project: Project, args: argparse.Namespace, out: TextIO) -> int
     return 0
 
 
-def _limits(args: argparse.Namespace) -> Limits | None:
+def _limits(args: argparse.Namespace, model: BlockModel) -> Limits | None:
     """Schedule limits when a plant capacity is given; options that need them otherwise fail."""
+    blends = parse_blends(";".join(args.blend))
+    if blends and args.schedule != "milp":
+        raise PitOptError("blending targets (--blend) need --schedule milp")
     needs = {
         "--schedule milp": args.schedule == "milp",
+        "--period-years": bool(args.period_years),
         "--sensitivity": args.sensitivity is not None,
         "--best-pushbacks": args.best_pushbacks,
     }
@@ -1090,6 +1307,10 @@ def _limits(args: argparse.Namespace) -> Limits | None:
         grade_bins=tuple(args.grade_bins),
         stockpile_capacities=tuple(args.stockpile_capacity),
         rehandle_cost=args.rehandle_cost,
+        period_years=parse_periods(args.period_years),
+        mining_rates=parse_periods(args.mining_rates),
+        plant_rates=parse_periods(args.plant_rates),
+        blends=resolve_blends(blends, model.values),
     )
 
 
@@ -1229,6 +1450,69 @@ def _write_cash_flow(flow: CashFlow, out: TextIO) -> None:
     )
 
 
+def pit_design_toes(project: Project, args: argparse.Namespace, out: TextIO) -> int:
+    rings = [s.points for s in strings.load_strings(project, args.strings) if s.closed]
+    if not rings:
+        raise PitOptError(f"{args.strings!r} holds no closed string")
+    pit = design_from_toes(
+        rings,
+        BenchGeometry(args.face, args.height, args.berm),
+        topography=surfaces.load_surface(project, args.topography) if args.topography else None,
+        ground_z=args.ground,
+        resolution=args.resolution,
+        ramp=Ramp(args.ramp_width, args.ramp_gradient, args.ramp_exit, bund=args.bund)
+        if args.ramp_width
+        else None,
+    )
+    surfaces.save_surface(project, args.save, pit.surface())
+    lines = pit.strings(args.save.upper())
+    found = [strings.String(p.points, p.closed, p.layer) for p in lines]
+    strings.save_strings(project, f"{args.save}_cizgiler", found)
+    if args.dxf:
+        write_dxf(Path(args.dxf), lines)
+    out.write(
+        f"volume {pit.volume():,.0f} m3; bottoms {pit.bottoms}; pits {pit.pits}; "
+        f"ramp {pit.ramp_length:,.0f} m; surface {args.save}, strings {args.save}_cizgiler\n"
+    )
+    return 0
+
+
+def pit_reserves(project: Project, args: argparse.Namespace, out: TextIO) -> int:
+    model = BlockModel.open(project, args.model)
+    top = surfaces.load_surface(project, args.top) if args.top else None
+    frac = between_fraction(model, top, surfaces.load_surface(project, args.bottom))
+    rows = bench_reserves(
+        model,
+        args.grade,
+        args.cutoff,
+        frac,
+        density=_density(args.density),
+        bench_height=args.bench_height,
+        category=args.by,
+    )
+    if args.json:
+        json.dump([r.__dict__ for r in rows], out, indent=2)
+        out.write("\n")
+        return 0
+    out.write(
+        f"{'toe':>8} {'class':>6} {'total t':>13} {'ore t':>13} {'grade':>8} {'waste t':>13}\n"
+    )
+    for r in rows:
+        grade = f"{r.grade:8.3f}" if math.isfinite(r.grade) else f"{'-':>8}"
+        out.write(
+            f"{r.toe:8.1f} {r.category:>6} {r.total_t:13,.0f} {r.ore_t:13,.0f} {grade} "
+            f"{r.waste_t:13,.0f}\n"
+        )
+    ore = sum(r.ore_t for r in rows)
+    waste = sum(r.waste_t for r in rows)
+    metal = sum(r.metal for r in rows)
+    out.write(
+        f"total ore {ore:,.0f} t at {metal / ore if ore else math.nan:.3f}, waste {waste:,.0f} t, "
+        f"strip ratio {waste / ore if ore else math.inf:.2f}\n"
+    )
+    return 0
+
+
 def pit_cutoff(project: Project, args: argparse.Namespace, out: TextIO) -> int:
     model = BlockModel.open(project, args.model)
     if not args.nsr and None in (args.price, args.price_unit, args.recovery):
@@ -1286,4 +1570,5 @@ HANDLERS = {
     "geo": geo_command,
     "plot": plot_command,
     "decline": decline_command,
+    "gc": gc_command,
 }

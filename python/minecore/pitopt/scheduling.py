@@ -5,7 +5,8 @@ Mining units are *increments*: the blocks of one pushback on one bench.
 Each period the scheduler mines increments in pushback order, top bench
 first, subject to:
 
-* total mining capacity (t/period); an increment may be split across periods;
+* total mining capacity (t/year times the period length); an increment may
+  be split across periods;
 * sinking rate: a pushback works on at most ``sinking_rate`` benches per
   period, which leaves capacity for the next pushbacks (concurrent mining);
 * bench lag: pushback ``p`` may not start bench ``b`` until pushback ``p-1``
@@ -27,6 +28,19 @@ finds no room is sent to the waste dump and its margin is lost
 Stockpiles hold the blended grade of what entered each bin; there are no
 stockpile losses or grade degradation.
 
+Periods: by default every period is one year. ``period_years`` gives each
+period its own length (e.g. four quarters, then years; the last length
+repeats), and ``mining_rates`` / ``plant_rates`` give the capacity per year
+of each period (the last rate repeats; the scalar capacity when empty).
+A period's capacity is its rate times its length, and its cash is
+discounted at the end of the period's time in years. The sinking rate stays
+benches per period.
+
+Blending targets (``blends``) bound the tonne-weighted mean of the main feed
+grade or of any block attribute (e.g. a deleterious element) in the feed of
+one route each period. Only the MILP schedule (``milp``) enforces them; the
+greedy rules ignore them.
+
 Cash per period = processing margin of the ore fed (revenue - processing cost)
 - mining cost of everything mined - rehandling. Stockpiled ore pays its
 mining cost when mined and earns its margin when reclaimed. Cash is
@@ -37,7 +51,8 @@ schedule (no MILP); it respects the constraints and is reproducible.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, replace
 
 import numpy as np
 import numpy.typing as npt
@@ -49,10 +64,96 @@ Ints = npt.NDArray[np.int64]
 Floats = npt.NDArray[np.float64]
 
 
+@dataclass(frozen=True, eq=False)
+class Blend:
+    """Feed blending target: ``lo <= mean <= hi`` per period for one route.
+
+    ``attribute`` empty means the main feed grade (after dilution); otherwise
+    ``values`` holds that attribute per block (in situ, weighted by feed
+    tonnes; see ``resolve_blends``).
+    """
+
+    attribute: str = ""
+    lo: float = -math.inf
+    hi: float = math.inf
+    route: int = 1
+    values: Floats | None = None
+
+    def __post_init__(self) -> None:
+        if math.isnan(self.lo) or math.isnan(self.hi) or self.lo > self.hi:
+            raise PitOptError(f"blend {self.label}: the minimum is above the maximum")
+        if not (math.isfinite(self.lo) or math.isfinite(self.hi)):
+            raise PitOptError(f"blend {self.label} needs a minimum or a maximum")
+        if self.route < 1:
+            raise PitOptError("blend route numbers start at 1")
+
+    @property
+    def label(self) -> str:
+        return self.attribute or "grade"
+
+
+GRADE_WORDS = {"", "grade", "tenör", "tenor", "feed"}
+
+
+def parse_blends(text: str) -> tuple[Blend, ...]:
+    """``"grade:0.8:1.5; as:-:500:1"`` -> blending targets (``-`` or empty = no bound).
+
+    Each item is ``ATTRIBUTE:MIN:MAX[:ROUTE]``; ``grade`` (or ``tenör``) is the
+    main feed grade. Attribute values are attached later by ``resolve_blends``.
+    """
+    out = []
+    for item in text.split(";"):
+        if not item.strip():
+            continue
+        parts = [v.strip() for v in item.split(":")]
+        if len(parts) not in (3, 4):
+            raise PitOptError(f"blend {item.strip()!r} is not ATTRIBUTE:MIN:MAX[:ROUTE]")
+        try:
+            lo = -math.inf if parts[1] in ("", "-") else float(parts[1])
+            hi = math.inf if parts[2] in ("", "-") else float(parts[2])
+            route = int(parts[3]) if len(parts) == 4 and parts[3] else 1
+        except ValueError:
+            raise PitOptError(f"blend {item.strip()!r} has a value that is not a number") from None
+        name = "" if parts[0].lower() in GRADE_WORDS else parts[0]
+        out.append(Blend(name, lo, hi, route))
+    return tuple(out)
+
+
+def resolve_blends(
+    blends: tuple[Blend, ...], values_of: Callable[[str], Floats]
+) -> tuple[Blend, ...]:
+    """Attach the block values of each attribute target (``values_of`` reads an attribute)."""
+    return tuple(
+        b if not b.attribute else replace(b, values=np.asarray(values_of(b.attribute), np.float64))
+        for b in blends
+    )
+
+
+def parse_periods(text: str) -> tuple[float, ...]:
+    """``"0.25*4; 0.5*2; 1"`` -> (0.25, 0.25, 0.25, 0.25, 0.5, 0.5, 1.0)."""
+    out: list[float] = []
+    for raw in text.replace(",", ";").split(";"):
+        item = raw.strip()
+        if not item:
+            continue
+        value, _, count = item.partition("*")
+        try:
+            out += [float(value)] * (int(count) if count.strip() else 1)
+        except ValueError:
+            raise PitOptError(f"period list item {item!r} is not VALUE or VALUE*COUNT") from None
+    return tuple(out)
+
+
+def _pick(values: tuple[float, ...], period: int, default: float) -> float:
+    if not values:
+        return default
+    return values[min(period, len(values)) - 1]
+
+
 @dataclass(frozen=True)
 class Limits:
-    mining_capacity: float  # t per period
-    plant_capacity: float  # ore t per period
+    mining_capacity: float  # t per year
+    plant_capacity: float  # ore t per year
     bench_lag: int = 2
     sinking_rate: int = 6  # max benches a pushback may advance per period
     discount_rate: float = 0.08
@@ -61,6 +162,27 @@ class Limits:
     grade_bins: tuple[float, ...] = ()  # ascending feed-grade edges of the stockpile bins
     stockpile_capacities: tuple[float, ...] = ()  # t per route (main first); unlimited if absent
     rehandle_cost: float = 0.0  # per tonne reclaimed from a stockpile
+    period_years: tuple[float, ...] = ()  # length of each period; the last repeats; empty = 1
+    mining_rates: tuple[float, ...] = ()  # t/year by period; the last repeats
+    plant_rates: tuple[float, ...] = ()  # main-route ore t/year by period; the last repeats
+    blends: tuple[Blend, ...] = ()  # feed blending targets (MILP schedule only)
+
+    def length(self, period: int) -> float:
+        """Length of a period (1-based) in years."""
+        return _pick(self.period_years, period, 1.0)
+
+    def end_years(self, period: int) -> float:
+        """Time at the end of a period (1-based), years from the start of mining."""
+        if not self.period_years:
+            return float(period)
+        return float(sum(self.length(t) for t in range(1, period + 1)))
+
+    def mining_cap(self, period: int) -> float:
+        return _pick(self.mining_rates, period, self.mining_capacity) * self.length(period)
+
+    def plant_caps(self, period: int, n_routes: int) -> Floats:
+        main = _pick(self.plant_rates, period, self.plant_capacity)
+        return _per_route([main, *self.route_capacities], n_routes) * self.length(period)
 
     def __post_init__(self) -> None:
         if self.mining_capacity <= 0 or self.plant_capacity <= 0:
@@ -79,6 +201,10 @@ class Limits:
             raise PitOptError("bench lag must be >= 0")
         if self.sinking_rate < 1:
             raise PitOptError("sinking rate must be >= 1 bench per period")
+        if any(not (math.isfinite(v) and v > 0) for v in self.period_years):
+            raise PitOptError("period lengths must be > 0 years")
+        if any(not (math.isfinite(v) and v > 0) for v in (*self.mining_rates, *self.plant_rates)):
+            raise PitOptError("capacities by period must be > 0")
 
 
 @dataclass(frozen=True)
@@ -100,6 +226,8 @@ class PeriodRow:
     rehandle: float = 0.0  # rehandling cost (included in mining_cost)
     discarded_t: float = 0.0  # ore sent to waste because the stockpile was full
     stock_by_bin: tuple[float, ...] = ()  # stockpile t per grade bin (lowest first), all routes
+    years: float = math.nan  # time at the end of the period, years (NaN: = period)
+    blend_values: tuple[float, ...] = ()  # feed mean of each blending target (MILP)
 
 
 @dataclass(frozen=True)
@@ -187,12 +315,12 @@ def schedule_constrained(  # noqa: PLR0915 - one simulation loop
     finished_benches = dict.fromkeys(phases, -1)  # deepest fully mined bench index
     period_of = np.zeros(len(phase), np.int64)
     n_routes, n_bins = _routes(result), len(limits.grade_bins) + 1
-    plant = _per_route([limits.plant_capacity, *limits.route_capacities], n_routes)
     room = _per_route(list(limits.stockpile_capacities), n_routes)
     stock = np.zeros((n_routes, n_bins, 5))  # ore t, margin, metal, grade t, revenue
     rows: list[PeriodRow] = []
     for period in range(1, limits.max_periods + 1):
-        capacity = limits.mining_capacity
+        capacity = limits.mining_cap(period)
+        plant = limits.plant_caps(period, n_routes)
         mined = ore_mined = 0.0
         cost = 0.0
         fresh = np.zeros((n_routes, n_bins, 5))
@@ -246,7 +374,7 @@ def schedule_constrained(  # noqa: PLR0915 - one simulation loop
                 metal,
                 float(stock[:, :, 0].sum()),
                 cash,
-                cash / (1.0 + limits.discount_rate) ** period,
+                cash / (1.0 + limits.discount_rate) ** limits.end_years(period),
                 tuple(float(v) for v in fed[:, 0]),
                 revenue,
                 revenue - margin,
@@ -255,6 +383,7 @@ def schedule_constrained(  # noqa: PLR0915 - one simulation loop
                 rehandle,
                 discarded,
                 tuple(float(v) for v in stock[:, :, 0].sum(axis=0)),
+                limits.end_years(period),
             )
         )
     unmined = sum((1.0 - i.done) * i.tonnes for i in incs)

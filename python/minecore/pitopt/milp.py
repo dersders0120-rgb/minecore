@@ -36,6 +36,16 @@ it is at least as selective as the greedy scheduler's binned piles. Every
 greedy schedule with the same limits satisfies these constraints, so the
 optimum is never worse than the greedy NPV; if the solver stops (time limit)
 with a worse solution, the greedy schedule is returned and says so.
+Periods may have different lengths and capacities (``Limits.period_years``,
+``mining_rates``, ``plant_rates``); cash is discounted at each period's end
+time. Blending targets (``Limits.blends``) add, per period and route,
+
+    sum_j (a_j - hi)(d + r) <= 0   and   sum_j (a_j - lo)(d + r) >= 0
+
+with ``a_j`` the feed-tonne weighted mean of the attribute in source j. The
+greedy schedule ignores blending, so with targets the greedy NPV is only a
+reference and the MILP solution is kept even when it is lower.
+
 Solved with HiGHS through ``scipy.optimize.milp``.
 """
 
@@ -52,6 +62,7 @@ from scipy.sparse import coo_array
 from minecore.pitopt.economics import PitOptError
 from minecore.pitopt.optimise import PitResult
 from minecore.pitopt.scheduling import (
+    Blend,
     ConstrainedSchedule,
     Limits,
     PeriodRow,
@@ -183,9 +194,10 @@ class _Problem:
     incs: list[_Increment]
     srcs: list[_Source]
     limits: Limits
-    plant: Floats  # ore t per period of each route
+    plant: Floats  # periods x routes: ore t of each route in each period
     room: Floats  # stockpile t of each route
     ix: _Index
+    blend_means: list[Floats]  # per blending target: mean of the attribute in each source
 
 
 def _objective(pb: _Problem) -> Floats:
@@ -193,8 +205,8 @@ def _objective(pb: _Problem) -> Floats:
     ix, rate = pb.ix, pb.limits.discount_rate
     cost = np.zeros(ix.size)
     for t in range(ix.periods):
-        f = (1.0 + rate) ** -(t + 1)
-        later = (1.0 + rate) ** -(t + 2) if t + 1 < ix.periods else 0.0
+        f = (1.0 + rate) ** -pb.limits.end_years(t + 1)
+        later = (1.0 + rate) ** -pb.limits.end_years(t + 2) if t + 1 < ix.periods else 0.0
         for i, inc in enumerate(pb.incs):  # mining cost of w_t - w_t-1
             cost[ix.w(i, t)] += (f - later) * inc.mining
         for j, src in enumerate(pb.srcs):
@@ -226,12 +238,12 @@ def _capacity_rows(pb: _Problem, rows: _Rows) -> None:
         mined = [(ix.w(i, t), inc.tonnes) for i, inc in enumerate(pb.incs)]
         if t > 0:
             mined += [(ix.w(i, t - 1), -inc.tonnes) for i, inc in enumerate(pb.incs)]
-        rows.add(mined, -inf, pb.limits.mining_capacity)
-        for k in range(len(pb.plant)):
+        rows.add(mined, -inf, pb.limits.mining_cap(t + 1))
+        for k in range(pb.plant.shape[1]):
             mine = [j for j, src in enumerate(pb.srcs) if src.route == k]
-            if mine and math.isfinite(pb.plant[k]):
+            if mine and math.isfinite(pb.plant[t, k]):
                 rows.add([(ix.d(j, t), 1.0) for j in mine] + [(ix.r(j, t), 1.0) for j in mine],
-                         -inf, pb.plant[k])  # fmt: skip
+                         -inf, pb.plant[t, k])  # fmt: skip
             if mine and math.isfinite(pb.room[k]):
                 rows.add([(ix.s(j, t), 1.0) for j in mine], -inf, pb.room[k])
 
@@ -251,6 +263,62 @@ def _stock_rows(pb: _Problem, rows: _Rows) -> None:
             rows.add(balance, 0.0, 0.0)
             rows.add([(ix.d(j, t), 1.0)] + [(col, -v) for col, v in fresh], -inf, 0.0)
             rows.add([(ix.r(j, t), 1.0)] + ([(ix.s(j, t - 1), -1.0)] if t else []), -inf, 0.0)
+
+
+def _blend_rows(pb: _Problem, rows: _Rows) -> None:
+    ix, inf = pb.ix, math.inf
+    for blend, means in zip(pb.limits.blends, pb.blend_means, strict=True):
+        mine = [j for j, src in enumerate(pb.srcs) if src.route == blend.route - 1]
+        if not mine:
+            continue
+        for t in range(ix.periods):
+            for bound, lo, hi in ((blend.hi, -inf, 0.0), (blend.lo, 0.0, inf)):
+                if not math.isfinite(bound):
+                    continue
+                terms = []
+                for j in mine:
+                    terms += [(ix.d(j, t), means[j] - bound), (ix.r(j, t), means[j] - bound)]
+                rows.add(terms, lo, hi)
+
+
+def _blend_means(
+    result: PitResult, incs: list[_Increment], srcs: list[_Source], limits: Limits
+) -> list[Floats]:
+    """Feed-weighted mean of each blending attribute in each source (``_sources`` order)."""
+    out = []
+    n_routes = max(int(result.route.max(initial=1)), 1)
+    edges = np.asarray(limits.grade_bins, np.float64)
+    bin_of = np.searchsorted(edges, result.feed_grade, side="right")
+    for blend in limits.blends:
+        if blend.route > n_routes:
+            raise PitOptError(
+                f"blend {blend.label} is for route {blend.route}; there are {n_routes}"
+            )
+        if not blend.attribute:
+            out.append(np.array([s.grade_t / s.ore for s in srcs]))
+            continue
+        values = _blend_values(blend, len(result.tonnes))
+        sums = []
+        for inc in incs:
+            ore = inc.blocks[result.ore[inc.blocks]]
+            route_of = np.where(result.route[ore] > 0, result.route[ore], 1)
+            for r in range(n_routes):
+                for b in range(len(limits.grade_bins) + 1):
+                    sel = ore[(route_of == r + 1) & (bin_of[ore] == b)]
+                    feed = result.feed[sel].sum()
+                    if feed > 0:
+                        sums.append(float((result.feed[sel] * values[sel]).sum() / feed))
+        out.append(np.asarray(sums, np.float64))
+    return out
+
+
+def _blend_values(blend: Blend, blocks: int) -> Floats:
+    if blend.values is None or len(blend.values) != blocks:
+        raise PitOptError(f"blend {blend.label}: block values are missing (resolve_blends)")
+    values = np.asarray(blend.values, np.float64)
+    if not np.all(np.isfinite(values)):
+        values = np.nan_to_num(values, nan=0.0)  # unestimated blocks count as zero
+    return values
 
 
 def schedule_optimised(  # noqa: PLR0913 - options are keyword-only
@@ -283,14 +351,16 @@ def schedule_optimised(  # noqa: PLR0913 - options are keyword-only
         incs,
         srcs,
         limits,
-        _per_route([limits.plant_capacity, *limits.route_capacities], n_routes),
+        np.stack([limits.plant_caps(t + 1, n_routes) for t in range(periods)]),
         _per_route(list(limits.stockpile_capacities), n_routes),
         _Index(len(incs), len(srcs), periods),
+        _blend_means(result, incs, srcs, limits),
     )
     rows = _Rows()
     _sequence_rows(pb, rows)
     _capacity_rows(pb, rows)
     _stock_rows(pb, rows)
+    _blend_rows(pb, rows)
     ix = pb.ix
     lower = np.zeros(ix.size)
     upper = np.full(ix.size, math.inf)
@@ -309,11 +379,16 @@ def schedule_optimised(  # noqa: PLR0913 - options are keyword-only
     )
     status = str(solved.message)
     if solved.x is None:
+        if limits.blends:
+            raise PitOptError(
+                f"no schedule meets the blending targets within the time limit ({status}); "
+                "widen the targets or allow more time"
+            )
         return _greedy(greedy, f"no MILP solution ({status})", periods)
     gap = float(getattr(solved, "mip_gap", math.nan))
     sched_rows, unmined = _rows(solved.x, pb, n_routes)
     npv = sum(row.discounted for row in sched_rows)
-    if npv < greedy.npv - 1e-9 * max(abs(greedy.npv), 1.0):
+    if not limits.blends and npv < greedy.npv - 1e-9 * max(abs(greedy.npv), 1.0):
         return _greedy(greedy, f"MILP solution below the greedy NPV ({status})", periods)
     period_of = _periods(solved.x, incs, ix, len(phase))
     return OptimisedSchedule(
@@ -342,7 +417,10 @@ def _rows(x: Floats, pb: _Problem, n_routes: int) -> tuple[list[PeriodRow], floa
     n_i = ix.n_inc
     done = np.zeros(n_i)
     out: list[PeriodRow] = []
+    idle: list[int] = []
+    stock_before: dict[int, float] = {}
     for t in range(ix.periods):
+        stock_before[t] = float(sum(max(x[ix.s(j, t)], 0.0) for j in range(len(srcs))))
         w_t = np.array([min(max(x[ix.w(i, t)], 0.0), 1.0) for i in range(n_i)])
         dw = np.maximum(w_t - done, 0.0)
         done = w_t
@@ -351,6 +429,7 @@ def _rows(x: Floats, pb: _Problem, n_routes: int) -> tuple[list[PeriodRow], floa
         ore_mined = float(sum(inc.ore_t * dw[i] for i, inc in enumerate(incs)))
         fed_route = np.zeros(n_routes)
         feed = margin = metal = grade_t = revenue = reclaimed = stock = lost = 0.0
+        blend_t = np.zeros((len(pb.blend_means), 2))  # attribute x feed t, feed t
         for j, src in enumerate(srcs):
             dj = max(x[ix.d(j, t)], 0.0)
             rj = max(x[ix.r(j, t)], 0.0)
@@ -365,8 +444,15 @@ def _rows(x: Floats, pb: _Problem, n_routes: int) -> tuple[list[PeriodRow], floa
             reclaimed += rj
             stock += max(x[ix.s(j, t)], 0.0)
             lost += max(x[ix.q(j, t)], 0.0)
+            for b, (blend, means) in enumerate(zip(limits.blends, pb.blend_means, strict=True)):
+                if src.route == blend.route - 1:
+                    blend_t[b] += (means[j] * fed, fed)
         if mined <= 1e-6 and feed <= 1e-6:
+            idle.append(t)
             continue
+        for gap_t in idle:  # empty periods inside the schedule keep their place
+            out.append(_idle_row(gap_t, limits, stock_before.get(gap_t, 0.0)))
+        idle.clear()
         rehandle = limits.rehandle_cost * reclaimed
         cost += rehandle
         cash = margin - cost
@@ -380,7 +466,7 @@ def _rows(x: Floats, pb: _Problem, n_routes: int) -> tuple[list[PeriodRow], floa
                 metal,
                 stock,
                 cash,
-                cash / (1.0 + limits.discount_rate) ** (t + 1),
+                cash / (1.0 + limits.discount_rate) ** limits.end_years(t + 1),
                 tuple(float(v) for v in fed_route),
                 revenue,
                 revenue - margin,
@@ -389,7 +475,17 @@ def _rows(x: Floats, pb: _Problem, n_routes: int) -> tuple[list[PeriodRow], floa
                 rehandle,
                 lost,
                 (stock,),
+                limits.end_years(t + 1),
+                tuple(float(a / f) if f > 0 else math.nan for a, f in blend_t),
             )
         )
     unmined = float(sum(inc.tonnes * (1.0 - done[i]) for i, inc in enumerate(incs)))
     return out, unmined
+
+
+def _idle_row(t: int, limits: Limits, stock: float) -> PeriodRow:
+    nan = math.nan
+    return PeriodRow(
+        t + 1, 0.0, 0.0, 0.0, nan, 0.0, stock, 0.0, 0.0,
+        years=limits.end_years(t + 1),
+    )  # fmt: skip

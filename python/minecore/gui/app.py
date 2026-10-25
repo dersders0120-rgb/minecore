@@ -353,8 +353,10 @@ class MainWindow(QMainWindow):
         surf.addSeparator()
         action(surf, "Katı model (wireframe) içe aktar: OBJ, STL, DXF...", self.import_solid)
         action(surf, "Çizgileri içe aktar (DXF polyline, kesit yorumları)...", self.import_strings)
+        action(surf, "Çizgi düzenleyici (çiz, taşı, sil, kot ver)...", self.edit_strings)
         action(surf, "Kesit çizgilerini bağlayarak katı oluştur...", self.link_strings)
         action(surf, "Blok modelini katı ile işaretle (domen)...", self.flag_solid)
+        action(surf, "Katı model araçları (doğrula, onar, birleştir, kes)...", self.solid_tools)
         action(surf, "Tenör kabuğu katısı oluştur (blok modelinden)...", self.make_grade_shell)
         action(surf, "Örtük (implicit) domen modeli (sondajlardan)...", self.implicit_domain)
         action(surf, "Katı modeli DXF olarak dışa aktar...", self.export_solid)
@@ -366,6 +368,9 @@ class MainWindow(QMainWindow):
         action(pit, "Dönem sonu yüzeyleri (çizelgeden), DXF...", self.export_periods)
         action(pit, "Delme-patlatma tasarımı (dilim, aralık, şarj, delik planı)...", self.blast)
         action(pit, "Döküm sahası tasarımı (kat, şev, berm, kapasite)...", self.dump)
+        action(pit, "Taban çizgisinden pit tasarımı (elle, rampalı)...", self.toe_design)
+        action(pit, "Tenör kontrolü (patlatma deliklerinden kazı hatları)...", self.grade_control)
+        action(pit, "Tasarım rezervi (basamak basamak) ve yüzeyler arası hacim...", self.reserves)
         ug = self.menuBar().addMenu("Yer&altı")
         action(ug, "Pano zarfı (floating stope) ve pano seçimi...", self.stopes)
         action(ug, "Dekline ve kat galerileri...", self.decline)
@@ -1079,6 +1084,35 @@ class MainWindow(QMainWindow):
 
         DumpDialog(self._need_project(), self).exec()
         self.refresh()
+
+    def solid_tools(self) -> None:
+        from minecore.gui.solidtools import SolidToolsDialog  # noqa: PLC0415
+
+        SolidToolsDialog(self._need_project(), self).exec()
+        self.refresh()
+
+    def edit_strings(self) -> None:
+        from minecore.gui.strings_editor import StringEditor  # noqa: PLC0415
+
+        StringEditor(self._need_project(), self).exec()
+        self.refresh()
+
+    def toe_design(self) -> None:
+        from minecore.gui.toedesign import ToeDesignDialog  # noqa: PLC0415
+
+        ToeDesignDialog(self._need_project(), self).exec()
+        self.refresh()
+
+    def grade_control(self) -> None:
+        from minecore.gui.gradecontrol import GradeControlDialog  # noqa: PLC0415
+
+        GradeControlDialog(self._need_project(), self).exec()
+        self.refresh()
+
+    def reserves(self) -> None:
+        from minecore.gui.reserves import ReservesDialog  # noqa: PLC0415
+
+        ReservesDialog(self._need_project(), self).exec()
 
     def blast(self) -> None:
         from minecore.gui.blast import BlastDialog  # noqa: PLC0415

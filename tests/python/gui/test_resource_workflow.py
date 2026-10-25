@@ -795,6 +795,14 @@ def test_pit_dialog_scenarios(qapp: QApplication, tmp_path: Path) -> None:
     assert dialog.reserves[-1].ore_t == pytest.approx(float(pit.feed[mined_ore].sum()))
     dialog.run_fleet()
     assert dialog.fleet
+    plain = [r.haul_m for r in dialog.fleet]
+    dialog.fl_dumps.setText("yakin:0.01:500; uzak:100:4000")
+    dialog.run_fleet()
+    waste = sum(p.waste_t for p in dialog.dump_plan)
+    assert sum(p.by_dump[0] for p in dialog.dump_plan) == pytest.approx(min(waste, 0.01e6))
+    assert "Döküm sahaları" in dialog.fleet_note.text()
+    if waste > 0.02e6:  # some waste goes to the far dump: longer surface haul
+        assert [r.haul_m for r in dialog.fleet] != plain
     assert dialog.fleet_table.rowCount() == len(dialog.sched.rows)  # type: ignore[union-attr]
     assert all(r.trucks >= 1 for r in dialog.fleet)
     dialog.ask_name = lambda default: "baz"  # type: ignore[method-assign]
@@ -857,4 +865,121 @@ def test_dump_dialog(qapp: QApplication, tmp_path: Path) -> None:
     assert 300.0**2 * 30 < d.volume() < 400.0**2 * 30
     assert dialog.table.rowCount() == 3
     assert "Kapasite" in dialog.summary.text()
+    project.close()
+
+
+def test_reserves_dialog(qapp: QApplication, tmp_path: Path) -> None:
+    from minecore.blockmodel import BlockModel, Grid  # noqa: PLC0415
+    from minecore.gui.reserves import ReservesDialog  # noqa: PLC0415
+    from minecore.surfaces import Surface, save_surface  # noqa: PLC0415
+
+    project = Project.create(tmp_path / "r.mcproj", "r")
+    model = BlockModel.create(project, "BM", Grid((0.0, 0.0, 0.0), (10.0, 10.0, 10.0), (4, 4, 5)))
+    k = np.arange(80) // 16
+    model.set_attributes({"au": np.where(k >= 2, 2.0, 0.1)}, {"au": {"unit": "g/t"}}, "au")
+    corners = [[-5, -5], [45, -5], [-5, 45], [45, 45]]
+    save_surface(project, "topo", Surface(np.array([[x, y, 45.0] for x, y in corners])))
+    save_surface(project, "pit", Surface(np.array([[x, y, 15.0] for x, y in corners])))
+    parent = QWidget()
+    dialog = ReservesDialog(project, parent)
+    dialog.grade.setCurrentText("au")
+    dialog.top.setCurrentText("topo")
+    dialog.bottom.setCurrentText("pit")
+    dialog.cutoff.setValue(1.0)
+    dialog.run()
+    # 45 -> 15 m: half of layer 4, layers 3 and 2 (ore), half of layer 1 (waste); 1600 m2 x 2.7
+    ore = sum(r.ore_t for r in dialog.rows)
+    waste = sum(r.waste_t for r in dialog.rows)
+    assert ore == pytest.approx(1600 * 25 * 2.7)
+    assert waste == pytest.approx(1600 * 5 * 2.7)
+    dialog.vol_a.setCurrentText("topo")
+    dialog.vol_b.setCurrentText("pit")
+    dialog.volume()
+    assert "Kazı" in dialog.vol_label.text()
+    project.close()
+
+
+def test_string_editor_and_toe_design(qapp: QApplication, tmp_path: Path) -> None:
+    from minecore.gui.strings_editor import StringEditor  # noqa: PLC0415
+    from minecore.gui.toedesign import ToeDesignDialog  # noqa: PLC0415
+    from minecore.strings import load_strings, string_names  # noqa: PLC0415
+
+    project = Project.create(tmp_path / "s.mcproj", "s")
+    parent = QWidget()
+    ed = StringEditor(project, parent)
+    ed.z.setValue(-40.0)
+    for x, y in ((0, 0), (80, 0), (80, 60), (0, 60)):
+        ed.add_point(x, y)
+    ed.toggle_closed()
+    ed.insert_point(0, 0, 40.0, 0.0)
+    assert len(ed.lines[0].points) == 5
+    ed.move_point(0, 1, 40.0, -10.0)
+    ed.delete_point(0, 1)
+    ed.undo()
+    assert len(ed.lines[0].points) == 5
+    ed.name.setText("taban")
+    ed.save()
+    assert "taban" in string_names(project)
+    assert load_strings(project, "taban")[0].closed
+    dialog = ToeDesignDialog(project, parent)
+    dialog.toes.setCurrentText("taban")
+    dialog.ground.setValue(0.0)
+    dialog.res.setValue(2.0)
+    dialog.run()
+    assert dialog.pit is not None
+    assert dialog.pit.volume() > 80 * 60 * 40
+    assert dialog.pit.ramp_length > 0
+    assert load_strings(project, "tasarim_taban_cizgiler")
+    project.close()
+
+
+def test_grade_control_dialog(qapp: QApplication, tmp_path: Path) -> None:
+    from minecore.gui.gradecontrol import GradeControlDialog  # noqa: PLC0415
+    from minecore.strings import String, load_strings, save_strings  # noqa: PLC0415
+
+    project = Project.create(tmp_path / "g.mcproj", "g")
+    square = np.array([[0, 0, 100], [60, 0, 100], [60, 40, 100], [0, 40, 100]], float)
+    save_strings(project, "atim", [String(square, True)])
+    csv_path = tmp_path / "delik.csv"
+    lines = ["x,y,au"]
+    for x in np.arange(2.5, 60, 5.0):
+        for y in np.arange(2.5, 40, 5.0):
+            lines.append(f"{x},{y},{2.0 if x > 30 else 0.2}")
+    csv_path.write_text("\n".join(lines))
+    parent = QWidget()
+    dialog = GradeControlDialog(project, parent)
+    dialog.outline.setCurrentText("atim")
+    dialog.path.setText(str(csv_path))
+    dialog.cutoffs.setText("0.5; 1.5")
+    dialog.run()
+    assert dialog.gc is not None
+    assert dialog.table.rowCount() == 3
+    assert load_strings(project, "kazi_hatlari")
+    project.close()
+
+
+def test_solid_tools_dialog(qapp: QApplication, tmp_path: Path) -> None:
+    from minecore.gui.solidtools import SolidToolsDialog  # noqa: PLC0415
+    from minecore.solids import Solid, load_solid, save_solid  # noqa: PLC0415
+
+    faces = np.array(
+        [[0, 2, 1], [0, 3, 2], [4, 5, 6], [4, 6, 7], [0, 1, 5], [0, 5, 4],
+         [1, 2, 6], [1, 6, 5], [2, 3, 7], [2, 7, 6], [3, 0, 4], [3, 4, 7]]
+    )  # fmt: skip
+    unit = np.array(
+        [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0], [0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1]],
+        float,
+    )
+    project = Project.create(tmp_path / "k.mcproj", "k")
+    save_solid(project, "a", Solid(unit * 10, faces))
+    save_solid(project, "b", Solid(unit * 10 + [5, 0, 0], faces))
+    parent = QWidget()
+    dialog = SolidToolsDialog(project, parent)
+    dialog.a.setCurrentText("a")
+    dialog.b.setCurrentText("b")
+    dialog.check()
+    assert "Geçerli" in dialog.summary.text()
+    dialog.voxel.setValue(0.5)
+    dialog.run_boolean()
+    assert load_solid(project, "sonuc_kati").volume() == pytest.approx(1500, rel=0.08)
     project.close()

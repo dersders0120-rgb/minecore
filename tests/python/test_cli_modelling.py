@@ -182,6 +182,17 @@ def test_csv_to_pit_schedule(tmp_path: Path) -> None:  # noqa: PLR0915 - one end
     )  # fmt: skip
     assert "route main:" in routes
     assert "route liç:" in routes
+    blended = json.loads(
+        _run(
+            "pit", "optimise", p, "BM", "au_ok", "--price", "2000", "--price-unit", "ozt",
+            "--recovery", "0.9", "--mining-cost", "2.5", "--processing-cost", "15",
+            "--rock", "kaya", "--plant", "3e5", "--schedule", "milp", "--time-limit", "20",
+            "--period-years", "0.5*2; 1", "--blend", "grade:-:3", "--blend", "au_ok:-:3", "--json",
+        )
+    )  # fmt: skip
+    rows = blended["schedule"]
+    assert [r["years"] for r in rows[:3]] == pytest.approx([0.5, 1.0, 2.0])
+    assert all(v <= 3 + 1e-6 for r in rows if r["ore_fed_t"] > 1 for v in r["blend_values"])
     from minecore.blockmodel import BlockModel  # noqa: PLC0415
     from minecore.project import Project  # noqa: PLC0415
 

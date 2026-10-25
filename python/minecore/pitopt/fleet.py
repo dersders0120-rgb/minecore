@@ -9,7 +9,13 @@ divided by the effective hours per truck (calendar hours x availability x
 utilisation), rounded up. Loaders are sized from their effective rate.
 
 It is a deterministic average-cycle estimate (no queueing/match-factor
-simulation, no rimpull curves, one material destination per period).
+simulation, no rimpull curves).
+
+Waste dumps (``dump_schedule``): each period's waste (mined minus ore mined)
+fills the dumps in order of their haul distance, nearest first, each up to
+its capacity; ore goes to the plant at ``Fleet.surface_m``. The surface leg
+of the period is then the tonnage-weighted mean of the plant and dump
+distances (``surface_by_period``), so trucks follow the dump sequence.
 """
 
 from __future__ import annotations
@@ -57,9 +63,9 @@ class Fleet:
     def effective_hours(self) -> float:
         return self.hours_per_year * self.availability * self.utilisation
 
-    def cycle_min(self, lift_m: float) -> float:
+    def cycle_min(self, lift_m: float, surface_m: float | None = None) -> float:
         ramp = max(lift_m, 0.0) / self.ramp_gradient * math.sqrt(1 + self.ramp_gradient**2)
-        flat = self.in_pit_m + self.surface_m
+        flat = self.in_pit_m + (self.surface_m if surface_m is None else surface_m)
 
         def minutes(metres: float, kmh: float) -> float:
             return metres / 1000.0 / kmh * 60.0
@@ -104,15 +110,86 @@ def period_lifts(
     return out
 
 
+@dataclass(frozen=True)
+class DumpSite:
+    name: str
+    capacity_t: float
+    haul_m: float  # pit exit to the dump, one way
+
+
+def parse_dumps(text: str) -> tuple[DumpSite, ...]:
+    """``"kuzey:40:1200; guney:80:2500"`` -> name:capacity Mt:haul m items."""
+    out = []
+    for item in text.split(";"):
+        if not item.strip():
+            continue
+        parts = [p.strip() for p in item.split(":")]
+        try:
+            name, cap, haul = parts
+            site = DumpSite(name, float(cap) * 1e6, float(haul))
+        except ValueError:
+            raise PitOptError(f"dump {item.strip()!r} is not name:capacity Mt:haul m") from None
+        if site.capacity_t <= 0 or site.haul_m < 0:
+            raise PitOptError(f"dump {name!r}: capacity must be > 0 and haul >= 0")
+        out.append(site)
+    return tuple(out)
+
+
+@dataclass(frozen=True)
+class DumpPeriod:
+    period: int
+    waste_t: float
+    by_dump: tuple[float, ...]  # t placed in each dump (input order)
+    unplaced_t: float  # waste with no dump room left
+    surface_m: float  # tonnage-weighted surface haul of everything mined
+
+
+def dump_schedule(
+    schedule: ConstrainedSchedule, dumps: tuple[DumpSite, ...], plant_m: float
+) -> list[DumpPeriod]:
+    """Waste to dumps, nearest first (see the module text)."""
+    if not dumps:
+        raise PitOptError("give at least one dump")
+    room = [d.capacity_t for d in dumps]
+    order = sorted(range(len(dumps)), key=lambda k: dumps[k].haul_m)
+    out = []
+    for r in schedule.rows:
+        waste = max(r.mined_t - r.ore_mined_t, 0.0)
+        left = waste
+        placed = [0.0] * len(dumps)
+        for k in order:
+            take = min(left, room[k])
+            placed[k] += take
+            room[k] -= take
+            left -= take
+        far = max(d.haul_m for d in dumps)  # unplaced waste: assume the farthest dump
+        metres = r.ore_mined_t * plant_m + sum(
+            p * d.haul_m for p, d in zip(placed, dumps, strict=True)
+        )
+        metres += left * far
+        total = r.ore_mined_t + waste
+        out.append(
+            DumpPeriod(
+                r.period, waste, tuple(placed), left, metres / total if total > 0 else plant_m
+            )
+        )
+    return out
+
+
 def fleet_by_period(
-    schedule: ConstrainedSchedule, lifts: dict[int, float], fleet: Fleet
+    schedule: ConstrainedSchedule,
+    lifts: dict[int, float],
+    fleet: Fleet,
+    surface_by_period: dict[int, float] | None = None,
 ) -> list[FleetRow]:
     rows = []
     last = 0.0
+    surface = surface_by_period or {}
     for r in schedule.rows:
         lift = lifts.get(r.period, last)
         last = lift
-        cycle = fleet.cycle_min(lift)
+        leg = surface.get(r.period, fleet.surface_m)
+        cycle = fleet.cycle_min(lift, leg)
         trips = r.mined_t / fleet.payload_t
         hours = trips * cycle / 60.0
         trucks = math.ceil(hours / fleet.effective_hours - 1e-9) if hours > 0 else 0
@@ -125,7 +202,7 @@ def fleet_by_period(
                 r.period,
                 r.mined_t,
                 lift,
-                fleet.in_pit_m + ramp + fleet.surface_m,
+                fleet.in_pit_m + ramp + leg,
                 cycle,
                 trucks,
                 loaders,

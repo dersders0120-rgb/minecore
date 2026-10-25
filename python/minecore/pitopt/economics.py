@@ -47,6 +47,20 @@ and ore, route and value follow from that total as above. ``metal`` stays the
 recovered main metal; the recovered co-product metal is in ``coproduct_metal``.
 Co-products are not available in NSR mode (the NSR already sums the metals).
 
+Cost adjustment factors (``mining_factor``, ``processing_factor``): names of
+block attributes that multiply the mining and processing cost of each block
+(MCAF/PCAF, e.g. 1.2 for hard rock or a long haul); missing values count as 1.
+
+Smelter terms for a concentrate (``concentrate_grade`` > 0, main route only):
+the recovered main metal makes ``conc_t = metal mass / concentrate_grade``
+tonnes of concentrate; the treatment charge ``treatment_charge`` is paid per
+concentrate tonne, and each ``penalties`` element pays ``rate`` per
+concentrate tonne for every ``step`` its grade in the concentrate exceeds
+``threshold`` (both in the attribute's unit; the element's grade in the
+concentrate is ``tonnes * grade * recovery / conc_t``). Charges reduce the
+revenue before royalty. The refining charge per payable metal unit is the
+selling cost.
+
 Currency is whatever the user enters (e.g. USD); all values are in that unit.
 """
 
@@ -198,6 +212,45 @@ def parse_products(text: str) -> tuple[Product, ...]:
 
 
 @dataclass(frozen=True)
+class Penalty:
+    """A deleterious element in the concentrate (see the module text)."""
+
+    attribute: str
+    recovery: float  # fraction of the element reporting to the concentrate
+    threshold: float  # free limit, in the attribute's unit
+    step: float  # penalty step, in the attribute's unit
+    rate: float  # currency per concentrate tonne per step
+
+    def __post_init__(self) -> None:
+        if not self.attribute:
+            raise PitOptError("a penalty needs an element attribute")
+        if not 0 <= self.recovery <= 1:
+            raise PitOptError(f"penalty {self.attribute!r}: recovery must be in [0, 1]")
+        if not (self.threshold >= 0 and self.step > 0 and self.rate >= 0):
+            raise PitOptError(
+                f"penalty {self.attribute!r}: threshold >= 0, step > 0 and rate >= 0 needed"
+            )
+
+
+def parse_penalties(text: str) -> tuple[Penalty, ...]:
+    """``"as:30:2000:1000:3"`` -> element, recovery to concentrate (fraction or %),
+    free limit, step and rate per concentrate tonne per step; items separated by ``;``."""
+    out = []
+    for item in text.split(";"):
+        if not item.strip():
+            continue
+        parts = [p.strip() for p in item.split(":")]
+        try:
+            name, rec, thr, step, rate = parts
+            out.append(Penalty(name, _fraction(float(rec)), float(thr), float(step), float(rate)))
+        except ValueError:
+            raise PitOptError(
+                f"penalty {item.strip()!r} is not attribute:recovery:threshold:step:rate"
+            ) from None
+    return tuple(out)
+
+
+@dataclass(frozen=True)
 class Economics:
     price: float
     price_unit: PriceUnit
@@ -214,9 +267,15 @@ class Economics:
     payable: float = 1.0  # fraction of recovered metal paid for
     royalty: float = 0.0  # fraction of sales revenue
     coproducts: tuple[Product, ...] = ()
+    mining_factor: str = ""  # attribute multiplying the mining cost (MCAF)
+    processing_factor: str = ""  # attribute multiplying the processing cost (PCAF)
+    concentrate_grade: float = 0.0  # main metal mass fraction in the concentrate; 0 = none
+    treatment_charge: float = 0.0  # per concentrate tonne
+    penalties: tuple[Penalty, ...] = ()
 
     def __post_init__(self) -> None:
         self._check_coproducts()
+        self._check_concentrate()
         if not 0 < self.payable <= 1:
             raise PitOptError("payable fraction must be in (0, 1]")
         if not 0 <= self.royalty < 1:
@@ -236,6 +295,16 @@ class Economics:
             raise PitOptError("dilution must be in [0, 1]")
         if self.selling_cost >= self.price:
             raise PitOptError("selling cost must be below the metal price")
+
+    def _check_concentrate(self) -> None:
+        if not 0 <= self.concentrate_grade <= 1:
+            raise PitOptError("concentrate grade must be a fraction in [0, 1]")
+        if self.treatment_charge < 0:
+            raise PitOptError("treatment charge must be >= 0")
+        if (self.treatment_charge or self.penalties) and not self.concentrate_grade:
+            raise PitOptError("treatment charges and penalties need a concentrate grade")
+        if self.concentrate_grade and self.nsr:
+            raise PitOptError("concentrate terms are not available in NSR mode")
 
     def _check_coproducts(self) -> None:
         if self.coproducts and self.nsr:
@@ -264,6 +333,7 @@ class Economics:
                 "price_unit": PriceUnit(data["price_unit"]),
                 "routes": routes,
                 "coproducts": products,
+                "penalties": tuple(Penalty(**p) for p in data.get("penalties", ())),
             }
         )
 
@@ -282,6 +352,22 @@ class BlockEconomics:
     coproduct_metal: Floats  # (blocks, co-products) recovered metal in price units
 
 
+@dataclass(frozen=True)
+class Adjustments:
+    """Per-block arrays for cost factors and penalty elements (see ``Economics``)."""
+
+    mining_factor: Floats | None = None
+    processing_factor: Floats | None = None
+    penalty_grades: Sequence[tuple[Floats, str | None]] = ()  # one per ``econ.penalties``
+
+
+def _factor(values: Floats | None) -> Floats | float:
+    if values is None:
+        return 1.0
+    v = np.asarray(values, np.float64)
+    return np.where(np.isfinite(v) & (v >= 0), v, 1.0)
+
+
 def block_values(  # noqa: PLR0913, PLR0917 - one value per input array
     grade: Floats,
     grade_unit: str | None,
@@ -290,6 +376,7 @@ def block_values(  # noqa: PLR0913, PLR0917 - one value per input array
     econ: Economics,
     revenue_factor: float = 1.0,
     coproduct_grades: Sequence[tuple[Floats, str | None]] = (),
+    adjust: Adjustments | None = None,
 ) -> BlockEconomics:
     """Economic value of each block (missing grade counts as waste rock).
 
@@ -320,9 +407,15 @@ def block_values(  # noqa: PLR0913, PLR0917 - one value per input array
     for i, p in enumerate(econ.coproducts):
         co_metal[:, i] = co_contained[i] * p.recovery
         revenue = revenue + co_metal[:, i] * co_per[i]
-    mining = tonnes * (econ.mining_cost + econ.mining_cost_per_bench * bench_from_top)
+    adjust = adjust or Adjustments()
+    if len(adjust.penalty_grades) != len(econ.penalties):
+        raise PitOptError("one grade array is needed for each penalty element")
+    mcaf, pcaf = _factor(adjust.mining_factor), _factor(adjust.processing_factor)
+    mining = tonnes * (econ.mining_cost + econ.mining_cost_per_bench * bench_from_top) * mcaf
     feed = tonnes * mr * (1.0 + dil)
-    processing = feed * econ.processing_cost
+    processing = feed * econ.processing_cost * pcaf
+    if econ.concentrate_grade > 0:
+        revenue = revenue - _smelter_charges(metal, tonnes * mr, econ, adjust) * keep
     margin = revenue - processing
     route = np.ones(np.shape(margin), np.int64)
     for k, r in enumerate(econ.routes, start=2):
@@ -332,7 +425,7 @@ def block_values(  # noqa: PLR0913, PLR0917 - one value per input array
         for i, p in enumerate(econ.coproducts):
             co_r[:, i] = co_contained[i] * p.route_recoveries[k - 2]
             revenue_r = revenue_r + co_r[:, i] * co_per[i]
-        margin_r = revenue_r - feed * r.processing_cost
+        margin_r = revenue_r - feed * r.processing_cost * pcaf
         better = margin_r > margin
         margin = np.where(better, margin_r, margin)
         metal = np.where(better, metal_r, metal)
@@ -354,6 +447,22 @@ def block_values(  # noqa: PLR0913, PLR0917 - one value per input array
         np.where(ore, revenue, 0.0).astype(np.float64),
         co_metal,
     )
+
+
+def _smelter_charges(metal: Floats, rock_t: Floats, econ: Economics, adjust: Adjustments) -> Floats:
+    """Treatment charge and penalties of the concentrate made from ``metal`` (price units)."""
+    conc_t = metal * econ.price_unit.kilograms / 1000.0 / econ.concentrate_grade
+    charges = conc_t * econ.treatment_charge
+    safe = np.where(conc_t > 0, conc_t, 1.0)
+    for p, (grade, unit) in zip(econ.penalties, adjust.penalty_grades, strict=True):
+        if unit is None:
+            raise PitOptError(f"penalty element {p.attribute!r} has no unit")
+        g = _clean(grade)
+        # element grade in the concentrate, in the attribute's unit
+        in_conc = np.where(conc_t > 0, rock_t * g * p.recovery / safe, 0.0)
+        steps = np.maximum(in_conc - p.threshold, 0.0) / p.step
+        charges = charges + conc_t * p.rate * steps
+    return np.asarray(charges, np.float64)
 
 
 def _clean(grade: Floats) -> Floats:

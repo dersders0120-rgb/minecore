@@ -67,8 +67,22 @@ from minecore.pitopt.cashflow import (
 )
 from minecore.pitopt.cutoff import LaneResult, cutoffs_from_model
 from minecore.pitopt.design import edge_blocks
-from minecore.pitopt.economics import PitOptError, parse_products, parse_routes
-from minecore.pitopt.fleet import Fleet, FleetRow, fleet_by_period, period_lifts
+from minecore.pitopt.economics import (
+    PitOptError,
+    parse_penalties,
+    parse_products,
+    parse_routes,
+)
+from minecore.pitopt.fleet import (
+    DumpPeriod,
+    DumpSite,
+    Fleet,
+    FleetRow,
+    dump_schedule,
+    fleet_by_period,
+    parse_dumps,
+    period_lifts,
+)
 from minecore.pitopt.milp import OptimisedSchedule, schedule_optimised
 from minecore.pitopt.optimise import route_tonnes, store
 from minecore.pitopt.phases import best_pushbacks
@@ -83,10 +97,14 @@ from minecore.pitopt.scenarios import (
     write_comparison,
 )
 from minecore.pitopt.scheduling import (
+    Blend,
     ConstrainedSchedule,
     InventoryRow,
     Limits,
     bench_inventory,
+    parse_blends,
+    parse_periods,
+    resolve_blends,
     schedule_constrained,
 )
 from minecore.pitopt.sensitivity import Input, Plan, Sensitivity, parse_changes, sensitivity
@@ -213,6 +231,29 @@ class PitDialog(QDialog):
             "(örn. ag:24:ozt:70:95:0:20). Blok geliri tüm metallerin toplamıdır."
         )
         ef.addRow("Yan ürünler", self.coproducts)
+        self.mcaf = QComboBox()
+        self.pcaf = QComboBox()
+        for box in (self.mcaf, self.pcaf):
+            box.setToolTip(
+                "Blok başına maliyet çarpanı (MCAF/PCAF), örn. sert kaya 1.2, uzak taşıma 1.1. "
+                "Boş değerler 1 sayılır."
+            )
+        ef.addRow("Kazı maliyet çarpanı (öznitelik)", self.mcaf)
+        ef.addRow("İşleme maliyet çarpanı (öznitelik)", self.pcaf)
+        self.conc_grade = _spin(0.0, 0.0, 100.0, 1.0, 2)
+        self.conc_grade.setToolTip(
+            "Konsantrede ana metal oranı (%), örn. bakır konsantresi için 25. 0: konsantre "
+            "şartları yok. Yalnız ana işleme yoluna uygulanır."
+        )
+        self.tc = _spin(0.0, 0.0, 1e4, 5.0, 2)
+        ef.addRow("Konsantre tenörü (%) / TC ($/t kons.)", _row(self.conc_grade, self.tc))
+        self.penalties = QLineEdit()
+        self.penalties.setPlaceholderText("örn. as:30:2000:1000:3 (öğe:kazanım%:serbest:adım:$)")
+        self.penalties.setToolTip(
+            "Konsantrede cezalı öğeler: öğe özniteliği, konsantreye geçen oran, serbest sınır "
+            "ve adım (özniteliğin biriminde), her adım için konsantre tonu başına ceza."
+        )
+        ef.addRow("Cezalı öğeler", self.penalties)
         self.route_label = QLabel()
         self.route_label.setWordWrap(True)
         ef.addRow(self.route_label)
@@ -285,6 +326,28 @@ class PitDialog(QDialog):
         pf.addRow("Stok kapasitesi (Mt)", self.stock_caps)
         self.rehandle = _spin(0.0, 0.0, 1e3, 0.1, 2)
         pf.addRow("Stoktan geri yükleme maliyeti ($/t)", self.rehandle)
+        self.period_years = QLineEdit()
+        self.period_years.setPlaceholderText("örn. 0.25*4; 1 (ilk yıl çeyrekler, sonra yıllar)")
+        self.period_years.setToolTip(
+            "Her dönemin uzunluğu (yıl); son değer tekrar eder. Boş: her dönem 1 yıl. "
+            "Kapasiteler yıllıktır, dönem uzunluğuyla çarpılır."
+        )
+        pf.addRow("Dönem uzunlukları (yıl)", self.period_years)
+        self.mining_rates = QLineEdit()
+        self.mining_rates.setPlaceholderText("örn. 6*2; 10 (Mt/yıl, dönem sırasıyla; boş: sabit)")
+        pf.addRow("Dönemlere göre kazı (Mt/yıl)", self.mining_rates)
+        self.plant_rates = QLineEdit()
+        self.plant_rates.setPlaceholderText("örn. 1*1; 1.5*1; 2 (tesis devreye alma; boş: sabit)")
+        pf.addRow("Dönemlere göre tesis (Mt/yıl)", self.plant_rates)
+        self.blends = QLineEdit()
+        self.blends.setPlaceholderText("örn. tenör:0.8:1.5; as:-:500 (öznitelik:en az:en çok)")
+        self.blends.setToolTip(
+            "Harmanlama hedefleri: her dönem tesis beslemesinin ortalaması bu aralıkta kalır. "
+            "'tenör' ana besleme tenörüdür; başka bir öznitelik (ör. zararlı element) de "
+            "yazılabilir. '-' sınır yok demektir; 4. alan yol numarasıdır (varsayılan 1). "
+            "Yalnız NPV optimizasyonu (MILP) uygular."
+        )
+        pf.addRow("Harmanlama hedefleri", self.blends)
         self.method = QComboBox()
         self.method.addItems(["Kurallı (hızlı)", "NPV optimizasyonu (MILP)"])
         self.method.setToolTip(
@@ -343,22 +406,8 @@ class PitDialog(QDialog):
         )
         gl.addWidget(self.shells, 1)
         right.addTab(graph_page, "Kabuk raporu")
-        self.sched_table = QTableWidget(0, 11)
-        self.sched_table.setHorizontalHeaderLabels(
-            [
-                "Yıl",
-                "Kazı Mt",
-                "Cevher kazı Mt",
-                "Tesise Mt",
-                "Besleme tenörü",
-                "Metal",
-                "Stok Mt",
-                "Stoktan Mt",
-                "Atığa cevher Mt",
-                "Nakit M$",
-                "İskontolu M$",
-            ]
-        )
+        self.sched_table = QTableWidget(0, len(SCHED_HEADERS))
+        self.sched_table.setHorizontalHeaderLabels(SCHED_HEADERS)
         right.addTab(self.sched_table, "Üretim çizelgesi")
         self.inv_table = QTableWidget(0, len(INVENTORY_HEADERS))
         self.inv_table.setHorizontalHeaderLabels(INVENTORY_HEADERS)
@@ -410,6 +459,10 @@ class PitDialog(QDialog):
             a for a in attrs if not a.endswith(("_n", "_dist", "_kv")) and not a.startswith("pit_")
         ]
         self.grade.addItems([g for g in grades if g != "kaya"])
+        for box in (self.mcaf, self.pcaf):
+            box.clear()
+            box.addItem("(yok)")
+            box.addItems(grades)
         self.res_category.clear()
         self.res_category.addItem("(kategori yok)")
         self.res_category.addItems(grades)
@@ -458,6 +511,11 @@ class PitDialog(QDialog):
             payable=self.payable.value() / 100.0,
             royalty=self.royalty.value() / 100.0,
             coproducts=() if self.nsr.isChecked() else parse_products(self.coproducts.text()),
+            mining_factor="" if self.mcaf.currentIndex() <= 0 else self.mcaf.currentText(),
+            processing_factor="" if self.pcaf.currentIndex() <= 0 else self.pcaf.currentText(),
+            concentrate_grade=0.0 if self.nsr.isChecked() else self.conc_grade.value() / 100.0,
+            treatment_charge=self.tc.value() if self.conc_grade.value() > 0 else 0.0,
+            penalties=parse_penalties(self.penalties.text()) if self.conc_grade.value() else (),
         )
 
     def limits(self) -> Limits:
@@ -471,7 +529,23 @@ class PitDialog(QDialog):
             grade_bins=parse_bins(self.bins.text()),
             stockpile_capacities=parse_capacities(self.stock_caps.text()),
             rehandle_cost=self.rehandle.value(),
+            period_years=parse_periods(self.period_years.text()),
+            mining_rates=tuple(v * 1e6 for v in parse_periods(self.mining_rates.text())),
+            plant_rates=tuple(v * 1e6 for v in parse_periods(self.plant_rates.text())),
+            blends=self._blends(),
         )
+
+    def _blends(self) -> tuple[Blend, ...]:
+        blends = parse_blends(self.blends.text())
+        if not any(b.attribute for b in blends):
+            return blends
+        model = BlockModel.open(self.project, self.model.currentText())
+        missing = [
+            b.attribute for b in blends if b.attribute and b.attribute not in model.attributes
+        ]
+        if missing:
+            raise RuntimeError(f"Harmanlama özniteliği modelde yok: {', '.join(missing)}")
+        return resolve_blends(blends, model.values)
 
     def rock_attribute(self) -> str | None:
         return None if self.rock.currentIndex() == 0 else self.rock.currentText()
@@ -600,7 +674,7 @@ class PitDialog(QDialog):
         self.figure.tight_layout()
         self.canvas.draw_idle()  # type: ignore[no-untyped-call]
 
-    def make_phases(self) -> None:
+    def make_phases(self) -> None:  # noqa: PLR0915 - one dialog action
         if self.pit is None:
             raise RuntimeError("Önce kabukları hesaplayın.")
         final = int(self.final.currentData())
@@ -633,6 +707,10 @@ class PitDialog(QDialog):
                 f"; {fixed.remaining_slivers:,} dar blok kaldı." if fixed.remaining_slivers else "."
             )
         limits = self.limits()
+        if limits.blends and self.method.currentIndex() != 1:
+            raise RuntimeError(
+                "Harmanlama hedefleri yalnız 'NPV optimizasyonu (MILP)' yöntemiyle uygulanır."
+            )
         if self.method.currentIndex() == 1:
             pit, phase, seconds = self.pit, self.phase, self.time_limit.value()
             self.sched = _with_progress(
@@ -645,10 +723,14 @@ class PitDialog(QDialog):
         self.flow = cash_flow(self.sched.rows, self.terms()) if self.sched.rows else None
         self._show_cash_flow()
         rows = self.sched.rows
+        blend_names = [f"Harman: {b.label}" for b in limits.blends]
+        self.sched_table.setColumnCount(len(SCHED_HEADERS) + len(blend_names))
+        self.sched_table.setHorizontalHeaderLabels(SCHED_HEADERS + blend_names)
         self.sched_table.setRowCount(len(rows) + 1)
         for i, p in enumerate(rows):
+            when = f" ({p.years:g}. yıl)" if limits.period_years and math.isfinite(p.years) else ""
             cells = [
-                str(p.period),
+                str(p.period) + when,
                 _m(p.mined_t),
                 _m(p.ore_mined_t),
                 _m(p.ore_fed_t)
@@ -664,6 +746,7 @@ class PitDialog(QDialog):
                 _m(p.discarded_t),
                 _m(p.cash),
                 _m(p.discounted),
+                *("" if math.isnan(v) else f"{v:.4g}" for v in p.blend_values),
             ]
             for j, text in enumerate(cells):
                 _cell(self.sched_table, i, j, text)
@@ -691,7 +774,7 @@ class PitDialog(QDialog):
         self.tabs.setCurrentIndex(1)
         self.inform(
             "Pushback",
-            f"{int(self.phase.max())} pushback, {len(rows)} yıllık çizelge. "
+            f"{int(self.phase.max())} pushback, {len(rows)} dönemlik çizelge. "
             f"Çizelge NPV {self.sched.npv / 1e6:,.1f} M$."
             + _method_note(self.sched)
             + (_project_summary(self.flow) if self.flow is not None else "")
@@ -814,6 +897,15 @@ class PitDialog(QDialog):
         form.addRow(
             "Yükleyici kapasitesi (t/sa) / maliyeti ($/sa)", _row(self.fl_lrate, self.fl_lcost)
         )
+        self.fl_dumps = QLineEdit()
+        self.fl_dumps.setPlaceholderText(
+            "örn. kuzey:40:1200; guney:80:2500 (ad:kapasite Mt:mesafe m)"
+        )
+        self.fl_dumps.setToolTip(
+            "Döküm sahaları: her dönemin pasası en yakın sahadan başlayarak kapasite dolana "
+            "kadar yerleştirilir; yüzey mesafesi (tesise) cevher için kullanılır."
+        )
+        form.addRow("Döküm sahaları", self.fl_dumps)
         run = QPushButton("Kamyon ve yükleyici filosunu hesapla")
         run.clicked.connect(self._guard(self.run_fleet))
         form.addRow(run)
@@ -825,6 +917,7 @@ class PitDialog(QDialog):
         self.fleet_note.setWordWrap(True)
         v.addWidget(self.fleet_note)
         self.fleet: list[FleetRow] = []
+        self.dump_plan: list[DumpPeriod] = []
         return page
 
     def fleet_inputs(self) -> Fleet:
@@ -851,7 +944,11 @@ class PitDialog(QDialog):
             raise RuntimeError("Önce kabukları hesaplayıp kısıtlı üretim çizelgesi oluşturun.")
         grid = BlockModel.open(self.project, self.model.currentText()).grid
         lifts = period_lifts(self.pit, self.sched, grid.size[2])
-        self.fleet = rows = fleet_by_period(self.sched, lifts, self.fleet_inputs())
+        dumps = parse_dumps(self.fl_dumps.text())
+        fleet = self.fleet_inputs()
+        self.dump_plan = dump_schedule(self.sched, dumps, fleet.surface_m) if dumps else []
+        surface = {d.period: d.surface_m for d in self.dump_plan}
+        self.fleet = rows = fleet_by_period(self.sched, lifts, fleet, surface)
         self.fleet_table.setRowCount(len(rows))
         for n, r in enumerate(rows):
             cells = [
@@ -876,6 +973,7 @@ class PitDialog(QDialog):
             f"Nakliye+yükleme ortalama {total / tonnes if tonnes else 0:,.2f} $/t. "
             "Ortalama çevrim tahminidir (kuyruk/eşleşme benzetimi yok); maliyet çizelge "
             "nakit akışına eklenmez, madencilik maliyetiyle karşılaştırmak içindir."
+            + _dump_note(self.dump_plan, dumps)
         )
 
     def _scenario_page(self) -> QWidget:
@@ -1121,6 +1219,47 @@ class PitDialog(QDialog):
             for j, value in enumerate(_cash_cells(r)):
                 _cell(self.cash_table, i, j, value if isinstance(value, str) else _m(value))
         self.cash_table.resizeColumnsToContents()
+
+
+SCHED_HEADERS = [
+    "Dönem",
+    "Kazı Mt",
+    "Cevher kazı Mt",
+    "Tesise Mt",
+    "Besleme tenörü",
+    "Metal",
+    "Stok Mt",
+    "Stoktan Mt",
+    "Atığa cevher Mt",
+    "Nakit M$",
+    "İskontolu M$",
+]
+
+
+def _dump_note(plan: list[DumpPeriod], dumps: tuple[DumpSite, ...]) -> str:
+    if not plan:
+        return ""
+    parts = []
+    for k, d in enumerate(dumps):
+        total, full_at = 0.0, 0
+        for p in plan:
+            total += p.by_dump[k]
+            if not full_at and total >= d.capacity_t - 1:
+                full_at = p.period
+        parts.append(
+            f"{d.name} {total / 1e6:,.1f}/{d.capacity_t / 1e6:,.1f} Mt"
+            + (f" ({full_at}. dönemde doldu)" if full_at else "")
+        )
+    lost = sum(p.unplaced_t for p in plan)
+    return (
+        "\nDöküm sahaları: "
+        + "; ".join(parts)
+        + (
+            f". Uyarı: {lost / 1e6:,.2f} Mt pasaya yer kalmadı (en uzak saha mesafesiyle sayıldı)."
+            if lost > 1
+            else "."
+        )
+    )
 
 
 def _method_note(sched: ConstrainedSchedule) -> str:
@@ -1431,11 +1570,13 @@ class BenchDesignDialog(QDialog):
         self.ramp_on = QCheckBox("Rampa (nakliye yolu) tasarla")
         self.ramp_w = _spin(25.0, 3.0, 80.0, 1.0, 1)
         self.ramp_g = _spin(10.0, 1.0, 25.0, 0.5, 1)
+        self.ramp_bund = _spin(0.0, 0.0, 20.0, 0.5, 1)
         self.ramp_exit = _spin(0.0, 0.0, 359.0, 15.0, 0)
         self.ramp_dir = QComboBox()
         self.ramp_dir.addItems(["Saat yönünde (inerken)", "Saat yönünün tersine (inerken)"])
         form.addRow(self.ramp_on)
         form.addRow("Rampa genişliği (m) / eğim %", _row(self.ramp_w, self.ramp_g))
+        form.addRow("Emniyet seddi genişliği (m)", self.ramp_bund)
         form.addRow("Çıkış yönü (° kuzeyden) / dönüş", _row(self.ramp_exit, self.ramp_dir))
         self.ramp_kind = QComboBox()
         self.ramp_kind.addItems(["Spiral (ocak çevresinde)", "Zikzak (tek şevde, dönüşlü)"])
@@ -1506,6 +1647,7 @@ class BenchDesignDialog(QDialog):
                 self.ramp_dir.currentIndex() == 0,
                 self.ramp_span.value() if self.ramp_kind.currentIndex() == 1 else 0.0,
                 exits=parse_exits(self.ramp_exits.text()),
+                bund=self.ramp_bund.value(),
             )
             if self.ramp_on.isChecked()
             else None,

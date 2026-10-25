@@ -26,7 +26,7 @@ import numpy.typing as npt
 from minecore._core import max_closure
 from minecore.blockmodel import BlockModel
 from minecore.jobs import Progress
-from minecore.pitopt.economics import Economics, PitOptError, block_values
+from minecore.pitopt.economics import Adjustments, Economics, PitOptError, block_values
 from minecore.pitopt.precedence import SlopeProfile, precedence_arcs
 
 if TYPE_CHECKING:
@@ -104,9 +104,27 @@ def _coproduct_grades(model: BlockModel, econ: Economics) -> list[tuple[Floats, 
     return out
 
 
+def _adjustments(model: BlockModel, econ: Economics) -> Adjustments:
+    def values(name: str, what: str) -> Floats | None:
+        if not name:
+            return None
+        if name not in model.attributes:
+            raise PitOptError(f"{what} attribute {name!r} is not in the model")
+        return model.values(name)
+
+    grades = []
+    for p in econ.penalties:
+        grades.append((values(p.attribute, "penalty"), model.attributes[p.attribute].get("unit")))
+    return Adjustments(
+        values(econ.mining_factor, "mining cost factor"),
+        values(econ.processing_factor, "processing cost factor"),
+        [(g, u) for g, u in grades if g is not None],
+    )
+
+
 def _inputs(
     model: BlockModel, grade_attribute: str, econ: Economics, rock_attribute: str | None
-) -> tuple[Floats, str | None, Floats, Ints, list[tuple[Floats, str | None]]]:
+) -> tuple[Floats, str | None, Floats, Ints, list[tuple[Floats, str | None]], Adjustments]:
     """Grade, its unit, tonnes, bench from the top and co-product grades of each block."""
     nx, ny, nz = model.grid.count
     k = np.arange(model.grid.blocks) // (nx * ny)
@@ -116,6 +134,7 @@ def _inputs(
         _block_tonnes(model, econ, rock_attribute),
         (nz - 1 - k).astype(np.int64),
         _coproduct_grades(model, econ),
+        _adjustments(model, econ),
     )
 
 
@@ -133,8 +152,10 @@ def revalue(  # noqa: PLR0913 - options are keyword-only
     Ore/waste, routes and values follow the new economics; the shells stay.
     The shell report rows are dropped (they belong to the original values).
     """
-    grade, unit, tonnes, bench, co_grades = _inputs(model, grade_attribute, econ, rock_attribute)
-    base = block_values(grade, unit, tonnes, bench, econ, price_factor, co_grades)
+    grade, unit, tonnes, bench, co_grades, adj = _inputs(
+        model, grade_attribute, econ, rock_attribute
+    )
+    base = block_values(grade, unit, tonnes, bench, econ, price_factor, co_grades, adj)
     return replace(
         result,
         value=base.value,
@@ -180,14 +201,16 @@ def optimise_pit(  # noqa: PLR0913 - options are keyword-only
     if mining_rate <= 0 or discount_rate < 0:
         raise PitOptError("mining rate must be > 0 and discount rate >= 0")
     grid = model.grid
-    grade, unit, tonnes, bench, co_grades = _inputs(model, grade_attribute, econ, rock_attribute)
-    base = block_values(grade, unit, tonnes, bench, econ, price_factor, co_grades)
+    grade, unit, tonnes, bench, co_grades, adj = _inputs(
+        model, grade_attribute, econ, rock_attribute
+    )
+    base = block_values(grade, unit, tonnes, bench, econ, price_factor, co_grades, adj)
     if progress is not None:
         progress.update(0.02, "eğim kısıtları")
     arcs = precedence_arcs(grid, slope, max_levels)
     shell = np.zeros(grid.blocks, np.int64)
     for n, rf in enumerate(factors, start=1):
-        econ_rf = block_values(grade, unit, tonnes, bench, econ, rf * price_factor, co_grades)
+        econ_rf = block_values(grade, unit, tonnes, bench, econ, rf * price_factor, co_grades, adj)
         cents = np.round(econ_rf.value * 100.0).astype(np.int64)
         pit = np.asarray(max_closure(cents, arcs), bool)
         shell[pit & (shell == 0)] = n

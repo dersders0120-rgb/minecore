@@ -61,17 +61,39 @@ GUIDE = """
    yüksek marjlı yola gider) desteklenir. Çizelgede stok tenör sınıfları (ör. `1; 2`),
    stok kapasitesi ve geri yükleme maliyeti verilebilir: tesis önce yüksek tenörlü
    cevherle beslenir, düşük tenör stokta bekler, dolu stoktan taşan cevher döküme gider.
+   "Kazı/İşleme maliyet çarpanı" bir blok özniteliğiyle (ör. sert kayada 1.2) maliyeti
+   blok blok çarpar (MCAF/PCAF). "Konsantre tenörü" girilirse ana yoldaki metal konsantre
+   tonuna çevrilir; TC konsantre tonu başına düşülür, "Cezalı öğeler" (ör.
+   `as:30:2000:1000:3`) serbest sınırı aşan her adım için ceza keser.
    "Pushback'leri NPV'ye göre seç" işaretlenirse kabuklar, çizelge NPV'sini en büyütecek
    şekilde gruplanır (her pushback en az cevher hedefini taşır; az kabukta tüm
    gruplamalar denenir, çokta yerel arama yapılır).
    Çizelge yöntemi olarak "NPV optimizasyonu (MILP)" seçilirse aynı kurallarla NPV'yi en
    büyüten çizelge bulunur (kurallı çizelgeden kötü olamaz; süre sınırı verilir).
+   "Dönem uzunlukları" ile ilk dönemler kısa tutulabilir (ör. `0.25*4; 1`: dört çeyrek,
+   sonra yıllar); "Dönemlere göre kazı/tesis" ile kapasite dönem dönem değişir (ör. tesis
+   devreye alma `1*1; 1.5*1; 2`). Kapasiteler yıllıktır. "Harmanlama hedefleri" (ör.
+   `tenör:0.8:1.5; as:-:500`) her dönem tesis beslemesinin ortalamasını sınırlar; yalnız
+   MILP yöntemi uygular, çizelge tablosunda her hedefin dönem ortalaması gösterilir.
    **Proje nakit akışı** bölümünde yatırım (ör. `0:250; 4:40`, yıl:M$), sabit gider,
    kapanış maliyeti, vergi ve amortisman girilir; "Nakit akışı" sekmesi yıl yıl FAVÖK,
    vergi, nakit akışı ve proje NPV, İVO (IRR) ve geri ödeme süresini verir.
    "Ekipman" sekmesi çizelgenin her yılı için ortalama nakliye çevrimini (ocak içi,
    rampa ve yüzey mesafesi, dolu/boş hızlar), gereken kamyon ve yükleyici sayısını ve
    nakliye-yükleme maliyetini ($/t) verir.
+   **Yüzey → Çizgi düzenleyici** planda çizgi çizer: nokta ekle, taşı (sürükle), araya
+   ekle, sil; sağ tık çizgiyi bitirir, kot sabit verilir ya da yüzeye oturtulur.
+   **Açık Ocak → Taban çizgisinden pit tasarımı** kapalı taban çizgilerinden (kotu taban
+   kotudur) şev, basamak ve bermle yukarı doğru pit açar, rampa ekler, yüzeyi ve
+   toe/crest çizgilerini kaydeder.
+   **Açık Ocak → Tenör kontrolü** patlatma deliği tenörlerinden (CSV: x, y, tenör) atım
+   sınırı içinde ince bir harita kestirir, cut-off'lara göre pasa/cevher sınıflar, en dar
+   kazı genişliğine göre düzeltir ve kazı hatlarını çizgi seti (ve DXF) olarak kaydeder;
+   cevher kaybı ve seyrelme tonajını verir.
+   **Açık Ocak → Tasarım rezervi** iki yüzey (ör. topoğrafya ile pit tasarımı) arasındaki
+   cevher ve pasayı basamak basamak verir; sınır bloklar kesilen yükseklik oranında
+   sayılır, istenirse kaya tipi veya kategoriye göre ayrılır. Aynı pencerede iki yüzey
+   arası kazı/dolgu hacmi hesaplanır.
    "Senaryolar" sekmesi çalışmayı adıyla kaydeder (tüm girdiler ve ana sonuçlar
    projede saklanır), senaryoları yan yana tablo ve NPV grafiği ile karşılaştırır,
    bir senaryonun girdilerini forma geri yükler ve karşılaştırmayı CSV'ye yazar.

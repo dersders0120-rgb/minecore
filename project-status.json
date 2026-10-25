@@ -25,7 +25,7 @@
       "id": "M3",
       "title": "Geometry and 3D",
       "status": "IN_PROGRESS",
-      "evidence": "DTM surfaces (PR #9); solids import/export, grade shells, section linking of strings, partial-block fractions (PR #12-#16). Solid editing/booleans pending."
+      "evidence": "DTM surfaces (PR #9); solids import/export, grade shells, section linking of strings, partial-block fractions (PR #12-#16). Solid editing/booleans pending. PR #38: solid verify/repair, voxel booleans and surface cut."
     },
     {
       "id": "M4",
@@ -49,13 +49,13 @@
       "id": "M7",
       "title": "Open-pit optimisation",
       "status": "IN_PROGRESS",
-      "evidence": "Max-closure pit in Rust, nested shells, best/worst NPV, pushbacks with minimum mining width, recovery/dilution, NSR, Lane cut-off optimisation with exact balancing points, process routes (PR #10-#21, #32); payables, royalty and co-products (PR #29-#30); project cash flow with capital, tax, closure, IRR, payback (PR #29); sensitivity analysis (PR #32). Technical audit v1: docs/audit/AUDIT_2026-10.md (PR #28). Pushbacks chosen by NPV (PR #34); Lane constant-cut-off fallback (PR #35); pit scenarios (PR #36)."
+      "evidence": "Max-closure pit in Rust, nested shells, best/worst NPV, pushbacks with minimum mining width, recovery/dilution, NSR, Lane cut-off optimisation with exact balancing points, process routes (PR #10-#21, #32); payables, royalty and co-products (PR #29-#30); project cash flow with capital, tax, closure, IRR, payback (PR #29); sensitivity analysis (PR #32). Technical audit v1: docs/audit/AUDIT_2026-10.md (PR #28). Pushbacks chosen by NPV (PR #34); Lane constant-cut-off fallback (PR #35); pit scenarios (PR #36). PR #38: MILP blending targets, variable periods, MCAF/PCAF, concentrate TC/penalties."
     },
     {
       "id": "M8",
       "title": "Open-pit design and scheduling",
       "status": "IN_PROGRESS",
-      "evidence": "Constrained schedule, bench inventory, bench design with spiral and switchback ramps (PR #28), pit/design DXF, end-of-period surfaces, section/plan PDF plots, geotechnical sectors (PR #11-#20); stockpile grade bins, capacity, rehandling (PR #31); NPV-maximising MILP schedule with HiGHS (PR #33). One ramp per separate pit (PR #35); truck/loader fleet, drill and blast, waste dumps (PR #36)."
+      "evidence": "Constrained schedule, bench inventory, bench design with spiral and switchback ramps (PR #28), pit/design DXF, end-of-period surfaces, section/plan PDF plots, geotechnical sectors (PR #11-#20); stockpile grade bins, capacity, rehandling (PR #31); NPV-maximising MILP schedule with HiGHS (PR #33). One ramp per separate pit (PR #35); truck/loader fleet, drill and blast, waste dumps (PR #36). PR #38: bench reserves between surfaces, cut/fill, string editor, toe-string pit design, connector ramps and bunds, grade control dig lines, dump sequencing."
     },
     {
       "id": "M9",

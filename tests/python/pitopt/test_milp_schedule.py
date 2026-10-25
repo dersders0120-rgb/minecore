@@ -9,7 +9,7 @@ import pytest
 from minecore.pitopt.economics import PitOptError
 from minecore.pitopt.milp import schedule_optimised
 from minecore.pitopt.optimise import PitResult
-from minecore.pitopt.scheduling import Limits, schedule_constrained
+from minecore.pitopt.scheduling import Limits, parse_blends, schedule_constrained
 
 PRICE, PROCESS, MINE = 100.0, 20.0, 2.0
 
@@ -135,3 +135,28 @@ def test_validation() -> None:
         schedule_optimised(pit, phase, _limits(), time_limit=0.0)
     with pytest.raises(PitOptError):
         schedule_optimised(pit, np.zeros(1, np.int64), _limits())
+
+
+def test_blending_bounds_hold_every_period() -> None:
+    pit, phase = _pit([3.0, 1.0, 1.0, 3.0])
+    s = schedule_optimised(
+        pit, phase, _limits(plant_capacity=2000.0, blends=parse_blends("grade:1.5:2.0"))
+    )
+    assert s.method == "milp"
+    fed = [r for r in s.rows if r.ore_fed_t > 1e-6]
+    assert fed
+    assert all(1.5 - 1e-6 <= r.blend_values[0] <= 2.0 + 1e-6 for r in fed)
+    assert all(r.feed_grade == pytest.approx(r.blend_values[0]) for r in fed)
+
+
+def test_half_year_periods_scale_capacity_and_discounting() -> None:
+    pit, phase = _pit([3.0, 1.0])
+    s = schedule_constrained(pit, phase, _limits(period_years=(0.5,)))
+    # 2000 t/year x 0.5; the plant (1000 t/year) feeds 500 t per period, the rest waits
+    assert [r.mined_t for r in s.rows][:2] == pytest.approx([1000.0, 1000.0])
+    assert [r.ore_fed_t for r in s.rows] == pytest.approx([500.0] * 4)
+    assert [r.years for r in s.rows] == pytest.approx([0.5, 1.0, 1.5, 2.0])
+    first = s.rows[0]
+    assert first.discounted == pytest.approx(first.cash / 1.1**0.5)
+    m = schedule_optimised(pit, phase, _limits(period_years=(0.5,)))
+    assert m.rows[0].years == pytest.approx(0.5)

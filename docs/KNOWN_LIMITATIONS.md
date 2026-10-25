@@ -74,10 +74,17 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
 - Several metals: a main grade plus co-products (`--coproduct
   ATTR:PRICE:UNIT:REC[:PAYABLE[:SELLING[:R2/R3]]]`, GUI "Yan ürünler"), each
   with its own price, recovery, payable fraction, selling cost and recovery
-  per process route; or an NSR value per tonne. Not modelled: penalty
-  elements (As, Hg, F deductions), minimum deductions and treatment/refining
-  charges per concentrate tonne, concentrate grade and mass pull, price
-  escalation per metal. The schedule's metal columns report the main metal
+  per process route; or an NSR value per tonne. Concentrate terms
+  (`--concentrate-grade`, `--treatment-charge`, `--penalty
+  ATTR:REC:LIMIT:STEP:RATE`, GUI "Konsantre tenörü / TC", "Cezalı öğeler"):
+  concentrate tonnes from the recovered main metal and a fixed concentrate
+  grade, a treatment charge per concentrate tonne and stepwise linear
+  penalties on element grades in the concentrate; main route only, no
+  moisture, no minimum deductions, no fractional-step rounding, no price
+  escalation per metal. Cost adjustment factors (`--mining-factor`,
+  `--processing-factor`, GUI "maliyet çarpanı"): block attributes that
+  multiply the mining and processing cost (MCAF/PCAF); the Lane cut-off tool
+  does not use them. The schedule's metal columns report the main metal
   only; co-product revenue is in the period revenue.
 - Process routes (`--route NAME:RECOVERY:COST`, GUI "Ek işleme yolları"):
   each block goes to the route with the best margin at the shell's revenue
@@ -107,15 +114,25 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
   widened. Measured: 123k blocks, 3.2 M arcs, 3.4 s. Ramp access is not
   enforced.
 - Schedule (`pitopt.scheduling`): greedy, rule-based sequence with mining and
-  plant capacity, bench lag, sinking rate and stockpiles; no blending
-  targets, no cut-off optimisation, no equipment or haulage model; periods
-  are years of equal capacity.
+  plant capacity, bench lag, sinking rate and stockpiles; no cut-off
+  optimisation, no equipment or haulage model. Periods can have their own
+  lengths (`--period-years`, GUI "Dönem uzunlukları", e.g. quarters then
+  years) and capacities per year (`--mining-rates`, `--plant-rates`); the
+  sinking rate stays benches per period whatever its length, and depreciation
+  is straight line in years. The greedy rules ignore blending targets.
 - MILP schedule (`pitopt.milp`, CLI `--schedule milp`, GUI "NPV
   optimizasyonu"): maximises the NPV under the same rules with HiGHS
   (scipy). Mining units stay increments (pushback x bench), so it is not a
   block-level or OES optimisation; the pushbacks are fixed inputs; the
   horizon is the greedy length plus two periods; the stockpile is selective
-  per increment, route and grade bin (no blending inside a source). Time
+  per increment, route and grade bin (no blending inside a source). Blending
+  targets (`--blend ATTR:MIN:MAX[:ROUTE]`, GUI "Harmanlama hedefleri") bound
+  the feed mean of the main grade or of any block attribute per period and
+  route; an attribute other than the grade is the in-situ value weighted by
+  feed tonnes (no dilution applied to it) and unestimated blocks count as
+  zero. With targets the greedy NPV is only a reference (the greedy schedule
+  may break them); when no feasible schedule is found in the time limit the
+  run stops with a message. Smoke-tested only. Time
   limit (default 60 s) and MIP gap (0.5 %) apply; when the solver stops
   without beating the greedy schedule, the greedy one is kept and the
   reason is reported. Measured on the sample data (2 pushbacks, 23 years):
@@ -239,9 +256,11 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
   in order of excavated volume, and a pit whose road cannot be traced is
   reported without one. Roads of different pits are not checked against
   each other. A single opening with several bottoms (pits merged above some
-  level) gets one road from its deepest bottom; the other bottoms are only
-  counted, no connecting road is designed. No road batters or safety bunds,
-  and the road is not checked against a minimum curve radius. Because the optimiser treats the block model edge as
+  level) gets a main road from its deepest bottom and a connector road from
+  each other bottom up to the saddle where its basin joins the main pit (the
+  connector is not joined to the main road). Road edges and the safety bund
+  toe (`--bund`) are output as strings only (no bund solid, no road batters);
+  the road is not checked against a minimum curve radius. Because the optimiser treats the block model edge as
   unconstrained, a design can need ground outside the model; the volume
   outside is reported (create the model with padding).
 - DXF export writes R12 ASCII `POLYLINE` (3D) and `3DFACE` entities only, no
@@ -312,3 +331,53 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
   through the crosscut end (no footwall offset, no drawpoints, no curved
   drives for folded ore). No ventilation raises, sumps, passing bays, switchbacks, geotechnical or
   clash checks against other excavations, and no development scheduling.
+
+## Design reserves and surface volumes
+
+- `reserves` (GUI "Tasarım rezervi", CLI `pit reserves`, `surface volume`):
+  bench inventory between an upper and a lower surface, partial blocks
+  prorated by the height cut on the block's vertical centre line (not by
+  the true volume under a sloping surface); ore is a single grade cut-off
+  (no NSR or route choice); split by one attribute. Cut/fill on a raster
+  where both surfaces exist (cell centre test). Not a reserve statement
+  (rule 8).
+
+## String editor and toe-string pit design
+
+- String editor (GUI "Çizgi düzenleyici"): plan view only (no section or 3D
+  editing), points get z from a constant or a draped surface; no snapping,
+  no offsetting or smoothing, no string clipping or joining, undo within the
+  session only. GUI only (strings are imported with `strings import`).
+- Toe design (`pit design-toes`, GUI "Taban çizgisinden pit tasarımı"):
+  benches are expanded on a raster with the same distance-transform
+  envelope as the optimised-pit bench design (rounded corners, raster
+  resolution); a toe's floor is the mean z of its points; the ramp starts
+  at the deepest floor. No interactive bench-by-bench editing of crests.
+  Smoke-tested only.
+
+## Grade control
+
+- `gradecontrol` (GUI "Tenör kontrolü", CLI `gc`): blasthole grades from a
+  CSV interpolated by inverse distance in plan (no kriging, no conditional
+  simulation, no economic dig-line optimisation by profit), classes from
+  grade cut-offs, majority-filter smoothing to a minimum mining width,
+  raster dig lines (staircase edges at the cell size, no simplification).
+  One blast outline per run; no blast movement correction; no monthly
+  shot sequencing (short-term scheduling is not implemented yet).
+
+## Dump sequencing and haul distance
+
+- `pitopt.fleet.dump_schedule` (GUI "Ekipman" → "Döküm sahaları"): waste
+  fills the dumps nearest first up to their capacity; haul distances are
+  given per dump (no road network or shortest-path routing, no lift-by-lift
+  dump elevation, no rehandle). Waste beyond the total capacity is reported
+  and costed at the farthest dump. Smoke-tested only.
+
+## Solid tools
+
+- `solidtools` (GUI "Katı model araçları", CLI `solid verify|boolean|cut`):
+  verification and repair (vertex merge, degenerate/duplicate removal,
+  consistent outward orientation; holes are reported, not filled; no
+  self-intersection test). Booleans and surface cuts are voxel-based: the
+  result is closed but rounded at the voxel size, and slow for fine voxels
+  on large solids (pure-Python inside test). Lightly tested.
