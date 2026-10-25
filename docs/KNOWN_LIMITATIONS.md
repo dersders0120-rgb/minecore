@@ -188,6 +188,8 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
 - `underground.development`: concept access layout only: one straight portal
   leg plus a circular spiral decline at constant gradient beside the orebody
   (standoff checked in plan against ore block centroids), and one straight
-  horizontal crosscut per level to the nearest ore block. No ore drives,
-  ventilation raises, sumps, passing bays, switchbacks, geotechnical or
+  horizontal crosscut per level to the nearest ore block. One straight ore
+  drive per level along the principal plan axis of that level's ore blocks,
+  through the crosscut end (no footwall offset, no drawpoints, no curved
+  drives for folded ore). No ventilation raises, sumps, passing bays, switchbacks, geotechnical or
   clash checks against other excavations, and no development scheduling.

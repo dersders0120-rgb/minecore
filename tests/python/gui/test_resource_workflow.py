@@ -523,6 +523,10 @@ def test_stope_dialog(qapp: QApplication, tmp_path: Path) -> None:
     dec.run(None)
     assert dec.dev is not None
     assert dec.dev.accesses
+    assert "cevher galerileri" in dec.text.text()
+    dec.drives.setChecked(False)
+    dec.run(None)
+    assert dec.dev.drive_length == 0.0
     assert "dekline" in string_names(project)
     project.close()
 
