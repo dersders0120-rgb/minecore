@@ -44,6 +44,7 @@ jobs:
           --collect-all pyvista --collect-all pyvistaqt --collect-submodules vtkmodules
           --collect-data pyproj --collect-binaries pyproj --collect-all pyarrow
           --collect-submodules minecore --collect-data minecore
+          --exclude-module mypy --exclude-module mypyc --exclude-module mypy_extensions
 
       - name: Smoke test the packaged core
         shell: bash
