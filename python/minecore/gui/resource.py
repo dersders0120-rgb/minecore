@@ -670,10 +670,56 @@ class GradeTonnageDialog(QDialog):
         r = self.report
         assert r is not None
         path, _ = QFileDialog.getSaveFileName(
-            self, "CSV kaydet", f"tenor_tonaj_{r.attribute}.csv", "CSV (*.csv)"
+            self,
+            "Raporu kaydet",
+            f"tenor_tonaj_{r.attribute}.xlsx",
+            "Excel (*.xlsx);;CSV (*.csv)",
         )
-        if path:
+        if not path:
+            return
+        if path.lower().endswith(".csv"):
             write_grade_tonnage_csv(Path(path), r)
+        else:
+            write_grade_tonnage_xlsx(
+                Path(path if path.lower().endswith(".xlsx") else path + ".xlsx"), r
+            )
+
+
+def write_grade_tonnage_xlsx(path: Path, r: GradeTonnage) -> None:
+    from minecore.io.excel import write_workbook  # noqa: PLC0415
+
+    unit = r.grade_unit or "-"
+    write_workbook(
+        path,
+        {
+            "Tenor-tonaj": (
+                [
+                    f"Sınır tenör ({unit})",
+                    "Blok",
+                    "Hacim (m3)",
+                    "Tonaj (t)",
+                    f"Ort. tenör ({unit})",
+                    f"Metal ({r.metal_unit})",
+                ],
+                [
+                    [row.cutoff, row.blocks, row.volume, row.tonnes, row.grade, row.metal]
+                    for row in r.rows
+                ],
+            ),
+            "Bilgi": (
+                ["Anahtar", "Değer"],
+                [
+                    ["Öznitelik", r.attribute],
+                    ["Yoğunluk", str(r.density)],
+                    ["Kestirilmemiş blok", r.unestimated_blocks],
+                    [
+                        "Not",
+                        "Kaynak sınıflandırması değildir (JORC/NI 43-101 yetkin kişi gerektirir).",
+                    ],
+                ],
+            ),
+        },
+    )
 
 
 def write_grade_tonnage_csv(path: Path, r: GradeTonnage) -> None:

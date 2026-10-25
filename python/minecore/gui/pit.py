@@ -419,9 +419,85 @@ class PitDialog(QDialog):
     def export(self) -> None:
         if self.pit is None:
             raise RuntimeError("Önce kabukları hesaplayın.")
-        path, _ = QFileDialog.getSaveFileName(self, "CSV kaydet", "kabuk_raporu.csv", "CSV (*.csv)")
-        if path:
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Raporları kaydet", "ocak_raporu.xlsx", "Excel (*.xlsx);;CSV (*.csv)"
+        )
+        if not path:
+            return
+        if path.lower().endswith(".csv"):
             write_pit_reports(Path(path), self.pit, self.sched)
+        else:
+            target = Path(path if path.lower().endswith(".xlsx") else path + ".xlsx")
+            write_pit_reports_xlsx(target, self.pit, self.sched)
+
+
+def write_pit_reports_xlsx(
+    path: Path, result: PitResult, sched: ConstrainedSchedule | None
+) -> None:
+    from minecore.io.excel import write_workbook  # noqa: PLC0415
+
+    sheets: dict[str, Any] = {
+        "Kabuklar": (
+            [
+                "Kabuk",
+                "Gelir çarpanı",
+                "Cevher t",
+                "Pasa t",
+                "Dekapaj",
+                "Tenör",
+                "Metal",
+                "Nakit",
+                "En iyi NPV",
+                "En kötü NPV",
+                "Ömür (yıl)",
+            ],
+            [
+                [
+                    r.shell,
+                    r.revenue_factor,
+                    r.ore_t,
+                    r.waste_t,
+                    r.strip_ratio if math.isfinite(r.strip_ratio) else None,
+                    r.grade,
+                    r.metal,
+                    r.cash,
+                    r.best_npv,
+                    r.worst_npv,
+                    r.years,
+                ]
+                for r in result.rows
+            ],
+        )
+    }
+    if sched is not None:
+        sheets["Çizelge"] = (
+            [
+                "Yıl",
+                "Kazı t",
+                "Cevher kazı t",
+                "Tesise t",
+                "Besleme tenörü",
+                "Metal",
+                "Stok t",
+                "Nakit",
+                "İskontolu nakit",
+            ],
+            [
+                [
+                    p.period,
+                    p.mined_t,
+                    p.ore_mined_t,
+                    p.ore_fed_t,
+                    p.feed_grade,
+                    p.metal,
+                    p.stockpile_t,
+                    p.cash,
+                    p.discounted,
+                ]
+                for p in sched.rows
+            ],
+        )
+    write_workbook(path, sheets)
 
 
 def write_pit_reports(path: Path, result: PitResult, sched: ConstrainedSchedule | None) -> None:
