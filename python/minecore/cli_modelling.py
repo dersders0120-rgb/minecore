@@ -50,6 +50,7 @@ from minecore.pitopt.cashflow import CashFlow, FinancialTerms, cash_flow, parse_
 from minecore.pitopt.cutoff import cutoffs_from_model
 from minecore.pitopt.design import edge_blocks, export_pit, period_surfaces
 from minecore.pitopt.economics import PitOptError, parse_products, parse_routes
+from minecore.pitopt.milp import OptimisedSchedule, schedule_optimised
 from minecore.pitopt.optimise import PitResult, Schedule, route_tonnes, store
 from minecore.pitopt.scheduling import ConstrainedSchedule, Limits, schedule_constrained
 from minecore.pitopt.sensitivity import (
@@ -342,6 +343,13 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
         help="stockpile t of each route, main route first (with --plant; default unlimited)",
     )
     opt.add_argument("--rehandle-cost", type=float, default=0.0, help="per t reclaimed")
+    opt.add_argument(
+        "--schedule",
+        choices=["greedy", "milp"],
+        default="greedy",
+        help="greedy rules or NPV-maximising MILP (with --plant)",
+    )
+    opt.add_argument("--time-limit", type=float, default=60.0, help="MILP time limit, s")
     opt.add_argument(
         "--sensitivity",
         nargs="*",
@@ -926,6 +934,8 @@ def pit_optimise(project: Project, args: argparse.Namespace, out: TextIO) -> int
     sched: Schedule | ConstrainedSchedule
     flow: CashFlow | None = None
     sens: Sensitivity | None = None
+    if args.schedule == "milp" and not args.plant:
+        raise PitOptError("the MILP schedule needs the plant capacity: give --plant")
     if args.sensitivity is not None and not args.plant:
         raise PitOptError("the sensitivity analysis needs the constrained schedule: give --plant")
     if args.plant:
@@ -940,7 +950,10 @@ def pit_optimise(project: Project, args: argparse.Namespace, out: TextIO) -> int
             stockpile_capacities=tuple(args.stockpile_capacity),
             rehandle_cost=args.rehandle_cost,
         )
-        sched = schedule_constrained(result, phase, limits)
+        if args.schedule == "milp":
+            sched = schedule_optimised(result, phase, limits, time_limit=args.time_limit)
+        else:
+            sched = schedule_constrained(result, phase, limits)
         flow = cash_flow(sched.rows, terms)
         if args.sensitivity is not None:
             plan = Plan(
@@ -1004,6 +1017,18 @@ def _optimise_json(
             else {}
         ),
         **({"sensitivity": _sensitivity_json(sens)} if sens is not None else {}),
+        **(
+            {
+                "milp": {
+                    "method": sched.method,
+                    "status": sched.status,
+                    "mip_gap": _finite(sched.mip_gap),
+                    "greedy_npv": sched.greedy_npv,
+                }
+            }
+            if isinstance(sched, OptimisedSchedule)
+            else {}
+        ),
     }
 
 
@@ -1029,6 +1054,11 @@ def _write_optimise(  # noqa: PLR0913, PLR0917 - the parts of one report
     out.write(
         f"pushbacks: {int(phase.max())}; schedule: {len(sched.rows)} years; NPV {sched.npv:,.0f}\n"
     )
+    if isinstance(sched, OptimisedSchedule):
+        out.write(
+            f"schedule method: {sched.method} ({sched.status}); "
+            f"greedy NPV {sched.greedy_npv:,.0f}\n"
+        )
     if isinstance(sched, ConstrainedSchedule):
         reclaimed = sum(p.reclaimed_t for p in sched.rows)
         lost = sum(p.discarded_t for p in sched.rows)
