@@ -49,7 +49,7 @@ jobs:
         shell: bash
         run: |
           cat > smoke.py <<'PY'
-          import minecore, minecore.drillholes, minecore.gui.app
+          import minecore, minecore.drillholes, minecore.gui.app, minecore.gui.resource
           print("MineCore", minecore.__version__, minecore.core_build_profile())
           PY
           uv run --no-sync python smoke.py

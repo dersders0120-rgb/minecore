@@ -4,6 +4,8 @@
 //! Python and `mc-core`; it holds no engineering logic of its own.
 
 mod coords;
+mod kriging;
+mod pitopt;
 mod units;
 
 use pyo3::create_exception;
@@ -29,6 +31,20 @@ create_exception!(
     "Invalid local grid, control points or coordinate arrays."
 );
 
+create_exception!(
+    _core,
+    OptimisationError,
+    MineCoreError,
+    "Invalid input to an optimisation solver."
+);
+
+create_exception!(
+    _core,
+    EstimationKernelError,
+    MineCoreError,
+    "Invalid input to an estimation kernel."
+);
+
 /// Returns the version of the Rust core engine.
 #[pyfunction]
 fn core_version() -> &'static str {
@@ -51,6 +67,13 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<coords::PyLocalGrid>()?;
     m.add_class::<coords::PyGridFit>()?;
     m.add_function(wrap_pyfunction!(coords::fit_local_grid, m)?)?;
+    m.add_function(wrap_pyfunction!(pitopt::max_closure, m)?)?;
+    m.add_function(wrap_pyfunction!(kriging::estimate_neighbourhood, m)?)?;
+    m.add(
+        "EstimationKernelError",
+        m.py().get_type::<EstimationKernelError>(),
+    )?;
+    m.add("OptimisationError", m.py().get_type::<OptimisationError>())?;
     m.add("MineCoreError", m.py().get_type::<MineCoreError>())?;
     m.add("UnitError", m.py().get_type::<UnitError>())?;
     m.add("CoordinateError", m.py().get_type::<CoordinateError>())?;

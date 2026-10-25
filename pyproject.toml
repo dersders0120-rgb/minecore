@@ -24,6 +24,8 @@ dependencies = [
     "pyside6-essentials>=6.9",
     "pyvista>=0.46",
     "pyvistaqt>=0.11",
+    "matplotlib>=3.9",
+    "scipy>=1.14",
 ]
 
 [project.scripts]
@@ -82,7 +84,7 @@ mypy_path = ["python", "tools"]
 
 [[tool.mypy.overrides]]
 # These ship no type information.
-module = ["pyarrow", "pyarrow.*", "pyvista", "pyvista.*", "pyvistaqt", "pyvistaqt.*"]
+module = ["pyarrow", "pyarrow.*", "pyvista", "pyvista.*", "pyvistaqt", "pyvistaqt.*", "scipy", "scipy.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

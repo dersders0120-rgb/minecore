@@ -1,40 +1,40 @@
 # Session handoff
 
-Updated: 2026-10-25 (session 1, architect)
+Updated: 2026-10-25 ~02:30 UTC (architect, thread 2 "Build block model and estimation")
 
-## Current milestone
-M0 done (PR #1). M1 in progress: units (#2) and project package (#3) merged;
-CRS + local grid (T-004) in the `m1-crs` PR.
+## Owner direction (binding)
+- Windows 11 only. Wants a usable program fast, accepts some bugs, tests the GUI
+  himself. Reply in Turkish, short, plain. He is not a GitHub user.
+- Claude may merge PRs itself when CI is green (owner, 2026-10-25).
+- Overnight 2026-10-25: work without asking until 09:55 TR (06:55 UTC), or 11:55
+  TR if he does not answer; skip blockers and report them.
+- Target depth: Datamine (Studio RM + NPVS + OP) as one integrated program.
+  Next after pit work: solids/wireframes, domains, design, scheduling.
+- Open-source libraries welcome if permissive (MIT/BSD/Apache); no GPL.
 
-## Done (with evidence)
-- T-004 (ADR-0005, ADR-0006): `mc-core::coords` local grid + least-squares fit
-  (14 Rust tests incl. proptests and an optimality check); `minecore.coords`
-  PROJ layer with no-ballpark, single-operation, missing-grid-refusal policy;
-  working system stored in the project; CLI `crs info`, `grid fit`,
-  `project set-crs`, `project set-local-grid`. PROJ TM/UTM for all Turkish
-  zones checked against an independent Krüger series (< 1 mm).
-- Local gates on the T-004 commit: ruff, mypy strict, clippy -D warnings,
-  cargo-deny clean; cargo test 44 passed; pytest 188 passed.
+## State
+- `main`: PRs #1-#8 merged (foundation, contracts, drillholes, first GUI).
+- PR #9 (branch `claude/project-thread-3hc3k9`): estimation engine + GUI,
+  grade-tonnage, pit optimisation (Rust max closure), shells/pushbacks/schedule,
+  DTM surfaces + rock/air, swath + cross-validation, Rust estimation kernels
+  (OK ~143k blocks/s on 4 cores), CLI for the whole chain. 322 pytest pass.
+- Workbench menus: Proje, Sondaj, Blok Modeli, Yüzey, Açık Ocak, Yardım.
+- Windows exe: GitHub Actions "Windows app" workflow, artifact `MineCore-windows`.
 
-## Also done
-- T-006/T-007 (ADR-0007): operation log with trigger-based generic undo/redo
-  (migration 0002, the first real migration), jobs/progress/cancellation,
-  error hierarchy, CLI `project history|undo|redo`. PR `m1-oplog`.
-
-## Assigned to other models (prompts in project files)
-- T-012 ChatGPT compositing reference cases; T-013 DeepSeek CSV dialect
-  detector; T-014 Gemini QA/QC research.
-
-## Reviewed (PR #5)
-- T-008 (DeepSeek) synthetic drillhole generator.
-- T-010 (Gemini) Turkish CRS practice research.
-- T-011 (Haiku) EN–TR terminology glossary.
+## Where things live
+- Rust: `mc-core::pitopt` (max closure), `mc-core::kriging` (NN/IDW/OK kernels).
+- Python: `minecore.estimation`, `minecore.blockmodel` (+ `workflow`,
+  `validation`), `minecore.pitopt`, `minecore.surfaces`, `minecore.cli_modelling`.
+- GUI: `gui/app.py` (main window), `gui/resource.py`, `gui/pit.py`.
+- Limits: `docs/KNOWN_LIMITATIONS.md` (keep it honest).
 
 ## Next actions
-1. Merge #4, #5, m1-oplog PR; close M1.
-2. M2 drillhole data contract (schema, validation issue model, bulk writer).
-3. Review T-012/T-013/T-014 when delivered.
+1. Merge PR #9 when CI is green; post the Windows artifact link to the owner.
+2. Solids: closed triangulated wireframes (import OBJ/STL/DXF 3DFACE), point-in-
+   solid block flagging, domain-restricted estimation.
+3. Pit design basics: shell to surface/contours, ramps later.
+4. Scheduling: bench lag, plant capacity, stockpile.
+5. Rotated block models and sub-cells.
 
 ## Owner owes
-- Merge the T-004 PR.
-- An anonymised drillhole sample (collar, survey, assay, lithology) for M2.
+- Try the Windows build with real data and report problems.
