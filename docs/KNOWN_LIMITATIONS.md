@@ -114,7 +114,13 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
 
 - Import OBJ, STL (ASCII/binary) and ASCII DXF 3DFACE; no DXF POLYFACE/MESH,
   no binary DXF, no Datamine/Surpac native formats (undocumented, rule 7).
-- No solid editing, sections/strings to solid linking, or boolean operations.
+- Section linking (`strings.link_sections`): closed outlines on successive
+  sections are stitched by normalised arc length and capped by ear clipping.
+  One outline per section (no branching/bifurcation, no tag strings), outlines
+  must not self-intersect; very different shapes on adjacent sections can give
+  twisted bands. No solid editing or boolean operations.
+- Strings import: ASCII DXF LWPOLYLINE (with elevation) and POLYLINE/VERTEX;
+  no bulges (arcs) or splines.
 - Inside test is by block centroid (no partial-block percentages yet).
 - Grade shells: marching cubes over block centres (VTK), not an implicit model.
 

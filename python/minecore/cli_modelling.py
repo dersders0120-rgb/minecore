@@ -24,7 +24,7 @@ from typing import Any, TextIO
 
 import numpy as np
 
-from minecore import surfaces
+from minecore import strings, surfaces
 from minecore.blockmodel import BlockModel, BlockModelError, Grid
 from minecore.blockmodel.calc import calculate
 from minecore.blockmodel.classify import Criteria, classify
@@ -47,6 +47,7 @@ from minecore.pitopt.optimise import Schedule, store
 from minecore.pitopt.scheduling import ConstrainedSchedule, Limits, schedule_constrained
 from minecore.pitopt.width import apply_mining_width
 from minecore.project import Project
+from minecore.solids import save_solid
 from minecore.underground.stopes import stopes_from_model
 
 METHODS = {"nn": Method.NEAREST, "idw": Method.INVERSE_DISTANCE, "ok": Method.ORDINARY_KRIGING}
@@ -81,6 +82,17 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     s_flag.add_argument("project")
     s_flag.add_argument("surface")
     s_flag.add_argument("model")
+
+    stg = commands.add_parser("strings", help="polylines and section linking")
+    stg_cmds = stg.add_subparsers(dest="st_command", metavar="ACTION", required=True)
+    st_imp = stg_cmds.add_parser("import", help="DXF LWPOLYLINE/POLYLINE")
+    st_imp.add_argument("project")
+    st_imp.add_argument("name")
+    st_imp.add_argument("file")
+    st_link = stg_cmds.add_parser("link", help="link closed section outlines into a solid")
+    st_link.add_argument("project")
+    st_link.add_argument("name")
+    st_link.add_argument("solid")
 
     bm = commands.add_parser("bm", help="block models, variograms, estimation, reports")
     bm_cmds = bm.add_subparsers(dest="bm_command", metavar="ACTION", required=True)
@@ -214,6 +226,23 @@ def _source(text: str) -> tuple[str, str]:
         raise SystemExit("source must be table/field")
     table, field = text.split("/", 1)
     return table, field
+
+
+def strings_command(args: argparse.Namespace, out: TextIO) -> int:
+    with Project.open(args.project) as project:
+        if args.st_command == "import":
+            found = strings.read_dxf_strings(Path(args.file))
+            strings.save_strings(project, args.name, found)
+            out.write(f"{args.name}: {len(found)} strings\n")
+            return 0
+        ordered = strings.section_order(strings.load_strings(project, args.name))
+        solid = strings.link_sections([s.points for s in ordered])
+        save_solid(project, args.solid, solid)
+        out.write(
+            f"{args.solid}: {len(ordered)} sections, volume {solid.volume():,.0f} m3, "
+            f"open edges {solid.open_edges()}\n"
+        )
+    return 0
 
 
 def ug_command(args: argparse.Namespace, out: TextIO) -> int:
@@ -524,4 +553,5 @@ HANDLERS = {
     "bm": bm_command,
     "pit": pit_command,
     "ug": ug_command,
+    "strings": strings_command,
 }
