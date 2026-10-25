@@ -268,3 +268,18 @@ def test_excel_reports(tmp_path: Path) -> None:
     rows = list(sheet.iter_rows(values_only=True))
     assert rows[1] == (0.0, 10, 1000.0, 2700.0, 1.5, 4050.0)
     assert rows[2][4] is None
+
+
+def test_section_slab_and_controls(qapp: QApplication) -> None:
+    from minecore.gui.app import MainWindow, in_slab  # noqa: PLC0415
+
+    pts = np.array([[0.0, 10.0, 0.0], [0.0, 14.9, 0.0], [0.0, 15.1, 0.0]])
+    assert in_slab(pts, 1, 10.0, 10.0).tolist() == [True, True, False]
+    window = MainWindow()
+    assert window.section() is None
+    window.section_axis.setCurrentIndex(3)  # plan
+    window.section_at.setValue(100.0)
+    assert window.section() == (2, 100.0, window.section_width.value())
+    window._step_section(1)
+    assert window.section_at.value() == 100.0 + window.section_width.value()
+    window.close()

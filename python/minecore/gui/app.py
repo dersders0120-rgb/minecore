@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMainWindow,
     QMessageBox,
+    QPushButton,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -99,6 +100,19 @@ def _viewer(parent: QWidget) -> Any:
         label = QLabel("3B görünüm başlatılamadı (OpenGL yok).")
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         return label
+
+
+SECTION_AXES = (
+    ("Yok (3B)", -1),
+    ("Kuzey-güney kesiti (X sabit)", 0),
+    ("Doğu-batı kesiti (Y sabit)", 1),
+    ("Plan (Z sabit)", 2),
+)
+
+
+def in_slab(points: Any, axis: int, centre: float, width: float) -> Any:
+    """Points whose coordinate on ``axis`` lies within ``width / 2`` of ``centre``."""
+    return np.abs(np.asarray(points, float)[:, axis] - centre) <= 0.5 * width
 
 
 class CompositeDialog(QDialog):
@@ -197,6 +211,7 @@ class MainWindow(QMainWindow):
         bar.addWidget(self.block_cutoff)
         bar.addStretch(1)
         layout.addLayout(bar)
+        layout.addLayout(self._section_bar())
         self.view = _viewer(view_page)
         layout.addWidget(self.view, 1)
         self.tabs.addTab(view_page, "3B Görünüm")
@@ -210,6 +225,33 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.tabs)
         self._menus()
         self.statusBar().showMessage("Bir proje oluşturun veya açın.")
+
+    def _section_bar(self) -> QHBoxLayout:
+        sec = QHBoxLayout()
+        sec.addWidget(QLabel("Kesit:"))
+        self.section_axis = QComboBox()
+        for text, axis in SECTION_AXES:
+            self.section_axis.addItem(text, axis)
+        self.section_axis.currentIndexChanged.connect(self._section_axis_changed)
+        sec.addWidget(self.section_axis)
+        sec.addWidget(QLabel("Konum:"))
+        self.section_at = QDoubleSpinBox(minimum=-1e8, maximum=1e8, value=0.0, decimals=2)
+        self.section_at.setKeyboardTracking(False)
+        self.section_at.valueChanged.connect(self.redraw)
+        sec.addWidget(self.section_at)
+        sec.addWidget(QLabel("Kalınlık (m):"))
+        self.section_width = QDoubleSpinBox(minimum=0.1, maximum=1e5, value=20.0, decimals=1)
+        self.section_width.setKeyboardTracking(False)
+        self.section_width.valueChanged.connect(self.redraw)
+        sec.addWidget(self.section_width)
+        step_back = QPushButton("◀")
+        step_back.clicked.connect(lambda: self._step_section(-1))
+        step_fwd = QPushButton("▶")
+        step_fwd.clicked.connect(lambda: self._step_section(1))
+        sec.addWidget(step_back)
+        sec.addWidget(step_fwd)
+        sec.addStretch(1)
+        return sec
 
     # -- menus ---------------------------------------------------------------
 
@@ -829,6 +871,67 @@ class MainWindow(QMainWindow):
                 self.data.setItem(r, c, QTableWidgetItem("" if _blank(value) else _fmt(value)))
         self.tabs.setCurrentWidget(self.data)
 
+    def section(self) -> tuple[int, float, float] | None:
+        """(axis, absolute centre, width) of the active section, None in 3D."""
+        axis = int(self.section_axis.currentData())
+        if axis < 0:
+            return None
+        return axis, self.section_at.value(), self.section_width.value()
+
+    def _data_centre(self) -> Any:
+        model = self._selected_block_model()
+        if model is not None:
+            g = model[0].grid
+            return np.asarray(g.origin) + 0.5 * np.asarray(g.size) * np.asarray(g.count)
+        if self.db is not None and self.report is not None:
+            geo = hole_geometry(self.db, self.report)
+            if geo:
+                return np.mean([g.collar for g in geo.values()], axis=0)
+        return None
+
+    def _section_axis_changed(self) -> None:
+        axis = int(self.section_axis.currentData())
+        centre = self._data_centre()
+        if axis >= 0 and centre is not None:
+            model = self._selected_block_model()
+            if model is not None:
+                self.section_width.blockSignals(True)
+                self.section_width.setValue(model[0].grid.size[axis])
+                self.section_width.blockSignals(False)
+            self.section_at.blockSignals(True)
+            self.section_at.setValue(float(centre[axis]))
+            self.section_at.blockSignals(False)
+        self.redraw()
+
+    def _step_section(self, direction: int) -> None:
+        if self.section() is not None:
+            self.section_at.setValue(
+                self.section_at.value() + direction * self.section_width.value()
+            )
+
+    def _clip(self, mesh: Any, origin: Any) -> Any:
+        """Cut a mesh to the section slab (no-op in 3D)."""
+        sec = self.section()
+        if sec is None:
+            return mesh
+        axis, centre, width = sec
+        normal = np.zeros(3)
+        normal[axis] = 1.0
+        c = centre - origin[axis]
+        lo = np.zeros(3)
+        lo[axis] = c - 0.5 * width
+        hi = np.zeros(3)
+        hi[axis] = c + 0.5 * width
+        return mesh.clip(normal=-normal, origin=lo).clip(normal=normal, origin=hi)
+
+    def _section_camera(self) -> None:
+        sec = self.section()
+        if sec is None:
+            self.view.disable_parallel_projection()
+            return
+        self.view.enable_parallel_projection()
+        {0: self.view.view_yz, 1: self.view.view_xz, 2: self.view.view_xy}[sec[0]]()
+
     def redraw(self) -> None:
         if not hasattr(self.view, "add_mesh"):
             return
@@ -853,6 +956,7 @@ class MainWindow(QMainWindow):
             self._draw_blocks(model[0], model[1], origin)
         self._draw_surfaces(origin)
         if not geometry:
+            self._section_camera()
             self.view.reset_camera()
             self.view.render()
             return
@@ -860,21 +964,30 @@ class MainWindow(QMainWindow):
         for g in geometry.values():
             pts = g.trace() - origin
             traces.append(pv.lines_from_points(pts))
-        self.view.add_mesh(pv.merge(traces), color="#9e9e9e", line_width=2)
-        collars = np.array([g.collar for g in geometry.values()]) - origin
-        self.view.add_point_labels(
-            collars,
-            list(geometry),
-            font_size=10,
-            point_size=6,
-            text_color="white",
-            shape_opacity=0.0,
-            always_visible=True,
-        )
+        trace_mesh = self._clip(pv.merge(traces), origin)
+        if trace_mesh.n_points:
+            self.view.add_mesh(trace_mesh, color="#9e9e9e", line_width=2)
+        collars = np.array([g.collar for g in geometry.values()])
+        names = list(geometry)
+        sec = self.section()
+        if sec is not None:
+            near = in_slab(collars, *sec)
+            collars, names = collars[near], [n for n, k in zip(names, near, strict=True) if k]
+        if len(collars):
+            self.view.add_point_labels(
+                collars - origin,
+                names,
+                font_size=10,
+                point_size=6,
+                text_color="white",
+                shape_opacity=0.0,
+                always_visible=True,
+            )
         choice = self.color_by.currentText()
         if " / " in choice:
             table_name, field_name = choice.split(" / ", 1)
             self._draw_intervals(geometry, table_name, field_name, origin)
+        self._section_camera()
         self.view.reset_camera()
         self.view.render()
 
@@ -888,14 +1001,29 @@ class MainWindow(QMainWindow):
             tri = surface.triangles()
             faces = np.column_stack([np.full(len(tri), 3), tri]).ravel()
             mesh = pv.PolyData(surface.points - origin, faces=faces)
-            self.view.add_mesh(mesh, color="#8d6e63", opacity=0.45, show_edges=False)
+            self._add_surface_mesh(mesh, origin, color="#8d6e63", opacity=0.45, show_edges=False)
         for name in solids.solid_names(self.project):
             solid = solids.load_solid(self.project, name)
             faces = np.column_stack([np.full(len(solid.triangles), 3), solid.triangles]).ravel()
             mesh = pv.PolyData(solid.vertices - origin, faces=faces)
-            self.view.add_mesh(
-                mesh, color="#26a69a", opacity=0.35, show_edges=True, edge_color="#004d40"
+            self._add_surface_mesh(
+                mesh, origin, color="#26a69a", opacity=0.35, show_edges=True, edge_color="#004d40"
             )
+
+    def _add_surface_mesh(self, mesh: Any, origin: Any, **style: Any) -> None:
+        """Whole mesh in 3D; in a section, its intersection line with the section plane."""
+        sec = self.section()
+        if sec is None:
+            self.view.add_mesh(mesh, **style)
+            return
+        axis, centre, _ = sec
+        normal = np.zeros(3)
+        normal[axis] = 1.0
+        at = np.zeros(3)
+        at[axis] = centre - origin[axis]
+        line = mesh.slice(normal=normal, origin=at)
+        if line.n_points:
+            self.view.add_mesh(line, color=style.get("color", "white"), line_width=3)
 
     def _selected_block_model(self) -> tuple[BlockModel, str | None] | None:
         choice = self.block_by.currentText()
@@ -925,11 +1053,22 @@ class MainWindow(QMainWindow):
         image.cell_data[attr] = values
         cutoff = self.block_cutoff.value()
         keep = np.isfinite(values) & (values >= cutoff)
+        sec = self.section()
+        if sec is not None:
+            keep &= in_slab(grid.centroids(), *sec)
         self.view.add_mesh(image.outline(), color="#757575", line_width=1)
         if not keep.any():
             self.statusBar().showMessage(f"{attr}: sınır tenör üstünde blok yok.")
             return
         shown = image.extract_cells(keep)  # type: ignore[arg-type]
+        if sec is not None:
+            # Flat section through the block centres so drillholes are not hidden.
+            normal = np.zeros(3)
+            normal[sec[0]] = 1.0
+            at = np.zeros(3)
+            at[sec[0]] = sec[1] - origin[sec[0]]
+            flat = shown.slice(normal=normal, origin=at)
+            shown = flat if flat.n_cells else shown
         finite = values[np.isfinite(values)]
         lo = max(float(np.nanpercentile(finite, 2)), cutoff)
         hi = float(np.nanpercentile(finite, 98))
@@ -968,10 +1107,14 @@ class MainWindow(QMainWindow):
         points: list[Any] = []
         lines: list[int] = []
         scalars: list[Any] = []
+        sec = self.section()
         for i, hole in enumerate(ids):
             if not usable[i] or hole not in geometry:
                 continue
-            ends = geometry[hole].at(np.array([start[i], end[i]])) - origin
+            ends = geometry[hole].at(np.array([start[i], end[i]]))
+            if sec is not None and not in_slab(ends.mean(axis=0, keepdims=True), *sec)[0]:
+                continue
+            ends = ends - origin
             base = len(points)
             points.extend(ends)
             lines.extend([2, base, base + 1])
