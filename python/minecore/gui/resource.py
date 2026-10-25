@@ -62,7 +62,12 @@ from minecore.estimation import (
     experimental,
     fit_spherical,
 )
-from minecore.estimation.statistics import probability_points, summary, top_cut_effect
+from minecore.estimation.statistics import (
+    cell_decluster,
+    probability_points,
+    summary,
+    top_cut_effect,
+)
 from minecore.jobs import CancelledError, Progress, ProgressEvent
 from minecore.project import Project
 from minecore.solids import load_solid, solid_names
@@ -1112,7 +1117,7 @@ class CalculatorDialog(QDialog):
 
 
 class StatisticsDialog(QDialog):
-    """Sample histogram, log-probability plot and top-cut effect."""
+    """Sample histogram, log-probability plot, top-cut effect and declustering."""
 
     def __init__(self, db: DrillholeDatabase, parent: QWidget) -> None:
         super().__init__(parent)
@@ -1131,6 +1136,13 @@ class StatisticsDialog(QDialog):
         form.addRow("Veri", self.source)
         form.addRow("Denenecek üst kesme", self.cap)
         form.addRow(run)
+        self.dc0 = _spin(10.0, 0.1, 1e5, 5.0, 1)
+        self.dc1 = _spin(200.0, 0.1, 1e5, 10.0, 1)
+        self.dc_n = QSpinBox(minimum=2, maximum=100, value=20)
+        decl = QPushButton("Kümelenme giderme (hücre yöntemi)")
+        decl.clicked.connect(self.decluster)
+        form.addRow("Hücre boyu: en küçük / en büyük / adet", _row(self.dc0, self.dc1, self.dc_n))
+        form.addRow(decl)
         self.text = QLabel()
         self.text.setWordWrap(True)
         form.addRow(self.text)
@@ -1178,3 +1190,26 @@ class StatisticsDialog(QDialog):
         ax2.grid(alpha=0.3, which="both")
         self.figure.tight_layout()
         self.canvas.draw_idle()  # type: ignore[no-untyped-call]
+
+    def decluster(self) -> None:
+        samples = _samples(self.db, self.source.currentText())
+        sizes = np.linspace(self.dc0.value(), self.dc1.value(), self.dc_n.value())
+        d = cell_decluster(samples.xyz, samples.values, sizes)
+        naive = float(np.nanmean(samples.values))
+        self.figure.clear()
+        ax = self.figure.add_subplot(111)
+        ax.plot(d.cell_sizes, d.means, marker="o", color="#1565c0")
+        ax.axhline(naive, color="#9e9e9e", ls="--", label="Ham ortalama")
+        ax.axvline(d.best_size, color="#ef6c00", ls=":", label="Seçilen hücre")
+        ax.set_xlabel("Hücre boyu (m)")
+        ax.set_ylabel("Kümelenmesi giderilmiş ortalama")
+        ax.legend()
+        ax.grid(alpha=0.3)
+        self.figure.tight_layout()
+        self.canvas.draw_idle()  # type: ignore[no-untyped-call]
+        best = float(d.means[list(d.cell_sizes).index(d.best_size)])
+        self.text.setText(
+            f"Ham ortalama {naive:.4g}; hücre {d.best_size:.1f} m ile kümelenmesi giderilmiş "
+            f"ortalama {best:.4g} ({100 * (best / naive - 1):+.1f}%). Bu değer kestirim "
+            "doğrulamasında (swath, genel ortalama) referans alınabilir."
+        )

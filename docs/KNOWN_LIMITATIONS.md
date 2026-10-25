@@ -45,7 +45,9 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
 ## Sample statistics
 
 - Histogram, log-probability plot and top-cut effect on unweighted samples
-  (use equal-length composites). No declustering yet.
+  (use equal-length composites). Cell declustering (GSLIB DECLUS method)
+  reports the declustered mean; its weights are not yet used by the
+  grade-tonnage or estimation steps.
 
 ## Confidence categories
 

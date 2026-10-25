@@ -86,6 +86,8 @@ def test_block_model_variogram_estimate_report(  # noqa: PLR0915 - one end-to-en
     stats.cap.setValue(1.0)
     stats.compute()
     assert "Üst kesme" in stats.text.text()
+    stats.decluster()
+    assert "kümelenmesi giderilmiş" in stats.text.text()
     save_variogram(project, "vg", fitted, {"data": vg.source.currentText()})
     assert "vg" in load_variograms(project)
 
