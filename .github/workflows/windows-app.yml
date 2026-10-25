@@ -45,6 +45,8 @@ jobs:
           --collect-data pyproj --collect-binaries pyproj --collect-all pyarrow
           --collect-submodules minecore --collect-data minecore
           --exclude-module mypy --exclude-module mypyc --exclude-module mypy_extensions
+          --hidden-import matplotlib.backends.backend_pdf --hidden-import matplotlib.backends.backend_svg
+          --hidden-import matplotlib.backends.backend_agg
 
       - name: Smoke test the packaged core
         shell: bash
