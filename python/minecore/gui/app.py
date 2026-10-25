@@ -281,6 +281,7 @@ class MainWindow(QMainWindow):
         action(drill, "Tabloyu CSV olarak dışa aktar...", self.export_table)
         bm = self.menuBar().addMenu("&Blok Modeli")
         action(bm, "Blok modeli oluştur...", self.new_block_model)
+        action(bm, "Örnek istatistikleri ve üst kesme (top-cut)...", self.sample_stats)
         action(bm, "Variogram analizi...", self.variogram)
         action(bm, "Tenör kestirimi (NN / IDW / Kriging)...", self.estimate)
         action(bm, "Kestirim doğrulama (swath, çapraz doğrulama)...", self.validate_estimate)
@@ -656,6 +657,11 @@ class MainWindow(QMainWindow):
             "Tenör kabuğu",
             f"'{name}': {len(solid.triangles):,} üçgen, hacim {solid.volume():,.0f} m³.",
         )
+
+    def sample_stats(self) -> None:
+        from minecore.gui.resource import StatisticsDialog  # noqa: PLC0415
+
+        StatisticsDialog(self._need_db(), self).exec()
 
     def calculator(self) -> None:
         from minecore.gui.resource import CalculatorDialog  # noqa: PLC0415

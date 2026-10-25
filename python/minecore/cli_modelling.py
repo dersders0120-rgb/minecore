@@ -108,6 +108,7 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     est.add_argument("--per-hole", type=int, default=0)
     est.add_argument("--power", type=float, default=2.0)
     est.add_argument("--rock-only", action="store_true", help="only blocks with kaya=1")
+    est.add_argument("--top-cut", type=float, help="cap sample values before estimation")
     rep = bm_cmds.add_parser("report", help="grade-tonnage table")
     rep.add_argument("project")
     rep.add_argument("model")
@@ -313,6 +314,7 @@ def bm_command(args: argparse.Namespace, out: TextIO) -> int:
                 variogram=variogram,
                 power=args.power,
                 mask=mask,
+                top_cut=args.top_cut,
             )
             out.write(f"{args.attribute}: estimated; {missed} blocks without enough samples\n")
             return 0

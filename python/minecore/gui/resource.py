@@ -62,6 +62,7 @@ from minecore.estimation import (
     experimental,
     fit_spherical,
 )
+from minecore.estimation.statistics import probability_points, summary, top_cut_effect
 from minecore.jobs import CancelledError, Progress, ProgressEvent
 from minecore.project import Project
 from minecore.solids import load_solid, solid_names
@@ -417,7 +418,9 @@ def _ellipsoid_boxes(box: EllipsoidBox) -> list[Any]:
 class EstimationDialog(QDialog):
     """Choose method, search and variogram; estimate one attribute."""
 
-    def __init__(self, db: DrillholeDatabase, project: Project, parent: QWidget) -> None:
+    def __init__(  # noqa: PLR0915 - one form, built inline
+        self, db: DrillholeDatabase, project: Project, parent: QWidget
+    ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Tenör kestirimi")
         self.db = db
@@ -456,6 +459,9 @@ class EstimationDialog(QDialog):
         form.addRow(from_vg)
         form.addRow("En az / en çok örnek", _row(self.min_s, self.max_s))
         form.addRow("Kuyu başına en çok (0 = sınırsız)", self.per_hole)
+        self.top_cut = _spin(0.0, 0.0, 1e9, 1.0, 4)
+        self.top_cut.setSpecialValueText("yok")
+        form.addRow("Üst kesme (top-cut) değeri", self.top_cut)
         form.addRow("Blok ayrıklaştırma (n x n x n)", self.disc)
         form.addRow("Sonuç özniteliği", self.output)
         form.addRow(self.rock_only)
@@ -535,6 +541,7 @@ class EstimationDialog(QDialog):
                 power=self.power.value(),
                 discretisation=(n, n, n),
                 mask=mask,
+                top_cut=self.top_cut.value() or None,
                 progress=progress,
             ),
         )
@@ -1102,3 +1109,72 @@ class CalculatorDialog(QDialog):
             f"{values.size - finite.size:,} boş."
         )
         self._fill(self.model.currentText())
+
+
+class StatisticsDialog(QDialog):
+    """Sample histogram, log-probability plot and top-cut effect."""
+
+    def __init__(self, db: DrillholeDatabase, parent: QWidget) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Örnek istatistikleri ve üst kesme")
+        self.resize(1200, 640)
+        self.db = db
+        layout = QHBoxLayout(self)
+        form = QFormLayout()
+        layout.addLayout(form, 0)
+        self.source = QComboBox()
+        self.source.addItems(numeric_interval_fields(db))
+        self.cap = _spin(0.0, 0.0, 1e9, 1.0, 4)
+        self.cap.setSpecialValueText("yok")
+        run = QPushButton("Hesapla")
+        run.clicked.connect(self.compute)
+        form.addRow("Veri", self.source)
+        form.addRow("Denenecek üst kesme", self.cap)
+        form.addRow(run)
+        self.text = QLabel()
+        self.text.setWordWrap(True)
+        form.addRow(self.text)
+        self.figure = Figure(figsize=(8, 5))
+        self.canvas = FigureCanvasQTAgg(self.figure)  # type: ignore[no-untyped-call]
+        layout.addWidget(self.canvas, 1)
+        if self.source.count():
+            self.compute()
+
+    def compute(self) -> None:
+        values = _samples(self.db, self.source.currentText()).values
+        s = summary(values)
+        lines = [
+            f"n {s.n:,}; ortalama {s.mean:.4g}; std {s.std:.4g}; CV {s.cv:.2f}",
+            f"en az {s.minimum:.4g}; medyan {s.median:.4g}; en çok {s.maximum:.4g}",
+            "Yüzdelikler: " + ", ".join(f"P{p:g} {v:.4g}" for p, v in s.percentiles.items()),
+        ]
+        cap = self.cap.value()
+        if cap > 0:
+            e = top_cut_effect(values, cap)
+            lines.append(
+                f"Üst kesme {cap:g}: {e.capped} örnek kesilir; ortalama {e.mean_before:.4g} → "
+                f"{e.mean_after:.4g} (metal kaybı %{100 * e.metal_removed:.1f}); "
+                f"yeni CV {e.cv_after:.2f}"
+            )
+        self.text.setText("\n".join(lines))
+        self.figure.clear()
+        ax1 = self.figure.add_subplot(121)
+        finite = values[np.isfinite(values)]
+        ax1.hist(finite, bins=40, color="#1565c0", alpha=0.8)
+        ax1.set_title("Histogram")
+        ax1.set_xlabel(self.source.currentText().split(" / ")[-1])
+        ax2 = self.figure.add_subplot(122)
+        try:
+            x, q = probability_points(values)
+            ax2.scatter(x, q, s=5, color="#c62828")
+            ax2.set_xscale("log")
+        except Exception:
+            pass
+        if cap > 0:
+            ax1.axvline(cap, color="#ef6c00", ls="--")
+            ax2.axvline(cap, color="#ef6c00", ls="--")
+        ax2.set_title("Log-olasılık (kırılma noktası: üst kesme adayı)")
+        ax2.set_ylabel("Standart normal kantil")
+        ax2.grid(alpha=0.3, which="both")
+        self.figure.tight_layout()
+        self.canvas.draw_idle()  # type: ignore[no-untyped-call]

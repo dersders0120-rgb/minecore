@@ -81,6 +81,11 @@ def test_block_model_variogram_estimate_report(  # noqa: PLR0915 - one end-to-en
     vg.compute()
     assert 0 < int(vg.exp.pairs.sum()) < all_pairs
     vg.downhole.setChecked(False)
+    stats = resource.StatisticsDialog(db, parent)
+    stats.source.setCurrentText(f"komp / {field}")
+    stats.cap.setValue(1.0)
+    stats.compute()
+    assert "Üst kesme" in stats.text.text()
     save_variogram(project, "vg", fitted, {"data": vg.source.currentText()})
     assert "vg" in load_variograms(project)
 
