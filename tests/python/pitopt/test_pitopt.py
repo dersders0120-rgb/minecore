@@ -170,3 +170,47 @@ def test_shells_nested_report_pushbacks_and_schedule(project: Project) -> None:
         assert period.ore_t + period.waste_t <= 2e6 + block_t
     store(model, result, econ, SlopeProfile(45.0), phase, sched)
     assert {"pit_value", "pit_shell", "pit_phase", "pit_period"} <= set(model.attributes)
+
+
+def test_constrained_schedule_respects_limits(project: Project) -> None:
+    from minecore.pitopt.scheduling import Limits, schedule_constrained  # noqa: PLC0415
+
+    model, econ = _ore_body(project)
+    result = optimise_pit(model, "au", econ, SlopeProfile(45.0), [0.6, 0.8, 1.0], mining_rate=2e6)
+    final = 3
+    phase = pushbacks(result, final, min_ore_t=0.3 * result.rows[final - 1].ore_t)
+    inside = phase > 0
+    total_t = float(result.tonnes[inside].sum())
+    ore_t = float(result.tonnes[inside & result.ore].sum())
+    limits = Limits(
+        mining_capacity=total_t / 6, plant_capacity=ore_t / 9, bench_lag=2, sinking_rate=3
+    )
+    sched = schedule_constrained(result, phase, limits)
+    assert sched.unmined_t == pytest.approx(0.0, abs=1e-6)
+    assert sum(r.mined_t for r in sched.rows) == pytest.approx(total_t)
+    # All ore is processed eventually and the stockpile ends empty.
+    assert sum(r.ore_fed_t for r in sched.rows) == pytest.approx(ore_t, rel=1e-9)
+    assert sched.rows[-1].stockpile_t == pytest.approx(0.0, abs=1e-6)
+    for r in sched.rows:
+        assert r.mined_t <= limits.mining_capacity * (1 + 1e-9)
+        assert r.ore_fed_t <= limits.plant_capacity * (1 + 1e-9)
+    # Undiscounted cash equals the pit value (margins and costs are conserved).
+    pit_value = float(result.value[inside].sum())
+    assert sum(r.cash for r in sched.rows) == pytest.approx(pit_value, rel=1e-9)
+    # The plant limit makes the schedule longer than mining alone would.
+    assert len(sched.rows) >= 9
+    # Every mined block has a period.
+    assert (sched.period[inside] > 0).all()
+    # Bench lag: when a later pushback starts a bench, the previous one is >= lag benches deeper
+    # or finished. Check via start periods per (phase, bench).
+    starts: dict[tuple[int, int], int] = {}
+    for b in np.flatnonzero(inside):
+        key = (int(phase[b]), int(result.bench[b]))
+        starts[key] = min(starts.get(key, 10**9), int(sched.period[b]))
+    for (p, bench), period in starts.items():
+        if p == 1:
+            continue
+        prev_benches = [b for (q, b) in starts if q == p - 1]
+        needed = bench + limits.bench_lag
+        if needed <= max(prev_benches):
+            assert starts[(p - 1, needed)] <= period

@@ -85,6 +85,7 @@ class BlockEconomics:
     metal: Floats  # recovered metal in price units
     value: Floats  # at the requested revenue factor
     ore: npt.NDArray[np.bool_]
+    mining: Floats  # mining cost of each block (always paid)
 
 
 def block_values(  # noqa: PLR0913, PLR0917 - one value per input array
@@ -106,4 +107,4 @@ def block_values(  # noqa: PLR0913, PLR0917 - one value per input array
     processing = tonnes * econ.processing_cost
     ore = revenue > processing
     value = np.where(ore, revenue - processing - mining, -mining)
-    return BlockEconomics(tonnes, metal, value.astype(np.float64), ore)
+    return BlockEconomics(tonnes, metal, value.astype(np.float64), ore, mining)
