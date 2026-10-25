@@ -69,6 +69,13 @@ _KEYS: dict[Role, tuple[tuple[str, ...], tuple[str, ...]]] = {
     Role.INTERVAL: (("hole_id", "from", "to"), ()),
     Role.POINT: (("hole_id", "depth"), ()),
 }
+
+
+def key_columns(role: Role) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Required and optional key columns of a table role."""
+    return _KEYS[role]
+
+
 RESERVED = frozenset(c for req, opt in _KEYS.values() for c in (*req, *opt)) | {SRC_LINE}
 
 
@@ -129,6 +136,7 @@ class TableInfo:
     fields: tuple[FieldSpec, ...]
     file: bulk.FileRef
     source: str | None
+    import_issues: tuple[dict[str, Any], ...] = ()
 
 
 def _column(table: pa.Table, name: str, kind: pa.DataType, what: str) -> pa.ChunkedArray:
@@ -288,6 +296,7 @@ class DrillholeDatabase:
         source: Path | None = None,
         source_info: dict[str, Any] | None = None,
         conventions: dict[str, Any] | None = None,
+        import_issues: list[dict[str, Any]] | None = None,
     ) -> TableInfo:
         """Add or replace table ``name`` in one undoable operation.
 
@@ -325,6 +334,7 @@ class DrillholeDatabase:
             "rows": canonical.num_rows,
             "fields": [f.to_json() for f in fields],
             "source": source_id,
+            "import_issues": import_issues or [],
             **ref.to_json(),
         }
         manifest["conventions"].update(conventions or {})
@@ -354,4 +364,5 @@ def _info(name: str, entry: dict[str, Any]) -> TableInfo:
         fields=tuple(FieldSpec.from_json(f) for f in entry["fields"]),
         file=bulk.FileRef.from_json(entry),
         source=entry.get("source"),
+        import_issues=tuple(entry.get("import_issues", [])),
     )

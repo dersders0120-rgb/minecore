@@ -30,3 +30,13 @@ The Windows pyproj wheel bundles its own library set; re-audit it when the insta
 | ruff | MIT | Lint and format |
 | mypy | MIT | Type checking |
 | cargo-deny | MIT OR Apache-2.0 | Licence policy |
+
+## Desktop application (M2 first release)
+
+| Package | Licence | Use | Note |
+| --- | --- | --- | --- |
+| pyarrow | Apache-2.0 | Parquet bulk tables | |
+| PySide6-Essentials (Qt 6) | LGPL-3.0 | Workbench window | Shipped as separate, replaceable DLLs (PyInstaller one-folder build); not statically linked or modified |
+| VTK | BSD-3-Clause | 3D rendering | |
+| pyvista, pyvistaqt | MIT | VTK convenience layer and Qt widget | |
+| PyInstaller | GPL-2.0 with bootloader exception | Build tool only | The exception permits distributing the bundled application under our licence |

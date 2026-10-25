@@ -1,0 +1,95 @@
+﻿KUYU_NO;BAŞLANGIÇ;BİTİŞ;LİTOLOJİ;AÇIKLAMA
+RC0001;0,000;5,456;OB;Örtü (alüvyon)
+RC0001;5,456;254,960;AND;Andezit, altere
+DH0001;0,000;5,782;OB;Örtü (alüvyon)
+DH0001;5,782;18,953;SCH;Şist, kloritli
+DH0001;18,953;26,335;QV;Kuvars damarı, piritli
+DH0001;26,335;77,070;AND;Andezit, altere
+DH0002;0,000;2,232;OB;Örtü (alüvyon)
+DH0002;2,232;40,918;SCH;Şist, kloritli
+DH0002;40,918;48,333;QV;Kuvars damarı, piritli
+DH0002;48,333;92,310;AND;Andezit, altere
+RC0002;0,000;5,024;OB;Örtü (alüvyon)
+RC0002;5,024;62,678;SCH;Şist, kloritli
+RC0002;62,678;70,093;QV;Kuvars damarı, piritli
+RC0002;70,093;114,550;AND;Andezit, altere
+DH0003;0,000;10,314;OB;Örtü (alüvyon)
+DH0003;10,314;87,357;SCH;Şist, kloritli
+DH0003;87,357;94,730;QV;Kuvars damarı, piritli
+DH0003;94,730;122,760;AND;Andezit, altere
+DH0004;0,000;6,734;OB;Örtü (alüvyon)
+DH0004;6,734;107,646;SCH;Şist, kloritli
+DH0004;107,646;115,099;QV;Kuvars damarı, piritli
+DH0004;115,099;138,470;AND;Andezit, altere
+DH0005;0,000;13,065;OB;Örtü (alüvyon)
+DH0005;13,065;244,500;AND;Andezit, altere
+DH0006;0,000;12,398;OB;Örtü (alüvyon)
+DH0006;12,398;228,040;AND;Andezit, altere
+DH0007;0,000;11,992;OB;Örtü (alüvyon)
+DH0007;11,992;22,985;SCH;Şist, kloritli
+DH0007;22,985;30,399;QV;Kuvars damarı, piritli
+DH0007;30,399;62,290;AND;Andezit, altere
+RC0003;0,000;9,633;OB;Örtü (alüvyon)
+RC0003;9,633;45,999;SCH;Şist, kloritli
+RC0003;45,999;53,431;QV;Kuvars damarı, piritli
+RC0003;53,431;102,380;AND;Andezit, altere
+RC0004;0,000;8,908;OB;Örtü (alüvyon)
+RC0004;8,908;68,409;SCH;Şist, kloritli
+RC0004;68,409;75,911;QV;Kuvars damarı, piritli
+RC0004;75,911;108,360;AND;Andezit, altere
+DH0008;0,000;2,059;OB;Örtü (alüvyon)
+DH0008;2,059;92,792;SCH;Şist, kloritli
+DH0008;92,792;100,204;QV;Kuvars damarı, piritli
+DH0008;100,204;147,120;AND;Andezit, altere
+DH0009;0,000;12,239;OB;Örtü (alüvyon)
+DH0009;12,239;285,380;AND;Andezit, altere
+DH0010;0,000;7,908;OB;Örtü (alüvyon)
+DH0010;7,908;287,820;AND;Andezit, altere
+RC0005;0,000;12,571;OB;Örtü (alüvyon)
+RC0005;12,571;15,191;QV;Kuvars damarı, piritli
+RC0005;15,191;42,250;AND;Andezit, altere
+DH0011;0,000;4,758;OB;Örtü (alüvyon)
+DH0011;4,758;25,204;SCH;Şist, kloritli
+DH0011;25,204;32,605;QV;Kuvars damarı, piritli
+DH0011;32,605;81,710;AND;Andezit, altere
+DH0012;0,000;9,188;OB;Örtü (alüvyon)
+DH0012;9,188;51,322;SCH;Şist, kloritli
+DH0012;51,322;58,727;QV;Kuvars damarı, piritli
+DH0012;58,727;83,500;AND;Andezit, altere
+RC0006;0,000;9,051;OB;Örtü (alüvyon)
+RC0006;9,051;76,043;SCH;Şist, kloritli
+RC0006;76,043;83,464;QV;Kuvars damarı, piritli
+RC0006;83,464;120,710;AND;Andezit, altere
+DH0013;0,000;6,451;OB;Örtü (alüvyon)
+DH0013;6,451;157,520;AND;Andezit, altere
+DH0014;0,000;3,803;OB;Örtü (alüvyon)
+DH0014;3,803;191,270;AND;Andezit, altere
+RC0007;0,000;4,633;OB;Örtü (alüvyon)
+RC0007;4,633;286,550;AND;Andezit, altere
+DH0015;0,000;12,823;OB;Örtü (alüvyon)
+DH0015;12,823;18,846;QV;Kuvars damarı, piritli
+DH0015;18,846;35,910;AND;Andezit, altere
+RC0008;0,000;8,510;OB;Örtü (alüvyon)
+RC0008;8,510;36,378;SCH;Şist, kloritli
+RC0008;36,378;43,834;QV;Kuvars damarı, piritli
+RC0008;43,834;78,460;AND;Andezit, altere
+DH0016;0,000;13,347;OB;Örtü (alüvyon)
+DH0016;13,347;56,025;SCH;Şist, kloritli
+DH0016;56,025;63,422;QV;Kuvars damarı, piritli
+DH0016;63,422;115,050;AND;Andezit, altere
+DH0017;0,000;14,957;OB;Örtü (alüvyon)
+DH0017;14,957;228,910;AND;Andezit, altere
+RC0009;0,000;14,332;OB;Örtü (alüvyon)
+RC0009;14,332;198,590;AND;Andezit, altere
+DH0018;0,000;5,514;OB;Örtü (alüvyon)
+DH0018;5,514;234,760;AND;Andezit, altere
+DH0019;0,000;2,778;OB;Örtü (alüvyon)
+DH0019;2,778;167,630;AND;Andezit, altere
+DH0020;0,000;14,294;OB;Örtü (alüvyon)
+DH0020;14,294;20,558;QV;Kuvars damarı, piritli
+DH0020;20,558;50,650;AND;Andezit, altere
+DH0021;0,000;11,887;OB;Örtü (alüvyon)
+DH0021;11,887;38,200;SCH;Şist, kloritli
+DH0021;38,200;45,604;QV;Kuvars damarı, piritli
+DH0021;45,604;93,510;AND;Andezit, altere
+RC0001;0,000;5,456;XYZ;Örtü (alüvyon)

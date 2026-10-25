@@ -399,6 +399,18 @@ class _Validator:
         return tuple(holes), depth
 
     def run(self) -> ValidationReport:
+        for t in self.tables.values():
+            for raw in t.info.import_issues:
+                self.issues.append(
+                    Issue(
+                        raw["code"],
+                        t.info.name,
+                        raw["message"],
+                        hole_id=raw.get("hole_id"),
+                        src_line=raw.get("src_line"),
+                        field=raw.get("field"),
+                    )
+                )
         self.check_collar()
         downhole = [t for t in self.tables.values() if t.info.role is not Role.COLLAR]
         for t in downhole:

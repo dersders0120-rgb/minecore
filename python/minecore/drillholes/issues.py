@@ -135,6 +135,20 @@ CATALOGUE: dict[str, IssueType] = {
             "Değer geçerli aralığın dışında",
         ),
         IssueType(
+            "VALUE_UNREADABLE",
+            _W,
+            _NONE,
+            "Unreadable value, kept as missing",
+            "Okunamayan değer, eksik sayıldı",
+        ),
+        IssueType(
+            "ROW_WIDTH",
+            _W,
+            _NONE,
+            "Rows with a different number of fields",
+            "Alan sayısı farklı satırlar",
+        ),
+        IssueType(
             "VALUE_QUALIFIED",
             _I,
             _NONE,
