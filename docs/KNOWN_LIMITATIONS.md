@@ -107,15 +107,25 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
   widened. Measured: 123k blocks, 3.2 M arcs, 3.4 s. Ramp access is not
   enforced.
 - Schedule (`pitopt.scheduling`): greedy, rule-based sequence with mining and
-  plant capacity, bench lag, sinking rate and stockpiles; no blending
-  targets, no cut-off optimisation, no equipment or haulage model; periods
-  are years of equal capacity.
+  plant capacity, bench lag, sinking rate and stockpiles; no cut-off
+  optimisation, no equipment or haulage model. Periods can have their own
+  lengths (`--period-years`, GUI "Dönem uzunlukları", e.g. quarters then
+  years) and capacities per year (`--mining-rates`, `--plant-rates`); the
+  sinking rate stays benches per period whatever its length, and depreciation
+  is straight line in years. The greedy rules ignore blending targets.
 - MILP schedule (`pitopt.milp`, CLI `--schedule milp`, GUI "NPV
   optimizasyonu"): maximises the NPV under the same rules with HiGHS
   (scipy). Mining units stay increments (pushback x bench), so it is not a
   block-level or OES optimisation; the pushbacks are fixed inputs; the
   horizon is the greedy length plus two periods; the stockpile is selective
-  per increment, route and grade bin (no blending inside a source). Time
+  per increment, route and grade bin (no blending inside a source). Blending
+  targets (`--blend ATTR:MIN:MAX[:ROUTE]`, GUI "Harmanlama hedefleri") bound
+  the feed mean of the main grade or of any block attribute per period and
+  route; an attribute other than the grade is the in-situ value weighted by
+  feed tonnes (no dilution applied to it) and unestimated blocks count as
+  zero. With targets the greedy NPV is only a reference (the greedy schedule
+  may break them); when no feasible schedule is found in the time limit the
+  run stops with a message. Smoke-tested only. Time
   limit (default 60 s) and MIP gap (0.5 %) apply; when the solver stops
   without beating the greedy schedule, the greedy one is kept and the
   reason is reported. Measured on the sample data (2 pushbacks, 23 years):

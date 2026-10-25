@@ -7,8 +7,8 @@ block cost and computes the project's net cash flow and its measures:
 
     EBITDA_t   = revenue_t - processing_t - mining_t - fixed_t
     D_t        = straight-line depreciation of each capital item over
-                 ``depreciation_years`` periods, starting the period after it
-                 is spent (period 0 capital from period 1)
+                 ``depreciation_years`` years, starting at the end of the
+                 period it is spent in (period 0 capital from period 1)
     taxable_t  = EBITDA_t - D_t - closure_t, less losses carried forward
     tax_t      = tax_rate * max(taxable_t, 0)
     CF_t       = EBITDA_t - tax_t - capital_t - closure_t
@@ -16,9 +16,10 @@ block cost and computes the project's net cash flow and its measures:
 Period 0 is before production (construction); it holds capital only and is
 not discounted. Production periods are 1..n; closure is paid in period n+1,
 where the book value not yet depreciated is also written off.
-Discounting is at the end of each period, ``CF_t / (1 + r)^t``, or at its
-middle, ``CF_t / (1 + r)^(t - 0.5)`` (``mid_period``). The rate is per period
-(per year for the schedules MineCore builds). Losses are carried forward
+Discounting is at the end of each period, ``CF_t / (1 + r)^T_t`` with
+``T_t`` its end time in years (``PeriodRow.years``; ``t`` for yearly periods),
+or at its middle (``mid_period``). The rate is per year; the fixed cost is
+per year and scales with the period length; payback is in years. Losses are carried forward
 without limit and never refunded. No working capital, inflation, financing or
 salvage value is modelled.
 
@@ -53,7 +54,7 @@ class Capital:
 @dataclass(frozen=True)
 class FinancialTerms:
     capital: tuple[Capital, ...] = ()
-    fixed_cost: float = 0.0  # per production period (site overheads, G&A)
+    fixed_cost: float = 0.0  # per production year (site overheads, G&A)
     closure_cost: float = 0.0  # paid in the period after the last production period
     tax_rate: float = 0.0  # on taxable income
     depreciation_years: int = 5
@@ -112,6 +113,7 @@ class CashFlowRow:
     discount_factor: float
     discounted: float
     cumulative: float  # undiscounted, for payback
+    years: float = math.nan  # time at the end of the period, years from the start of mining
 
 
 @dataclass(frozen=True)
@@ -134,7 +136,7 @@ class CashFlow:
         starts negative and turns positive (one sign change in the NPV).
         """
         cash = [r.cash for r in self.rows]
-        periods = [r.period for r in self.rows]
+        periods = [r.years if math.isfinite(r.years) else r.period for r in self.rows]
 
         def npv(rate: float) -> float:
             return sum(c / (1.0 + rate) ** t for c, t in zip(cash, periods, strict=True))
@@ -153,15 +155,17 @@ class CashFlow:
         return 0.5 * (lo + hi)
 
     def payback(self) -> float:
-        """Periods from the start of production until the cumulative cash turns
+        """Years from the start of production until the cumulative cash turns
         non-negative, interpolated within the period; NaN if it never does."""
         previous = self.rows[0].cumulative  # period 0: construction
+        start = 0.0
         for r in self.rows[1:]:
+            end = r.years if math.isfinite(r.years) else float(r.period)
             if r.cumulative >= 0:
                 if previous >= 0:
-                    return float(r.period - 1)
-                return r.period - 1 + (-previous / r.cash)
-            previous = r.cumulative
+                    return start
+                return start + (end - start) * (-previous / r.cash)
+            previous, start = r.cumulative, end
         return math.nan
 
 
@@ -177,6 +181,11 @@ def cash_flow(schedule_rows: Sequence[PeriodRow], terms: FinancialTerms) -> Cash
     for c in terms.capital:
         spend[c.period] += c.amount
     rate, life = terms.discount_rate, terms.depreciation_years
+    ends = [0.0] * (production + 2)  # time at the end of each period, years
+    for t in range(1, production + 1):
+        r = by_period.get(t)
+        ends[t] = r.years if r is not None and math.isfinite(r.years) else ends[t - 1] + 1.0
+    ends[-1] = ends[production] + (ends[production] - ends[production - 1])
     rows: list[CashFlowRow] = []
     losses = cumulative = booked = 0.0
     for t in range(production + 2):
@@ -184,11 +193,16 @@ def cash_flow(schedule_rows: Sequence[PeriodRow], terms: FinancialTerms) -> Cash
         revenue = sched.revenue if sched else 0.0
         processing = sched.processing if sched else 0.0
         mining = sched.mining_cost if sched else 0.0
-        fixed = terms.fixed_cost if 1 <= t <= production else 0.0
+        start = ends[t - 1] if t > 0 else 0.0
+        fixed = terms.fixed_cost * (ends[t] - start) if 1 <= t <= production else 0.0
         closure = terms.closure_cost if t == production + 1 else 0.0
         ebitda = revenue - processing - mining - fixed
         if t <= production:
-            depreciation = sum(spend[s] / life for s in range(t) if 0 < t - s <= life)
+            # straight line over ``life`` years, from the end of the spending period
+            depreciation = sum(
+                spend[s] / life * max(0.0, min(ends[t], ends[s] + life) - max(start, ends[s]))
+                for s in range(t)
+            )
             booked += depreciation
         else:  # closure period: the book value left is written off
             depreciation = sum(spend) - booked
@@ -202,7 +216,7 @@ def cash_flow(schedule_rows: Sequence[PeriodRow], terms: FinancialTerms) -> Cash
             taxable = income - used
         tax = terms.tax_rate * taxable
         cash = ebitda - tax - spend[t] - closure
-        exponent = 0.0 if t == 0 else (t - 0.5 if terms.mid_period else float(t))
+        exponent = 0.0 if t == 0 else (0.5 * (start + ends[t]) if terms.mid_period else ends[t])
         factor = (1.0 + rate) ** -exponent
         cumulative += cash
         gross = revenue / (1.0 - terms.royalty)
@@ -225,6 +239,7 @@ def cash_flow(schedule_rows: Sequence[PeriodRow], terms: FinancialTerms) -> Cash
                 factor,
                 cash * factor,
                 cumulative,
+                ends[t],
             )
         )
     last = rows[-1]

@@ -82,10 +82,14 @@ from minecore.pitopt.scenarios import (
     write_comparison,
 )
 from minecore.pitopt.scheduling import (
+    Blend,
     ConstrainedSchedule,
     InventoryRow,
     Limits,
     bench_inventory,
+    parse_blends,
+    parse_periods,
+    resolve_blends,
     schedule_constrained,
 )
 from minecore.pitopt.sensitivity import Input, Plan, Sensitivity, parse_changes, sensitivity
@@ -284,6 +288,28 @@ class PitDialog(QDialog):
         pf.addRow("Stok kapasitesi (Mt)", self.stock_caps)
         self.rehandle = _spin(0.0, 0.0, 1e3, 0.1, 2)
         pf.addRow("Stoktan geri yükleme maliyeti ($/t)", self.rehandle)
+        self.period_years = QLineEdit()
+        self.period_years.setPlaceholderText("örn. 0.25*4; 1 (ilk yıl çeyrekler, sonra yıllar)")
+        self.period_years.setToolTip(
+            "Her dönemin uzunluğu (yıl); son değer tekrar eder. Boş: her dönem 1 yıl. "
+            "Kapasiteler yıllıktır, dönem uzunluğuyla çarpılır."
+        )
+        pf.addRow("Dönem uzunlukları (yıl)", self.period_years)
+        self.mining_rates = QLineEdit()
+        self.mining_rates.setPlaceholderText("örn. 6*2; 10 (Mt/yıl, dönem sırasıyla; boş: sabit)")
+        pf.addRow("Dönemlere göre kazı (Mt/yıl)", self.mining_rates)
+        self.plant_rates = QLineEdit()
+        self.plant_rates.setPlaceholderText("örn. 1*1; 1.5*1; 2 (tesis devreye alma; boş: sabit)")
+        pf.addRow("Dönemlere göre tesis (Mt/yıl)", self.plant_rates)
+        self.blends = QLineEdit()
+        self.blends.setPlaceholderText("örn. tenör:0.8:1.5; as:-:500 (öznitelik:en az:en çok)")
+        self.blends.setToolTip(
+            "Harmanlama hedefleri: her dönem tesis beslemesinin ortalaması bu aralıkta kalır. "
+            "'tenör' ana besleme tenörüdür; başka bir öznitelik (ör. zararlı element) de "
+            "yazılabilir. '-' sınır yok demektir; 4. alan yol numarasıdır (varsayılan 1). "
+            "Yalnız NPV optimizasyonu (MILP) uygular."
+        )
+        pf.addRow("Harmanlama hedefleri", self.blends)
         self.method = QComboBox()
         self.method.addItems(["Kurallı (hızlı)", "NPV optimizasyonu (MILP)"])
         self.method.setToolTip(
@@ -342,22 +368,8 @@ class PitDialog(QDialog):
         )
         gl.addWidget(self.shells, 1)
         right.addTab(graph_page, "Kabuk raporu")
-        self.sched_table = QTableWidget(0, 11)
-        self.sched_table.setHorizontalHeaderLabels(
-            [
-                "Yıl",
-                "Kazı Mt",
-                "Cevher kazı Mt",
-                "Tesise Mt",
-                "Besleme tenörü",
-                "Metal",
-                "Stok Mt",
-                "Stoktan Mt",
-                "Atığa cevher Mt",
-                "Nakit M$",
-                "İskontolu M$",
-            ]
-        )
+        self.sched_table = QTableWidget(0, len(SCHED_HEADERS))
+        self.sched_table.setHorizontalHeaderLabels(SCHED_HEADERS)
         right.addTab(self.sched_table, "Üretim çizelgesi")
         self.inv_table = QTableWidget(0, len(INVENTORY_HEADERS))
         self.inv_table.setHorizontalHeaderLabels(INVENTORY_HEADERS)
@@ -462,7 +474,23 @@ class PitDialog(QDialog):
             grade_bins=parse_bins(self.bins.text()),
             stockpile_capacities=parse_capacities(self.stock_caps.text()),
             rehandle_cost=self.rehandle.value(),
+            period_years=parse_periods(self.period_years.text()),
+            mining_rates=tuple(v * 1e6 for v in parse_periods(self.mining_rates.text())),
+            plant_rates=tuple(v * 1e6 for v in parse_periods(self.plant_rates.text())),
+            blends=self._blends(),
         )
+
+    def _blends(self) -> tuple[Blend, ...]:
+        blends = parse_blends(self.blends.text())
+        if not any(b.attribute for b in blends):
+            return blends
+        model = BlockModel.open(self.project, self.model.currentText())
+        missing = [
+            b.attribute for b in blends if b.attribute and b.attribute not in model.attributes
+        ]
+        if missing:
+            raise RuntimeError(f"Harmanlama özniteliği modelde yok: {', '.join(missing)}")
+        return resolve_blends(blends, model.values)
 
     def rock_attribute(self) -> str | None:
         return None if self.rock.currentIndex() == 0 else self.rock.currentText()
@@ -591,7 +619,7 @@ class PitDialog(QDialog):
         self.figure.tight_layout()
         self.canvas.draw_idle()  # type: ignore[no-untyped-call]
 
-    def make_phases(self) -> None:
+    def make_phases(self) -> None:  # noqa: PLR0915 - one dialog action
         if self.pit is None:
             raise RuntimeError("Önce kabukları hesaplayın.")
         final = int(self.final.currentData())
@@ -624,6 +652,10 @@ class PitDialog(QDialog):
                 f"; {fixed.remaining_slivers:,} dar blok kaldı." if fixed.remaining_slivers else "."
             )
         limits = self.limits()
+        if limits.blends and self.method.currentIndex() != 1:
+            raise RuntimeError(
+                "Harmanlama hedefleri yalnız 'NPV optimizasyonu (MILP)' yöntemiyle uygulanır."
+            )
         if self.method.currentIndex() == 1:
             pit, phase, seconds = self.pit, self.phase, self.time_limit.value()
             self.sched = _with_progress(
@@ -636,10 +668,14 @@ class PitDialog(QDialog):
         self.flow = cash_flow(self.sched.rows, self.terms()) if self.sched.rows else None
         self._show_cash_flow()
         rows = self.sched.rows
+        blend_names = [f"Harman: {b.label}" for b in limits.blends]
+        self.sched_table.setColumnCount(len(SCHED_HEADERS) + len(blend_names))
+        self.sched_table.setHorizontalHeaderLabels(SCHED_HEADERS + blend_names)
         self.sched_table.setRowCount(len(rows) + 1)
         for i, p in enumerate(rows):
+            when = f" ({p.years:g}. yıl)" if limits.period_years and math.isfinite(p.years) else ""
             cells = [
-                str(p.period),
+                str(p.period) + when,
                 _m(p.mined_t),
                 _m(p.ore_mined_t),
                 _m(p.ore_fed_t)
@@ -655,6 +691,7 @@ class PitDialog(QDialog):
                 _m(p.discarded_t),
                 _m(p.cash),
                 _m(p.discounted),
+                *("" if math.isnan(v) else f"{v:.4g}" for v in p.blend_values),
             ]
             for j, text in enumerate(cells):
                 _cell(self.sched_table, i, j, text)
@@ -682,7 +719,7 @@ class PitDialog(QDialog):
         self.tabs.setCurrentIndex(1)
         self.inform(
             "Pushback",
-            f"{int(self.phase.max())} pushback, {len(rows)} yıllık çizelge. "
+            f"{int(self.phase.max())} pushback, {len(rows)} dönemlik çizelge. "
             f"Çizelge NPV {self.sched.npv / 1e6:,.1f} M$."
             + _method_note(self.sched)
             + (_project_summary(self.flow) if self.flow is not None else "")
@@ -1070,6 +1107,21 @@ class PitDialog(QDialog):
             for j, value in enumerate(_cash_cells(r)):
                 _cell(self.cash_table, i, j, value if isinstance(value, str) else _m(value))
         self.cash_table.resizeColumnsToContents()
+
+
+SCHED_HEADERS = [
+    "Dönem",
+    "Kazı Mt",
+    "Cevher kazı Mt",
+    "Tesise Mt",
+    "Besleme tenörü",
+    "Metal",
+    "Stok Mt",
+    "Stoktan Mt",
+    "Atığa cevher Mt",
+    "Nakit M$",
+    "İskontolu M$",
+]
 
 
 def _method_note(sched: ConstrainedSchedule) -> str:

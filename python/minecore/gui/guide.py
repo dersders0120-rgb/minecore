@@ -66,6 +66,11 @@ GUIDE = """
    gruplamalar denenir, çokta yerel arama yapılır).
    Çizelge yöntemi olarak "NPV optimizasyonu (MILP)" seçilirse aynı kurallarla NPV'yi en
    büyüten çizelge bulunur (kurallı çizelgeden kötü olamaz; süre sınırı verilir).
+   "Dönem uzunlukları" ile ilk dönemler kısa tutulabilir (ör. `0.25*4; 1`: dört çeyrek,
+   sonra yıllar); "Dönemlere göre kazı/tesis" ile kapasite dönem dönem değişir (ör. tesis
+   devreye alma `1*1; 1.5*1; 2`). Kapasiteler yıllıktır. "Harmanlama hedefleri" (ör.
+   `tenör:0.8:1.5; as:-:500`) her dönem tesis beslemesinin ortalamasını sınırlar; yalnız
+   MILP yöntemi uygular, çizelge tablosunda her hedefin dönem ortalaması gösterilir.
    **Proje nakit akışı** bölümünde yatırım (ör. `0:250; 4:40`, yıl:M$), sabit gider,
    kapanış maliyeti, vergi ve amortisman girilir; "Nakit akışı" sekmesi yıl yıl FAVÖK,
    vergi, nakit akışı ve proje NPV, İVO (IRR) ve geri ödeme süresini verir.

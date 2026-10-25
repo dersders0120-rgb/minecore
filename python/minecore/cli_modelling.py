@@ -69,7 +69,14 @@ from minecore.pitopt.scenarios import (
     save_scenario,
     write_comparison,
 )
-from minecore.pitopt.scheduling import ConstrainedSchedule, Limits, schedule_constrained
+from minecore.pitopt.scheduling import (
+    ConstrainedSchedule,
+    Limits,
+    parse_blends,
+    parse_periods,
+    resolve_blends,
+    schedule_constrained,
+)
 from minecore.pitopt.sensitivity import (
     Case,
     Input,
@@ -370,6 +377,31 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
         help="greedy rules or NPV-maximising MILP (with --plant)",
     )
     opt.add_argument("--time-limit", type=float, default=60.0, help="MILP time limit, s")
+    opt.add_argument(
+        "--period-years",
+        default="",
+        metavar="LIST",
+        help="length of each period in years, e.g. '0.25*4; 1' (last repeats; with --plant)",
+    )
+    opt.add_argument(
+        "--mining-rates",
+        default="",
+        metavar="LIST",
+        help="mining t/year by period, e.g. '20e6*2; 30e6' (last repeats; default --rate)",
+    )
+    opt.add_argument(
+        "--plant-rates",
+        default="",
+        metavar="LIST",
+        help="plant ore t/year by period (ramp-up; last repeats; default --plant)",
+    )
+    opt.add_argument(
+        "--blend",
+        action="append",
+        default=[],
+        metavar="ATTR:MIN:MAX[:ROUTE]",
+        help="feed blending target per period, e.g. grade:0.8:- or as:-:500 (needs milp)",
+    )
     opt.add_argument(
         "--best-pushbacks",
         action="store_true",
@@ -1005,7 +1037,7 @@ def pit_optimise(project: Project, args: argparse.Namespace, out: TextIO) -> int
     )
     final = factors.index(args.final_rf) + 1
     phase_ore = args.phase_ore or max(result.rows[final - 1].ore_t / 3, 1.0)
-    limits = _limits(args)
+    limits = _limits(args, model)
     if limits is not None and args.best_pushbacks:
         choice = best_pushbacks(
             result, final, limits, min_ore_t=phase_ore, max_pushbacks=args.max_pushbacks
@@ -1068,10 +1100,14 @@ def pit_optimise(project: Project, args: argparse.Namespace, out: TextIO) -> int
     return 0
 
 
-def _limits(args: argparse.Namespace) -> Limits | None:
+def _limits(args: argparse.Namespace, model: BlockModel) -> Limits | None:
     """Schedule limits when a plant capacity is given; options that need them otherwise fail."""
+    blends = parse_blends(";".join(args.blend))
+    if blends and args.schedule != "milp":
+        raise PitOptError("blending targets (--blend) need --schedule milp")
     needs = {
         "--schedule milp": args.schedule == "milp",
+        "--period-years": bool(args.period_years),
         "--sensitivity": args.sensitivity is not None,
         "--best-pushbacks": args.best_pushbacks,
     }
@@ -1090,6 +1126,10 @@ def _limits(args: argparse.Namespace) -> Limits | None:
         grade_bins=tuple(args.grade_bins),
         stockpile_capacities=tuple(args.stockpile_capacity),
         rehandle_cost=args.rehandle_cost,
+        period_years=parse_periods(args.period_years),
+        mining_rates=parse_periods(args.mining_rates),
+        plant_rates=parse_periods(args.plant_rates),
+        blends=resolve_blends(blends, model.values),
     )
 
 
