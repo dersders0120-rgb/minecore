@@ -307,6 +307,7 @@ class MainWindow(QMainWindow):
         ug = self.menuBar().addMenu("Yer&altı")
         action(ug, "Pano zarfı (floating stope) ve pano seçimi...", self.stopes)
         help_menu = self.menuBar().addMenu("&Yardım")
+        action(help_menu, "Adım adım kullanım kılavuzu", self.guide, "F1")
         action(help_menu, "Örnek sondaj projesini aç", self.open_sample)
         action(help_menu, "Hakkında", self.about)
 
@@ -813,6 +814,11 @@ class MainWindow(QMainWindow):
         import_folder(self._need_db(), SAMPLE_DIR)
         self.refresh()
         self.statusBar().showMessage(f"Örnek proje oluşturuldu: {target}")
+
+    def guide(self) -> None:
+        from minecore.gui.guide import GuideDialog  # noqa: PLC0415
+
+        GuideDialog(self).exec()
 
     def about(self) -> None:
         QMessageBox.about(
