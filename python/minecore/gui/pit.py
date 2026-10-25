@@ -53,7 +53,8 @@ from minecore.pitopt.benchdesign import (
 )
 from minecore.pitopt.cutoff import LaneResult, cutoffs_from_model
 from minecore.pitopt.design import edge_blocks
-from minecore.pitopt.optimise import store
+from minecore.pitopt.economics import parse_routes
+from minecore.pitopt.optimise import route_tonnes, store
 from minecore.pitopt.scheduling import (
     ConstrainedSchedule,
     InventoryRow,
@@ -144,6 +145,16 @@ class PitDialog(QDialog):
         ef.addRow("Zenginleştirme maliyeti $/t cevher", self.processing)
         ef.addRow("Madencilik kazanımı % (cevher kaybı)", self.mine_recovery)
         ef.addRow("Seyrelme % (sıfır tenörlü pasa)", self.dilution)
+        self.routes = QLineEdit()
+        self.routes.setPlaceholderText("örn. liç:60:4; yığın liçi:40:2 (ad:kazanım %:maliyet $/t)")
+        self.routes.setToolTip(
+            "Ek işleme yolları. Yukarıdaki kazanım ve zenginleştirme maliyeti ana yoldur; "
+            "her blok en yüksek marjı veren yola gider (pit_route özniteliği)."
+        )
+        ef.addRow("Ek işleme yolları", self.routes)
+        self.route_label = QLabel()
+        self.route_label.setWordWrap(True)
+        ef.addRow(self.route_label)
         left.addWidget(econ_box)
 
         geo = QGroupBox("Şev ve kabuklar")
@@ -290,7 +301,7 @@ class PitDialog(QDialog):
             self.price.setValue(2000.0)
 
     def _sync_nsr(self, on: bool) -> None:
-        for w in (self.price, self.price_unit, self.recovery, self.selling):
+        for w in (self.price, self.price_unit, self.recovery, self.selling, self.routes):
             w.setEnabled(not on)
 
     def economics(self) -> Economics:
@@ -307,6 +318,7 @@ class PitDialog(QDialog):
             density=self.density.value() if d == "(sabit)" else d,
             mining_recovery=self.mine_recovery.value() / 100.0,
             dilution=self.dilution.value() / 100.0,
+            routes=() if self.nsr.isChecked() else parse_routes(self.routes.text()),
         )
 
     def slope_profile(self) -> SlopeProfile:
@@ -337,6 +349,15 @@ class PitDialog(QDialog):
         )
         self.phase, self.sched = None, None
         self._show_shells()
+        self.route_label.setText(
+            "Nihai kabukta yollar: "
+            + "; ".join(
+                f"{'ana' if name == 'main' else name} {feed_t / 1e6:,.2f} Mt"
+                for name, feed_t, _ in route_tonnes(self.pit, econ, len(self.pit.rows))
+            )
+            if econ.routes
+            else ""
+        )
         edge = edge_blocks(model.grid, self.pit.shell > 0)
         if edge:
             self.inform(

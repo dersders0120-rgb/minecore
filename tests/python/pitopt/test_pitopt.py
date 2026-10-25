@@ -25,6 +25,37 @@ from minecore.pitopt.optimise import store
 from minecore.project import Project
 
 
+def test_process_routes_pick_the_best_margin() -> None:
+    from minecore.pitopt.economics import Route, parse_routes  # noqa: PLC0415
+
+    econ = Economics(
+        1500.0, PriceUnit.TROY_OUNCE, 0.9, 2.0, 15.0, routes=(Route("leach", 0.6, 4.0),)
+    )
+    per_g = 1500.0 / 31.1034768  # value of one gram of gold
+    # Mill margin 0.9 * per_g * g - 15, leach 0.6 * per_g * g - 4.
+    cross = 11.0 / (0.3 * per_g)  # both margins equal
+    leach_min = 4.0 / (0.6 * per_g)
+    g = np.array([leach_min * 0.9, leach_min * 1.5, cross * 0.95, cross * 1.05, 3.0])
+    t = np.full(g.size, 100.0)
+    out = block_values(g, "g/t", t, np.zeros(g.size, np.int64), econ)
+    assert out.route.tolist() == [0, 2, 2, 1, 1]
+    assert out.ore.tolist() == [False, True, True, True, True]
+    mill = 0.9 * per_g * g * 100 - 1500.0
+    leach = 0.6 * per_g * g * 100 - 400.0
+    expect = np.where(out.route == 1, mill, np.where(out.route == 2, leach, 0.0)) - 200.0
+    assert out.value == pytest.approx(expect)
+    assert out.metal[1] == pytest.approx(0.6 * g[1] * 100 / 31.1034768)
+    assert Economics.from_json(econ.to_json()) == econ
+    assert parse_routes("leach:60:4; dump leach:0.4:2") == (
+        Route("leach", 0.6, 4.0),
+        Route("dump leach", 0.4, 2.0),
+    )
+    with pytest.raises(PitOptError):
+        parse_routes("leach:0.6")
+    with pytest.raises(PitOptError):
+        Economics(1.0, PriceUnit.TONNE, 1.0, 1.0, 1.0, nsr=True, routes=econ.routes)
+
+
 def test_gold_block_value_by_hand() -> None:
     econ = Economics(1800.0, PriceUnit.TROY_OUNCE, 0.9, 2.0, 15.0, selling_cost=0.0)
     out = block_values(
