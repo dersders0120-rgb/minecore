@@ -66,7 +66,7 @@ rotated block models, ADR-0009)
    Consider a sill default from the data variance in the variogram dialog.
 2. Sub-cells (needs its own ADR). Rotated block models are done (ADR-0009,
    azimuth about the vertical; thread "Continue MineCore development").
-3. Pit design: switchback ramps, multiple pit bottoms, blended sector changes.
+3. Pit design: multiple pit bottoms, blended sector changes (switchback ramps done).
 4. Routes and stockpiles in Lane; re-routing ore when a route is full.
 5. Underground: stope shapes beyond grid boxes, footwall drives and drawpoints,
    development schedule.

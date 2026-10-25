@@ -700,7 +700,7 @@ def write_pit_reports(path: Path, result: PitResult, sched: ConstrainedSchedule 
 class BenchDesignDialog(QDialog):
     """Bench design (face angle, bench height, berm) around the optimised pit."""
 
-    def __init__(self, project: Project, parent: QWidget) -> None:
+    def __init__(self, project: Project, parent: QWidget) -> None:  # noqa: PLR0915 - one form
         super().__init__(parent)
         self.setWindowTitle("Basamak tasarımı")
         self.project = project
@@ -739,7 +739,7 @@ class BenchDesignDialog(QDialog):
             "basamak yüksekliği tümünde aynıdır."
         )
         form.addRow("Geoteknik sektörler", self.sectors)
-        self.ramp_on = QCheckBox("Spiral rampa (nakliye yolu) tasarla")
+        self.ramp_on = QCheckBox("Rampa (nakliye yolu) tasarla")
         self.ramp_w = _spin(25.0, 3.0, 80.0, 1.0, 1)
         self.ramp_g = _spin(10.0, 1.0, 25.0, 0.5, 1)
         self.ramp_exit = _spin(0.0, 0.0, 359.0, 15.0, 0)
@@ -748,6 +748,13 @@ class BenchDesignDialog(QDialog):
         form.addRow(self.ramp_on)
         form.addRow("Rampa genişliği (m) / eğim %", _row(self.ramp_w, self.ramp_g))
         form.addRow("Çıkış yönü (° kuzeyden) / dönüş", _row(self.ramp_exit, self.ramp_dir))
+        self.ramp_kind = QComboBox()
+        self.ramp_kind.addItems(["Spiral (ocak çevresinde)", "Zikzak (tek şevde, dönüşlü)"])
+        self.ramp_span = _spin(120.0, 20.0, 300.0, 10.0, 0)
+        self.ramp_span.setToolTip(
+            "Zikzak rampanın kullandığı şev yayı (°), çıkış yönü ortada. Dar yay = daha çok dönüş."
+        )
+        form.addRow("Rampa tipi / zikzak yayı (°)", _row(self.ramp_kind, self.ramp_span))
         run = QPushButton("Tasarla, yüzeyi kaydet, blokları işaretle")
         run.clicked.connect(self._guard(self.run))
         export = QPushButton("Tasarımı DXF olarak dışa aktar...")
@@ -800,6 +807,7 @@ class BenchDesignDialog(QDialog):
                 self.ramp_g.value() / 100.0,
                 self.ramp_exit.value(),
                 self.ramp_dir.currentIndex() == 0,
+                self.ramp_span.value() if self.ramp_kind.currentIndex() == 1 else 0.0,
             )
             if self.ramp_on.isChecked()
             else None,

@@ -98,11 +98,59 @@ def test_spiral_ramp_reaches_the_floor_at_its_gradient(clockwise: bool) -> None:
     assert any(line.layer == "DESIGN_RAMP" for line in pit.strings())
 
 
+@pytest.mark.parametrize("span", [120.0, 60.0])
+def test_switchback_ramp_stays_on_one_wall(span: float) -> None:
+    from scipy.spatial import cKDTree  # noqa: PLC0415
+
+    grid, mined = _cone_pit()
+    g = BenchGeometry(70.0, 10.0, 6.0)
+    plain = design_pit(grid, mined, g)
+    spiral = design_pit(grid, mined, g, ramp=Ramp(25.0, 0.10, 90.0))
+    ramp = Ramp(25.0, 0.10, 90.0, switchback_span=span)
+    pit = design_pit(grid, mined, g, ramp=ramp)
+    road = pit.ramp
+    assert road is not None
+    assert road[0, 2] == pytest.approx(120.0, abs=0.6)
+    assert road[-1, 2] == pytest.approx(0.0, abs=0.5)
+    # Every road point lies inside the arc centred on the exit azimuth (east).
+    az = np.degrees(np.arctan2(road[:, 0] - 200.0, road[:, 1] - 200.0)) % 360.0
+    tol = 8.0  # one road step at the floor radius
+    assert az.min() >= 90.0 - span / 2 - tol
+    assert az.max() <= 90.0 + span / 2 + tol
+    # The road reverses direction at least twice and is flat on each pad.
+    sweep = np.diff(np.unwrap(np.radians(az)))
+    turns = int(np.count_nonzero(np.diff(np.sign(sweep[np.abs(sweep) > 1e-6])) != 0))
+    assert turns >= 2
+    run = np.linalg.norm(np.diff(road[:, :2], axis=0), axis=1)
+    drop = -np.diff(road[:, 2])
+    assert drop.min() >= -1e-9  # never climbs going down
+    assert run[drop < 1e-9].sum() >= turns * ramp.pad * 0.8
+    # Off the pads the gradient is the design gradient.
+    sloped = drop > 1e-9
+    assert (drop[sloped] / run[sloped]).max() <= 0.10 + 1e-9
+    # Legs never overlap: points more than a bench apart in height are at least a
+    # road width apart in plan.
+    dist, idx = cKDTree(road[:, :2]).query(road[:, :2], k=60)
+    apart = np.abs(road[idx, 2] - road[:, 2:3]) > 5.0
+    assert dist[apart].min() >= ramp.width
+    # The road is cut into the wall, and only adds excavation.
+    i = np.clip(np.round((road[:, 0] - pit.x[0]) / (pit.x[1] - pit.x[0])).astype(int), 0, None)
+    j = np.clip(np.round((road[:, 1] - pit.y[0]) / (pit.y[1] - pit.y[0])).astype(int), 0, None)
+    assert (pit.z[j, i] - road[:, 2]).max() <= 0.5
+    assert (pit.z <= plain.z + 1e-9).all()
+    assert pit.volume() > spiral.volume()  # back-and-forth legs cost more waste than a spiral
+
+
 def test_ramp_validation() -> None:
     with pytest.raises(PitOptError):
         Ramp(width=0.0, gradient=0.1)
     with pytest.raises(PitOptError):
         Ramp(width=20.0, gradient=0.5)
+    with pytest.raises(PitOptError):
+        Ramp(width=20.0, gradient=0.1, switchback_span=10.0)
+    with pytest.raises(PitOptError):
+        Ramp(width=20.0, gradient=0.1, switchback_span=90.0, turn_length=-1.0)
+    assert Ramp(width=20.0, gradient=0.1, switchback_span=90.0).pad == 30.0
 
 
 def test_geotechnical_sectors_set_the_slope_by_wall_position() -> None:

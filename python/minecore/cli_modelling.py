@@ -314,6 +314,14 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     des.add_argument("--ramp-exit", type=float, default=0.0, help="exit azimuth, degrees")
     des.add_argument("--ramp-ccw", action="store_true", help="spiral counter-clockwise going down")
     des.add_argument(
+        "--switchback",
+        type=float,
+        default=0.0,
+        metavar="SPAN",
+        help="switchback ramp on one wall: arc in degrees centred on the exit (0 = spiral)",
+    )
+    des.add_argument("--turn-length", type=float, help="flat road at each switchback, m")
+    des.add_argument(
         "--sector",
         action="append",
         default=[],
@@ -734,7 +742,14 @@ def pit_design(project: Project, args: argparse.Namespace, out: TextIO) -> int:
         save_surface=args.save_surface,
         flag_attribute=args.flag,
         dxf=Path(args.dxf) if args.dxf else None,
-        ramp=Ramp(args.ramp_width, args.ramp_gradient, args.ramp_exit, not args.ramp_ccw)
+        ramp=Ramp(
+            args.ramp_width,
+            args.ramp_gradient,
+            args.ramp_exit,
+            not args.ramp_ccw,
+            args.switchback,
+            args.turn_length,
+        )
         if args.ramp_width
         else None,
         sectors=parse_sectors(";".join(args.sector), args.height),
