@@ -10,13 +10,22 @@ from minecore.cli import main
 from minecore.gui.app import SAMPLE_DIR
 
 
+def _centre_x(p: str) -> float:
+    from minecore.blockmodel import BlockModel  # noqa: PLC0415
+    from minecore.project import Project  # noqa: PLC0415
+
+    with Project.open(p) as project:
+        g = BlockModel.open(project, "BM").grid
+        return g.origin[0] + 0.5 * g.size[0] * g.count[0]
+
+
 def _run(*argv: str) -> str:
     out = io.StringIO()
     assert main(list(argv), out) == 0, out.getvalue()
     return out.getvalue()
 
 
-def test_csv_to_pit_schedule(tmp_path: Path) -> None:
+def test_csv_to_pit_schedule(tmp_path: Path) -> None:  # noqa: PLR0915 - one end-to-end chain
     p = str(tmp_path / "c.mcproj")
     _run("project", "create", p, "--name", "c")
     assert "collar" in _run("drillholes", "import", p, str(SAMPLE_DIR))
@@ -138,6 +147,15 @@ def test_csv_to_pit_schedule(tmp_path: Path) -> None:
     )  # fmt: skip
     assert "ramp " in ramp
     assert "DESIGN_TOE" in (tmp_path / "d.dxf").read_text()
+    pdf = tmp_path / "kesit.pdf"
+    text = _run(
+        "plot", p, str(pdf), "--axis", "x", "--at", str(_centre_x(p)), "--width", "40",
+        "--model", "BM", "--attribute", "au_ok", "--drill", src,
+        "--surface", "topo", "--surface", "tasarim",
+    )  # fmt: skip
+    assert pdf.read_bytes().startswith(b"%PDF")
+    assert " 0 blocks" not in text
+    assert " 0 holes" not in text
     _run("bm", "calc", p, "BM", "nsr", "au_ok * 55")
     common = ["--mining-cost", "2.5", "--processing-cost", "15", "--rock", "kaya", "--json"]
     nsr = json.loads(_run("pit", "optimise", p, "BM", "nsr", "--nsr", *common))

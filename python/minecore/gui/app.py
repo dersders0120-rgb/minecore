@@ -250,6 +250,9 @@ class MainWindow(QMainWindow):
         step_fwd.clicked.connect(lambda: self._step_section(1))
         sec.addWidget(step_back)
         sec.addWidget(step_fwd)
+        print_btn = QPushButton("Kesiti yazdır (PDF/PNG)...")
+        print_btn.clicked.connect(lambda: self._guard(self.print_section))
+        sec.addWidget(print_btn)
         sec.addStretch(1)
         return sec
 
@@ -1096,6 +1099,38 @@ class MainWindow(QMainWindow):
             self.section_at.setValue(float(centre[axis]))
             self.section_at.blockSignals(False)
         self.redraw()
+
+    def print_section(self) -> None:
+        from minecore.plots import SectionSpec, section_plot  # noqa: PLC0415
+
+        project = self._need_project()
+        sec = self.section()
+        if sec is None:
+            raise RuntimeError("Önce bir kesit seçin (Kesit: kuzey-güney, doğu-batı veya plan).")
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Kesiti kaydet", "kesit.pdf", "PDF (*.pdf);;PNG (*.png);;SVG (*.svg)"
+        )
+        if not path:
+            return
+        selected = self._selected_block_model()
+        choice = self.color_by.currentText()
+        drill = tuple(choice.split(" / ", 1)) if " / " in choice else None
+        spec = SectionSpec(
+            sec[0],
+            sec[1],
+            sec[2],
+            model=selected[0].name if selected else None,
+            attribute=selected[1] if selected else None,
+            drill=(drill[0], drill[1]) if drill else None,
+            surfaces=tuple(surfaces.surface_names(project)),
+            solids=tuple(solids.solid_names(project)),
+        )
+        r = section_plot(project, spec, Path(path), db=self.db)
+        QMessageBox.information(
+            self,
+            "Kesit",
+            f"{path} yazıldı: {r.blocks:,} blok, {r.holes} sondaj, {r.samples} örnek.",
+        )
 
     def _step_section(self, direction: int) -> None:
         if self.section() is not None:

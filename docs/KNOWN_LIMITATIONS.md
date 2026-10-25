@@ -120,6 +120,13 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
 - DXF export writes R12 ASCII `POLYLINE` (3D) and `3DFACE` entities only, no
   header/table sections, no blocks or text.
 
+## Section plots
+
+- `plots.section_plot` (CLI `plot`, GUI "Kesiti yazdır"): block slice,
+  drillhole traces and samples in the slab, surface and solid cuts, on A3.
+  No title block/legend template, no scale bar or grid annotations beyond the
+  axes, no strings, no plan contours of surfaces, no multi-section sheets.
+
 ## Surfaces
 
 - 2.5D DTMs only (one z per x, y): Delaunay in plan, linear interpolation;

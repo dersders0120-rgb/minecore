@@ -302,6 +302,36 @@ def test_section_slab_and_controls(qapp: QApplication) -> None:
     window.close()
 
 
+def test_print_section_from_the_window(
+    qapp: QApplication, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from minecore.blockmodel import Grid  # noqa: PLC0415
+    from minecore.gui import app as app_module  # noqa: PLC0415
+
+    project = Project.create(tmp_path / "w.mcproj", "w")
+    grid = Grid((0.0, 0.0, 0.0), (10.0, 10.0, 10.0), (6, 6, 4))
+    BlockModel.create(project, "BM", grid).set_attributes(
+        {"au": np.ones(grid.blocks)}, {"au": {"unit": "g/t"}}, "au"
+    )
+    window = app_module.MainWindow()
+    window.project = project
+    window.refresh()
+    window.block_by.setCurrentText("BM / au")
+    window.section_axis.setCurrentIndex(1)  # north-south
+    window.section_at.setValue(25.0)
+    out = tmp_path / "k.png"
+    from PySide6.QtWidgets import QFileDialog, QMessageBox  # noqa: PLC0415
+
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: (str(out), "PNG (*.png)"))
+    shown: list[str] = []
+    monkeypatch.setattr(QMessageBox, "information", lambda *a: shown.append(a[2]))
+    window.print_section()
+    assert out.stat().st_size > 1000
+    assert "24 blok" in shown[0]  # one north-south slice: 6 (y) x 4 (z) blocks
+    window.close()
+    project.close()
+
+
 def test_classification_dialog_and_filtered_report(qapp: QApplication, tmp_path: Path) -> None:
     from minecore.blockmodel import Grid  # noqa: PLC0415
 
