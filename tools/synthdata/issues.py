@@ -121,8 +121,8 @@ def inject(  # noqa: PLR0915 (one flat table of injections)
     first = base("survey.csv")
     files["survey.csv"].append(first)
     duplicate = list(first)
-    duplicate[2] = "123.4"
-    duplicate[3] = "-45.0"
+    duplicate[2] = fmt_float(123.4, 1, decimal)
+    duplicate[3] = fmt_float(-45.0, 1, decimal)
     append(
         "survey.csv",
         duplicate,

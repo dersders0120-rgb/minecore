@@ -11,3 +11,9 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
 | Licences (Python) | Python runtime dependencies are tracked by hand in `docs/DEPENDENCIES.md`; only Rust is checked automatically (`cargo-deny`). | Packaging work (M12) or more Python dependencies |
 | i18n | CLI messages are English only. Turkish/English UI strings arrive with the workbench. | Workbench milestone |
 | Packaging | No Windows installer or signed build yet. | M12 |
+
+## Drillhole data (M2, ADR-0008)
+
+- Bulk files stay on disk while any operation in the history can restore them.
+  Trimming history to reclaim space is not implemented yet.
+- QA/QC thresholds (T-014) are not sourced yet; MineCore ships no QA/QC defaults.
