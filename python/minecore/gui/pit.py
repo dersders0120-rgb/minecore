@@ -100,6 +100,14 @@ def parse_capacities(text: str) -> tuple[float, ...]:
         raise PitOptError(f"route capacities {text!r} are not numbers") from None
 
 
+def parse_bins(text: str) -> tuple[float, ...]:
+    """``"1.0; 2.0"`` -> (1.0, 2.0): grade edges of the stockpile bins."""
+    try:
+        return tuple(float(v) for v in text.replace(",", ";").split(";") if v.strip())
+    except ValueError:
+        raise PitOptError(f"grade bins {text!r} are not numbers") from None
+
+
 def _cell(table: QTableWidget, r: int, c: int, text: str) -> None:
     item = QTableWidgetItem(text)
     item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
@@ -236,6 +244,19 @@ class PitDialog(QDialog):
         self.route_caps = QLineEdit()
         self.route_caps.setPlaceholderText("örn. 1.5 (ek yolların sırasıyla, ; ile; boş: sınırsız)")
         pf.addRow("Ek yol kapasiteleri (Mt/yıl)", self.route_caps)
+        self.bins = QLineEdit()
+        self.bins.setPlaceholderText("örn. 1.0; 2.0 (tenör sınırları; boş: tek karışık stok)")
+        self.bins.setToolTip(
+            "Stok tenör sınıfları. Tesis her yıl en yüksek sınıftan başlayarak beslenir; "
+            "düşük tenörlü cevher stokta bekler, yüksek tenörlü stok önce geri alınır."
+        )
+        pf.addRow("Stok tenör sınıfları", self.bins)
+        self.stock_caps = QLineEdit()
+        self.stock_caps.setPlaceholderText("örn. 5 (Mt, ana yol önce, ; ile; boş: sınırsız)")
+        self.stock_caps.setToolTip("Stok sahası kapasitesi; dolunca fazla cevher döküme gider.")
+        pf.addRow("Stok kapasitesi (Mt)", self.stock_caps)
+        self.rehandle = _spin(0.0, 0.0, 1e3, 0.1, 2)
+        pf.addRow("Stoktan geri yükleme maliyeti ($/t)", self.rehandle)
         pf.addRow("Pushback'ler arası basamak gecikmesi", self.lag)
         pf.addRow("Batma hızı (basamak/yıl)", self.sinking)
         left.addWidget(pb)
@@ -286,7 +307,7 @@ class PitDialog(QDialog):
         )
         gl.addWidget(self.shells, 1)
         right.addTab(graph_page, "Kabuk raporu")
-        self.sched_table = QTableWidget(0, 9)
+        self.sched_table = QTableWidget(0, 11)
         self.sched_table.setHorizontalHeaderLabels(
             [
                 "Yıl",
@@ -296,6 +317,8 @@ class PitDialog(QDialog):
                 "Besleme tenörü",
                 "Metal",
                 "Stok Mt",
+                "Stoktan Mt",
+                "Atığa cevher Mt",
                 "Nakit M$",
                 "İskontolu M$",
             ]
@@ -535,6 +558,9 @@ class PitDialog(QDialog):
             sinking_rate=self.sinking.value(),
             discount_rate=self.discount.value() / 100.0,
             route_capacities=parse_capacities(self.route_caps.text()),
+            grade_bins=parse_bins(self.bins.text()),
+            stockpile_capacities=parse_capacities(self.stock_caps.text()),
+            rehandle_cost=self.rehandle.value(),
         )
         self.sched = schedule_constrained(self.pit, self.phase, limits)
         self.flow = cash_flow(self.sched.rows, self.terms()) if self.sched.rows else None
@@ -555,6 +581,8 @@ class PitDialog(QDialog):
                 "" if math.isnan(p.feed_grade) else f"{p.feed_grade:.3f}",
                 f"{p.metal:,.0f}",
                 _m(p.stockpile_t),
+                _m(p.reclaimed_t),
+                _m(p.discarded_t),
                 _m(p.cash),
                 _m(p.discounted),
             ]
@@ -566,8 +594,10 @@ class PitDialog(QDialog):
         _cell(self.sched_table, total, 2, _m(sum(p.ore_mined_t for p in rows)))
         _cell(self.sched_table, total, 3, _m(sum(p.ore_fed_t for p in rows)))
         _cell(self.sched_table, total, 5, f"{sum(p.metal for p in rows):,.0f}")
-        _cell(self.sched_table, total, 7, _m(sum(p.cash for p in rows)))
-        _cell(self.sched_table, total, 8, _m(self.sched.npv))
+        _cell(self.sched_table, total, 7, _m(sum(p.reclaimed_t for p in rows)))
+        _cell(self.sched_table, total, 8, _m(sum(p.discarded_t for p in rows)))
+        _cell(self.sched_table, total, 9, _m(sum(p.cash for p in rows)))
+        _cell(self.sched_table, total, 10, _m(self.sched.npv))
         self.sched_table.resizeColumnsToContents()
         grid = BlockModel.open(self.project, self.model.currentText()).grid
         self.inventory = bench_inventory(
@@ -586,6 +616,11 @@ class PitDialog(QDialog):
             f"Çizelge NPV {self.sched.npv / 1e6:,.1f} M$."
             + (_project_summary(self.flow) if self.flow is not None else "")
             + width_note
+            + (
+                f"\nUyarı: stok sahası doldu, {lost / 1e6:,.2f} Mt cevher döküme gitti."
+                if (lost := sum(p.discarded_t for p in rows)) > 1
+                else ""
+            )
             + (
                 f"\nUyarı: {self.sched.unmined_t / 1e6:,.2f} Mt {limits.max_periods} yılda "
                 "kazılamadı."
@@ -748,6 +783,8 @@ def write_pit_reports_xlsx(
                 "Besleme tenörü",
                 "Metal",
                 "Stok t",
+                "Stoktan t",
+                "Atığa cevher t",
                 "Nakit",
                 "İskontolu nakit",
             ],
@@ -760,6 +797,8 @@ def write_pit_reports_xlsx(
                     p.feed_grade,
                     p.metal,
                     p.stockpile_t,
+                    p.reclaimed_t,
+                    p.discarded_t,
                     p.cash,
                     p.discounted,
                 ]
@@ -819,6 +858,8 @@ def write_pit_reports(path: Path, result: PitResult, sched: ConstrainedSchedule 
                     "feed_grade",
                     "metal",
                     "stockpile_t",
+                    "reclaimed_t",
+                    "discarded_t",
                     "cash",
                     "discounted",
                 ]
@@ -833,6 +874,8 @@ def write_pit_reports(path: Path, result: PitResult, sched: ConstrainedSchedule 
                         f"{p.feed_grade:.5g}",
                         f"{p.metal:.3f}",
                         f"{p.stockpile_t:.0f}",
+                        f"{p.reclaimed_t:.0f}",
+                        f"{p.discarded_t:.0f}",
                         f"{p.cash:.0f}",
                         f"{p.discounted:.0f}",
                     ]

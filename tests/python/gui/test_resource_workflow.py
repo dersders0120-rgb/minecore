@@ -197,7 +197,7 @@ def test_pit_dialog_shells_pushbacks_and_save(qapp: QApplication, tmp_path: Path
     _export_pit_from_main_window(tmp_path / "pit.mcproj", tmp_path / "ocak.dxf")
 
 
-def test_pit_dialog_values_co_products(qapp: QApplication, tmp_path: Path) -> None:
+def _gold_silver_dialog(tmp_path: Path, notes: list[str]) -> tuple[Project, PitDialog, QWidget]:
     from minecore.blockmodel import Grid  # noqa: PLC0415
     from minecore.gui.pit import PitDialog  # noqa: PLC0415
 
@@ -210,8 +210,36 @@ def test_pit_dialog_values_co_products(qapp: QApplication, tmp_path: Path) -> No
     )
     parent = QWidget()
     dialog = PitDialog(project, parent)
-    dialog.inform = lambda title, text: None  # type: ignore[method-assign]
+    dialog.inform = lambda title, text: notes.append(text)  # type: ignore[method-assign]
     dialog.grade.setCurrentText("au")
+    return project, dialog, parent
+
+
+def test_pit_dialog_stockpile_bins_and_capacity(qapp: QApplication, tmp_path: Path) -> None:
+    notes: list[str] = []
+    project, dialog, _parent = _gold_silver_dialog(tmp_path, notes)
+    dialog.price.setValue(1800.0)
+    dialog.coproducts.setText("ag:25:ozt:70:95")
+    dialog.run()
+    assert dialog.pit is not None
+    dialog.plant.setValue(0.02)
+    dialog.min_ore.setValue(0.02)
+    dialog.bins.setText("0.3; 0.5")
+    dialog.stock_caps.setText("0.01")
+    dialog.rehandle.setValue(1.0)
+    dialog.make_phases()
+    assert dialog.sched is not None
+    rows = dialog.sched.rows
+    assert sum(r.reclaimed_t for r in rows) > 0
+    assert sum(r.discarded_t for r in rows) > 0
+    assert max(r.stockpile_t for r in rows) <= 0.01e6 * (1 + 1e-9)
+    assert len(rows[0].stock_by_bin) == 3
+    assert any("döküme" in n for n in notes)
+    project.close()
+
+
+def test_pit_dialog_values_co_products(qapp: QApplication, tmp_path: Path) -> None:
+    project, dialog, _parent = _gold_silver_dialog(tmp_path, [])
     dialog.price.setValue(1800.0)
     dialog.run()
     assert dialog.pit is not None

@@ -317,6 +317,22 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
         default=[],
         help="ore t/year of each extra route, in --route order (with --plant)",
     )
+    opt.add_argument(
+        "--grade-bins",
+        type=float,
+        nargs="+",
+        default=[],
+        metavar="EDGE",
+        help="feed-grade edges of the stockpile bins, ascending (with --plant)",
+    )
+    opt.add_argument(
+        "--stockpile-capacity",
+        type=float,
+        action="append",
+        default=[],
+        help="stockpile t of each route, main route first (with --plant; default unlimited)",
+    )
+    opt.add_argument("--rehandle-cost", type=float, default=0.0, help="per t reclaimed")
     des = pit_cmds.add_parser("design", help="bench design around the optimised pit")
     des.add_argument("project")
     des.add_argument("model")
@@ -894,6 +910,9 @@ def pit_optimise(project: Project, args: argparse.Namespace, out: TextIO) -> int
             args.sinking,
             args.discount,
             route_capacities=tuple(args.route_capacity),
+            grade_bins=tuple(args.grade_bins),
+            stockpile_capacities=tuple(args.stockpile_capacity),
+            rehandle_cost=args.rehandle_cost,
         )
         sched = schedule_constrained(result, phase, limits)
         flow = cash_flow(sched.rows, terms)
@@ -943,6 +962,11 @@ def pit_optimise(project: Project, args: argparse.Namespace, out: TextIO) -> int
     out.write(
         f"pushbacks: {int(phase.max())}; schedule: {len(sched.rows)} years; NPV {sched.npv:,.0f}\n"
     )
+    if isinstance(sched, ConstrainedSchedule):
+        reclaimed = sum(p.reclaimed_t for p in sched.rows)
+        lost = sum(p.discarded_t for p in sched.rows)
+        if reclaimed > 0 or lost > 0:
+            out.write(f"stockpiles: {reclaimed:,.0f} t reclaimed, {lost:,.0f} t ore to waste\n")
     if flow is not None:
         _write_cash_flow(flow, out)
     return 0
