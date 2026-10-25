@@ -1,8 +1,9 @@
 """MineCore workbench: the first desktop window (Turkish UI).
 
-Scope of this first release: create/open a project, import drillhole files,
-review the validation report, view holes in 3D coloured by a field, composite
-and export. Every action calls the same public API as scripts do.
+Scope: create/open a project, import drillhole files, review the validation
+report, view holes in 3D coloured by a field, composite and export; define a
+block model, model variograms, estimate grades (NN, IDW, OK), view blocks in
+3D above a cut-off and report grade-tonnage. Every action calls the same public API as scripts do.
 """
 
 from __future__ import annotations
@@ -43,6 +44,8 @@ from PySide6.QtWidgets import (
 )
 
 from minecore import __version__
+from minecore.blockmodel import BlockModel
+from minecore.blockmodel.workflow import load_variograms
 from minecore.drillholes import (
     CATALOGUE,
     DrillholeDatabase,
@@ -54,6 +57,14 @@ from minecore.drillholes import (
 )
 from minecore.drillholes.importer import ImportOptions, import_folder, import_table
 from minecore.drillholes.workflow import composite_table, hole_geometry, save_composites
+from minecore.gui.resource import (
+    BlockModelDialog,
+    EstimationDialog,
+    GradeTonnageDialog,
+    VariogramDialog,
+    block_models,
+    export_block_model_csv,
+)
 from minecore.project import Project
 
 SAMPLE_DIR = Path(__file__).resolve().parent / "sample"
@@ -165,6 +176,17 @@ class MainWindow(QMainWindow):
         self.color_by.setMinimumWidth(260)
         self.color_by.currentIndexChanged.connect(self.redraw)
         bar.addWidget(self.color_by)
+        bar.addSpacing(20)
+        bar.addWidget(QLabel("Blok:"))
+        self.block_by = QComboBox()
+        self.block_by.setMinimumWidth(260)
+        self.block_by.currentIndexChanged.connect(self.redraw)
+        bar.addWidget(self.block_by)
+        bar.addWidget(QLabel("Sınır tenör ≥"))
+        self.block_cutoff = QDoubleSpinBox(minimum=-1e9, maximum=1e9, value=0.0, decimals=3)
+        self.block_cutoff.setKeyboardTracking(False)
+        self.block_cutoff.valueChanged.connect(self.redraw)
+        bar.addWidget(self.block_cutoff)
         bar.addStretch(1)
         layout.addLayout(bar)
         self.view = _viewer(view_page)
@@ -207,6 +229,13 @@ class MainWindow(QMainWindow):
         action(drill, "Doğrula", self.revalidate, "F5")
         action(drill, "Kompozit oluştur...", self.composite)
         action(drill, "Tabloyu CSV olarak dışa aktar...", self.export_table)
+        bm = self.menuBar().addMenu("&Blok Modeli")
+        action(bm, "Blok modeli oluştur...", self.new_block_model)
+        action(bm, "Variogram analizi...", self.variogram)
+        action(bm, "Tenör kestirimi (NN / IDW / Kriging)...", self.estimate)
+        bm.addSeparator()
+        action(bm, "Tenör-tonaj raporu...", self.grade_tonnage)
+        action(bm, "Blok modelini CSV olarak dışa aktar...", self.export_block_model)
         help_menu = self.menuBar().addMenu("&Yardım")
         action(help_menu, "Örnek sondaj projesini aç", self.open_sample)
         action(help_menu, "Hakkında", self.about)
@@ -350,6 +379,62 @@ class MainWindow(QMainWindow):
                 writer.writerow(["" if _blank(data[c][i]) else _fmt(data[c][i]) for c in cols])
         self.statusBar().showMessage(f"{path} yazıldı.")
 
+    # -- block models --------------------------------------------------------
+
+    def _need_project(self) -> Project:
+        if self.project is None:
+            raise RuntimeError("Önce bir proje oluşturun veya açın.")
+        return self.project
+
+    def new_block_model(self) -> None:
+        project = self._need_project()
+        dialog = BlockModelDialog(self._need_db(), self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        model = BlockModel.create(project, dialog.name.text().strip(), dialog.grid())
+        self.refresh()
+        QMessageBox.information(
+            self, "Blok modeli", f"'{model.name}': {model.grid.blocks:,} blok oluşturuldu."
+        )
+
+    def variogram(self) -> None:
+        VariogramDialog(self._need_db(), self._need_project(), self).exec()
+        self.refresh()
+
+    def estimate(self) -> None:
+        project = self._need_project()
+        if not block_models(project):
+            raise RuntimeError("Önce 'Blok modeli oluştur' ile bir model tanımlayın.")
+        dialog = EstimationDialog(self._need_db(), project, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        message = dialog.run()
+        attribute = dialog.output.text().strip()
+        self.refresh()
+        index = self.block_by.findText(f"{dialog.model.currentText()} / {attribute}")
+        if index >= 0:
+            self.block_by.setCurrentIndex(index)
+        QMessageBox.information(self, "Kestirim", message)
+
+    def grade_tonnage(self) -> None:
+        project = self._need_project()
+        if not block_models(project):
+            raise RuntimeError("Projede blok modeli yok.")
+        GradeTonnageDialog(project, self).exec()
+
+    def export_block_model(self) -> None:
+        project = self._need_project()
+        names = block_models(project)
+        if not names:
+            raise RuntimeError("Projede blok modeli yok.")
+        name, ok = QInputDialog.getItem(self, "Dışa aktar", "Blok modeli:", names, 0, False)
+        if not ok:
+            return
+        path, _ = QFileDialog.getSaveFileName(self, "CSV kaydet", f"{name}.csv", "CSV (*.csv)")
+        if path:
+            rows = export_block_model_csv(Path(path), BlockModel.open(project, name))
+            self.statusBar().showMessage(f"{rows:,} blok {path} dosyasına yazıldı.")
+
     def open_sample(self) -> None:
         """Create a project from the bundled 30-hole sample (with deliberate errors)."""
         folder = QFileDialog.getExistingDirectory(self, "Örnek projenin kaydedileceği klasör")
@@ -388,9 +473,29 @@ class MainWindow(QMainWindow):
                 db_item.addChild(item)
             if self.db.tables_with_role(Role.COLLAR):
                 self.report = validate(self.db)
+        for name in block_models(self.project):
+            model = BlockModel.open(self.project, name)
+            item = QTreeWidgetItem([f"{name} (blok modeli)", f"{model.grid.blocks:,}"])
+            for attr in model.attributes:
+                item.addChild(QTreeWidgetItem([attr, ""]))
+            root.addChild(item)
+        variograms = load_variograms(self.project)
+        if variograms:
+            vg_item = QTreeWidgetItem(["Variogram modelleri", str(len(variograms))])
+            for vg_name, vg in variograms.items():
+                s = vg.structures[0] if vg.structures else None
+                text = f"C0={vg.nugget:.3g}" + (
+                    f", C1={s.sill:.3g}, a={s.ranges.major:.0f}/{s.ranges.semi:.0f}/"
+                    f"{s.ranges.minor:.0f} m"
+                    if s
+                    else ""
+                )
+                vg_item.addChild(QTreeWidgetItem([vg_name, text]))
+            root.addChild(vg_item)
         self.tree.expandAll()
         self._fill_issues()
         self._fill_color_choices()
+        self._fill_block_choices()
         self.redraw()
         if self.report is not None:
             errors = self.report.count(severity=Severity.ERROR)
@@ -434,6 +539,21 @@ class MainWindow(QMainWindow):
         self.color_by.setCurrentIndex(max(index, 0))
         self.color_by.blockSignals(False)
 
+    def _fill_block_choices(self) -> None:
+        self.block_by.blockSignals(True)
+        current = self.block_by.currentText()
+        self.block_by.clear()
+        self.block_by.addItem("(blok gösterme)")
+        if self.project is not None:
+            for name in block_models(self.project):
+                model = BlockModel.open(self.project, name)
+                self.block_by.addItem(f"{name} / (ızgara)")
+                for attr in model.attributes:
+                    self.block_by.addItem(f"{name} / {attr}")
+        index = self.block_by.findText(current)
+        self.block_by.setCurrentIndex(max(index, 0))
+        self.block_by.blockSignals(False)
+
     def _show_table_item(self, item: QTreeWidgetItem) -> None:
         name = item.data(0, Qt.ItemDataRole.UserRole)
         if not name or self.db is None:
@@ -458,14 +578,25 @@ class MainWindow(QMainWindow):
 
         self.view.clear()
         self.view.add_axes()
-        if self.db is None or self.report is None:
+        geometry = (
+            hole_geometry(self.db, self.report)
+            if self.db is not None and self.report is not None
+            else {}
+        )
+        model = self._selected_block_model()
+        if geometry:
+            origin = np.mean([g.collar for g in geometry.values()], axis=0)
+        elif model is not None:
+            origin = np.asarray(model[0].grid.origin)
+        else:
             self.view.render()
             return
-        geometry = hole_geometry(self.db, self.report)
+        if model is not None:
+            self._draw_blocks(model[0], model[1], origin)
         if not geometry:
+            self.view.reset_camera()
             self.view.render()
             return
-        origin = np.mean([g.collar for g in geometry.values()], axis=0)
         traces = []
         for g in geometry.values():
             pts = g.trace() - origin
@@ -487,6 +618,53 @@ class MainWindow(QMainWindow):
             self._draw_intervals(geometry, table_name, field_name, origin)
         self.view.reset_camera()
         self.view.render()
+
+    def _selected_block_model(self) -> tuple[BlockModel, str | None] | None:
+        choice = self.block_by.currentText()
+        if self.project is None or " / " not in choice:
+            return None
+        name, attr = choice.split(" / ", 1)
+        try:
+            model = BlockModel.open(self.project, name)
+        except Exception:
+            return None
+        return model, (None if attr == "(ızgara)" else attr)
+
+    def _draw_blocks(self, model: BlockModel, attr: str | None, origin: Any) -> None:
+        import pyvista as pv  # noqa: PLC0415
+
+        grid = model.grid
+        image = pv.ImageData(
+            dimensions=np.array(grid.count) + 1,
+            spacing=grid.size,
+            origin=np.asarray(grid.origin) - origin,
+        )
+        if attr is None:
+            self.view.add_mesh(image.outline(), color="#ffca28", line_width=2)
+            return
+        # Cell order of ImageData is i fastest, then j, then k: same as the model.
+        values = model.values(attr)
+        image.cell_data[attr] = values
+        cutoff = self.block_cutoff.value()
+        keep = np.isfinite(values) & (values >= cutoff)
+        self.view.add_mesh(image.outline(), color="#757575", line_width=1)
+        if not keep.any():
+            self.statusBar().showMessage(f"{attr}: sınır tenör üstünde blok yok.")
+            return
+        shown = image.extract_cells(keep)  # type: ignore[arg-type]
+        finite = values[np.isfinite(values)]
+        lo = max(float(np.nanpercentile(finite, 2)), cutoff)
+        hi = float(np.nanpercentile(finite, 98))
+        self.view.add_mesh(
+            shown,
+            scalars=attr,
+            cmap="turbo",
+            clim=(lo, hi if hi > lo else lo + 1.0),
+            show_edges=grid.blocks <= 200_000,
+            edge_color="#202020",
+            scalar_bar_args={"title": attr},
+        )
+        self.statusBar().showMessage(f"{attr}: {int(keep.sum()):,} blok ≥ {cutoff:g} gösteriliyor.")
 
     def _draw_intervals(
         self, geometry: dict[str, Any], table_name: str, field_name: str, origin: Any

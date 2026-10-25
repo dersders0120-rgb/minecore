@@ -815,6 +815,7 @@ wheels = [
 name = "minecore"
 source = { editable = "." }
 dependencies = [
+    { name = "matplotlib" },
     { name = "numpy" },
     { name = "pyarrow" },
     { name = "pyproj" },
@@ -835,6 +836,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "matplotlib", specifier = ">=3.9" },
     { name = "numpy", specifier = ">=2.1" },
     { name = "pyarrow", specifier = ">=21" },
     { name = "pyproj", specifier = ">=3.7" },

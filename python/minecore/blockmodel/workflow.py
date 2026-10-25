@@ -13,6 +13,7 @@ from minecore.drillholes import DrillholeDatabase, DrillholeError, FieldType, Fl
 from minecore.drillholes.workflow import hole_geometry
 from minecore.estimation import Method, Search, VariogramModel, estimate
 from minecore.jobs import Progress
+from minecore.project import Project
 
 Floats = npt.NDArray[np.float64]
 
@@ -122,3 +123,28 @@ def estimate_blocks(  # noqa: PLR0913 - options are keyword-only
         info[f"{attribute}_kv"] = {"unit": None}
     model.set_attributes(values, info, f"Estimate {attribute!r} by {method.value}")
     return result.unestimated
+
+
+VARIOGRAM_KIND = "variogram_model"
+
+
+def save_variogram(
+    project: Project, name: str, model: VariogramModel, source: dict[str, Any]
+) -> None:
+    """Store a variogram model in the project (replaces one with the same name)."""
+    meta = {"model": model.to_json(), "source": source}
+    for record in project.objects(VARIOGRAM_KIND):
+        if record.name == name:
+            project.update_object(
+                record.object_id, metadata=meta, description=f"Update variogram {name!r}"
+            )
+            return
+    project.register_object(VARIOGRAM_KIND, name, metadata=meta)
+
+
+def load_variograms(project: Project) -> dict[str, VariogramModel]:
+    """All stored variogram models by name."""
+    return {
+        r.name: VariogramModel.from_json(r.metadata["model"])
+        for r in project.objects(VARIOGRAM_KIND)
+    }
