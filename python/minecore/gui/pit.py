@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import math
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -16,10 +17,12 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
+    QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QMessageBox,
@@ -68,6 +71,15 @@ from minecore.pitopt.economics import PitOptError, parse_products, parse_routes
 from minecore.pitopt.milp import OptimisedSchedule, schedule_optimised
 from minecore.pitopt.optimise import route_tonnes, store
 from minecore.pitopt.phases import best_pushbacks
+from minecore.pitopt.scenarios import (
+    Scenario,
+    comparison,
+    delete_scenario,
+    list_scenarios,
+    results_of,
+    save_scenario,
+    write_comparison,
+)
 from minecore.pitopt.scheduling import (
     ConstrainedSchedule,
     InventoryRow,
@@ -353,6 +365,7 @@ class PitDialog(QDialog):
         self.cash_table.setHorizontalHeaderLabels(CASH_HEADERS)
         right.addTab(self.cash_table, "Nakit akışı")
         right.addTab(self._sensitivity_page(), "Duyarlılık")
+        right.addTab(self._scenario_page(), "Senaryolar")
         self.flow: CashFlow | None = None
         self.inventory: list[InventoryRow] = []
         self.tabs = right
@@ -710,6 +723,148 @@ class PitDialog(QDialog):
         else:
             target = Path(path if path.lower().endswith(".xlsx") else path + ".xlsx")
             write_pit_reports_xlsx(target, self.pit, self.sched, self.inventory, self.flow)
+
+    def _scenario_page(self) -> QWidget:
+        page = QWidget()
+        v = QVBoxLayout(page)
+        save = QPushButton("Mevcut çalışmayı senaryo olarak kaydet...")
+        save.clicked.connect(self._guard(self.save_scenario))
+        self.scenario_pick = QComboBox()
+        load = QPushButton("Girdileri yükle")
+        load.setToolTip("Seçili senaryonun tüm girdilerini forma geri yükler.")
+        load.clicked.connect(self._guard(self.load_scenario))
+        delete = QPushButton("Sil")
+        delete.clicked.connect(self._guard(self.delete_scenario))
+        export = QPushButton("Karşılaştırmayı CSV olarak kaydet...")
+        export.clicked.connect(self._guard(self.export_scenarios))
+        v.addLayout(_row(save, export))
+        v.addLayout(_row(QLabel("Senaryo"), self.scenario_pick, load, delete))
+        self.scenario_table = QTableWidget(0, 0)
+        v.addWidget(self.scenario_table, 1)
+        self.scenario_figure = Figure(figsize=(6, 3))
+        self.scenario_canvas = FigureCanvasQTAgg(self.scenario_figure)  # type: ignore[no-untyped-call]
+        v.addWidget(self.scenario_canvas, 1)
+        self._show_scenarios()
+        return page
+
+    def form_values(self) -> dict[str, Any]:
+        """Every input widget of the form by attribute name (a scenario's inputs)."""
+        out: dict[str, Any] = {}
+        for name, w in vars(self).items():
+            if name.startswith("scenario_"):
+                continue
+            if isinstance(w, QDoubleSpinBox | QSpinBox):
+                out[name] = w.value()
+            elif isinstance(w, QCheckBox):
+                out[name] = w.isChecked()
+            elif isinstance(w, QLineEdit):
+                out[name] = w.text()
+            elif isinstance(w, QComboBox):
+                out[name] = w.currentText()
+        return out
+
+    def set_form_values(self, values: dict[str, Any]) -> None:
+        if "model" in values:
+            self.model.setCurrentText(str(values["model"]))  # refills the attribute lists
+        for name, value in values.items():
+            w = getattr(self, name, None)
+            if name == "model" or w is None:
+                continue
+            if isinstance(w, QDoubleSpinBox):
+                w.setValue(float(value))
+            elif isinstance(w, QSpinBox):
+                w.setValue(int(value))
+            elif isinstance(w, QCheckBox):
+                w.setChecked(bool(value))
+            elif isinstance(w, QLineEdit):
+                w.setText(str(value))
+            elif isinstance(w, QComboBox):
+                w.setCurrentText(str(value))
+
+    def ask_name(self, default: str) -> str | None:
+        """Scenario name from the user (tests replace it)."""
+        name, ok = QInputDialog.getText(self, "Senaryo kaydet", "Senaryo adı:", text=default)
+        return name.strip() if ok and name.strip() else None
+
+    def save_scenario(self) -> None:
+        if self.pit is None:
+            raise RuntimeError("Önce kabukları hesaplayın.")
+        name = self.ask_name(f"Senaryo {len(list_scenarios(self.project)) + 1}")
+        if name is None:
+            return
+        final = int(self.final.currentData())
+        phases = int(self.phase.max()) if self.phase is not None else 0
+        save_scenario(
+            self.project,
+            Scenario(
+                name,
+                datetime.now(UTC).isoformat(timespec="seconds"),
+                self.model.currentText(),
+                self.form_values(),
+                results_of(self.pit, final, phases, self.sched, self.flow),
+            ),
+        )
+        self._show_scenarios()
+        self.scenario_pick.setCurrentText(name)
+
+    def _picked(self) -> Scenario:
+        name = self.scenario_pick.currentText()
+        for sc in list_scenarios(self.project):
+            if sc.name == name:
+                return sc
+        raise RuntimeError("Önce bir senaryo kaydedin ve seçin.")
+
+    def load_scenario(self) -> None:
+        picked = self._picked()
+        self.set_form_values(picked.inputs)
+        self.inform(
+            "Senaryo",
+            f"'{picked.name}' girdileri yüklendi. Sonuçlar için kabukları yeniden "
+            "hesaplayıp çizelge oluşturun.",
+        )
+
+    def delete_scenario(self) -> None:
+        delete_scenario(self.project, self._picked().name)
+        self._show_scenarios()
+
+    def export_scenarios(self) -> None:
+        scenarios = list_scenarios(self.project)
+        if not scenarios:
+            raise RuntimeError("Kayıtlı senaryo yok.")
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Karşılaştırmayı kaydet", "senaryolar.csv", "CSV (*.csv)"
+        )
+        if path:
+            write_comparison(Path(path), scenarios)
+
+    def _show_scenarios(self) -> None:
+        scenarios = list_scenarios(self.project)
+        current = self.scenario_pick.currentText()
+        self.scenario_pick.clear()
+        self.scenario_pick.addItems([s.name for s in scenarios])
+        if current:
+            self.scenario_pick.setCurrentText(current)
+        table = comparison(scenarios)
+        self.scenario_table.setColumnCount(len(table[0]))
+        self.scenario_table.setRowCount(len(table) - 1)
+        self.scenario_table.setHorizontalHeaderLabels(["Gösterge", *table[0][1:]])
+        for r, row in enumerate(table[1:]):
+            for c, text in enumerate(row):
+                _cell(self.scenario_table, r, c, text)
+        self.scenario_figure.clear()
+        if scenarios:
+            ax = self.scenario_figure.add_subplot(111)
+            names = [s.name for s in scenarios]
+            bars = ((-0.2, "schedule_npv", "Çizelge NPV"), (0.2, "project_npv", "Proje NPV"))
+            for offset, key, label in bars:
+                values = [(s.results.get(key) or 0.0) / 1e6 for s in scenarios]
+                ax.bar([i + offset for i in range(len(names))], values, width=0.4, label=label)
+            ax.set_xticks(range(len(names)), names)
+            ax.set_ylabel("M$")
+            ax.axhline(0.0, color="0.6", linewidth=0.8)
+            ax.legend()
+            self.scenario_figure.tight_layout()
+        self.scenario_canvas.draw_idle()  # type: ignore[no-untyped-call]
 
     def _sensitivity_page(self) -> QWidget:
         page = QWidget()

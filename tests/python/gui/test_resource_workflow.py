@@ -768,3 +768,29 @@ def test_rotated_block_model_dialog_and_3d_cells(qapp: QApplication, tmp_path: P
     centres = np.asarray(mesh.cell_centers().points) + origin
     np.testing.assert_allclose(centres, grid.centroids(), atol=1e-6)
     project.close()
+
+
+def test_pit_dialog_scenarios(qapp: QApplication, tmp_path: Path) -> None:
+    from minecore.pitopt.scenarios import list_scenarios  # noqa: PLC0415
+
+    project, dialog, _parent = _gold_silver_dialog(tmp_path, [])
+    dialog.price.setValue(1800.0)
+    dialog.run()
+    dialog.plant.setValue(0.02)
+    dialog.min_ore.setValue(0.02)
+    dialog.make_phases()
+    dialog.ask_name = lambda default: "baz"  # type: ignore[method-assign]
+    dialog.save_scenario()
+    dialog.price.setValue(2200.0)
+    dialog.run()
+    dialog.make_phases()
+    dialog.ask_name = lambda default: "yüksek fiyat"  # type: ignore[method-assign]
+    dialog.save_scenario()
+    assert [s.name for s in list_scenarios(project)] == ["baz", "yüksek fiyat"]
+    assert dialog.scenario_table.columnCount() == 3
+    dialog.scenario_pick.setCurrentText("baz")
+    dialog.load_scenario()
+    assert dialog.price.value() == 1800.0
+    dialog.delete_scenario()
+    assert [s.name for s in list_scenarios(project)] == ["yüksek fiyat"]
+    project.close()

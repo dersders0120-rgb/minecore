@@ -152,6 +152,15 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
   NSR) with selling costs unchanged; recovery is capped at 100 %. Scenarios
   are not stored in the project; each run is recomputed.
 
+## Pit scenarios
+
+- `pitopt.scenarios` (GUI "Senaryolar", CLI `pit optimise --save-scenario`,
+  `pit scenarios`): a scenario keeps the form inputs and headline numbers in
+  the project settings. Results are a snapshot: they are not recomputed when
+  the model changes, and reloading inputs does not rerun the study. No
+  block-level results (shells, schedules) are kept per scenario; comparison
+  covers headline metrics only. Lightly tested (save, list, load, delete).
+
 ## Cut-off grade optimisation (Lane)
 
 - `pitopt.cutoff`: Lane's method with mine, mill and market capacities, fixed

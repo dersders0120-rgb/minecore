@@ -20,6 +20,7 @@ import argparse
 import json
 import math
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, TextIO
 
@@ -59,6 +60,15 @@ from minecore.pitopt.economics import PitOptError, parse_products, parse_routes
 from minecore.pitopt.milp import OptimisedSchedule, schedule_optimised
 from minecore.pitopt.optimise import PitResult, Schedule, route_tonnes, store
 from minecore.pitopt.phases import best_pushbacks
+from minecore.pitopt.scenarios import (
+    Scenario,
+    comparison,
+    delete_scenario,
+    list_scenarios,
+    results_of,
+    save_scenario,
+    write_comparison,
+)
 from minecore.pitopt.scheduling import ConstrainedSchedule, Limits, schedule_constrained
 from minecore.pitopt.sensitivity import (
     Case,
@@ -280,6 +290,9 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     opt.add_argument("project")
     opt.add_argument("model")
     opt.add_argument("grade")
+    opt.add_argument(
+        "--save-scenario", metavar="NAME", help="keep inputs and results as a scenario"
+    )
     opt.add_argument("--price", type=float)
     opt.add_argument("--price-unit", choices=[u.value for u in PriceUnit])
     opt.add_argument("--recovery", type=float, help="fraction, e.g. 0.9")
@@ -412,6 +425,10 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
         metavar="AZ:FACE:BERM",
         help="geotechnical sector from azimuth AZ (0 = north wall); repeat for each sector",
     )
+    scn = pit_cmds.add_parser("scenarios", help="list, compare or delete saved pit scenarios")
+    scn.add_argument("project")
+    scn.add_argument("--delete", metavar="NAME")
+    scn.add_argument("--csv", help="write the side-by-side comparison to a CSV file")
     per = pit_cmds.add_parser("periods", help="end-of-period surfaces from the schedule")
     per.add_argument("project")
     per.add_argument("model")
@@ -887,6 +904,15 @@ def pit_command(args: argparse.Namespace, out: TextIO) -> int:
             return pit_design(project, args, out)
         if args.pit_command == "cutoff":
             return pit_cutoff(project, args, out)
+        if args.pit_command == "scenarios":
+            if args.delete:
+                delete_scenario(project, args.delete)
+            scenarios = list_scenarios(project)
+            if args.csv:
+                write_comparison(Path(args.csv), scenarios)
+            for row in comparison(scenarios):
+                out.write(" | ".join(f"{c:>18}" for c in row) + "\n")
+            return 0
         if args.pit_command == "periods":
             ends = period_surfaces(
                 project,
@@ -899,6 +925,36 @@ def pit_command(args: argparse.Namespace, out: TextIO) -> int:
                 out.write(f"{e.name}: {e.blocks} blocks (cumulative {e.cumulative_blocks})\n")
             return 0
         return pit_optimise(project, args, out)
+
+
+def _save_scenario(  # noqa: PLR0913, PLR0917 - the parts of one study
+    project: Project,
+    args: argparse.Namespace,
+    result: PitResult,
+    final: int,
+    phase: npt.NDArray[np.int64],
+    sched: Schedule | ConstrainedSchedule,
+    flow: CashFlow | None,
+) -> None:
+    if not args.save_scenario:
+        return
+    inputs = {k: v for k, v in vars(args).items() if k not in ("func", "project")}
+    save_scenario(
+        project,
+        Scenario(
+            args.save_scenario,
+            datetime.now(UTC).isoformat(timespec="seconds"),
+            args.model,
+            json.loads(json.dumps(inputs, default=str)),
+            results_of(
+                result,
+                final,
+                int(phase.max()) if phase.size else 0,
+                sched if isinstance(sched, ConstrainedSchedule) else None,
+                flow,
+            ),
+        ),
+    )
 
 
 def pit_optimise(project: Project, args: argparse.Namespace, out: TextIO) -> int:
@@ -997,6 +1053,7 @@ def pit_optimise(project: Project, args: argparse.Namespace, out: TextIO) -> int
     else:
         sched = schedule(result, phase, args.rate, args.discount)
     store(model, result, econ, slope, phase, sched)
+    _save_scenario(project, args, result, final, phase, sched, flow)
     edge = edge_blocks(model.grid, result.shell > 0)
     if edge:
         sys.stderr.write(

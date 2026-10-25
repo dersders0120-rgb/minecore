@@ -69,6 +69,9 @@ GUIDE = """
    **Proje nakit akışı** bölümünde yatırım (ör. `0:250; 4:40`, yıl:M$), sabit gider,
    kapanış maliyeti, vergi ve amortisman girilir; "Nakit akışı" sekmesi yıl yıl FAVÖK,
    vergi, nakit akışı ve proje NPV, İVO (IRR) ve geri ödeme süresini verir.
+   "Senaryolar" sekmesi çalışmayı adıyla kaydeder (tüm girdiler ve ana sonuçlar
+   projede saklanır), senaryoları yan yana tablo ve NPV grafiği ile karşılaştırır,
+   bir senaryonun girdilerini forma geri yükler ve karşılaştırmayı CSV'ye yazar.
    "Duyarlılık" sekmesi fiyat, madencilik ve zenginleştirme maliyeti, kazanım, iskonto
    ve yatırımın ±% değişiminde proje NPV'sini tablo ve örümcek grafiği olarak verir
    (sabit ocak tasarımı veya her durumda yeniden optimize edilen ocak).
