@@ -17,7 +17,9 @@ classifiers = [
     "Operating System :: Microsoft :: Windows",
     "Operating System :: POSIX :: Linux",
 ]
-dependencies = []
+dependencies = [
+    "numpy>=2.1",
+]
 
 [project.scripts]
 minecore = "minecore.cli:main"

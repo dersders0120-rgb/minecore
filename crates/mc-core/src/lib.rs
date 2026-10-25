@@ -8,6 +8,8 @@
 //! Dependency rule: domain modules and the desktop workbench depend on this
 //! crate; this crate never depends on them.
 
+pub mod units;
+
 /// Version of the core engine, taken from the workspace manifest.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 

@@ -46,8 +46,10 @@ several crates when compile time or ownership boundaries justify it (ADR).
   declare the source convention explicitly; nothing is guessed.
 - **Downhole intervals:** depths in metres along the hole from the collar;
   intervals are half-open [from, to).
-- **Quantities:** SI internally (m, m^3, t, t/m^3). Grades always carry an
-  explicit unit (%, ppm, ppb, g/t, ...). No unit-less numeric attribute is stored.
+- **Quantities (ADR-0003):** every numeric attribute has a unit and a quantity
+  kind (`mc-core::units`). Attributes keep their declared unit (e.g. Au in
+  g/t); geometry is always in metres. Conversion factors are exact rationals.
+  Grades always declare their unit. No unit-less numeric attribute is stored.
 - **Missing and censored values:** stored as nulls with a reason code, never as
   sentinels (-99, -999). Below-detection values keep the detection limit and a
   flag; the substitution policy is an explicit, logged parameter.
