@@ -12,8 +12,8 @@ Updated: 2026-10-25 ~05:00 UTC (architect, thread "Build block model and estimat
 - Open-source libraries welcome if permissive (MIT/BSD/Apache); no GPL.
 
 ## State
-- `main`: PRs #1-#22 merged (PR #21-#22: process routes in pit optimisation
-  and per-route plant capacity in the scheduler).
+- `main`: PRs #1-#23 merged (PR #21-#22: process routes in pit optimisation
+  and per-route plant capacity in the scheduler; PR #23: ore drives).
 - Overnight additions (PR #15-#20): string import and section linking, user
   guide (F1), re-blocking, Lane cut-off optimisation, partial-block solid
   fractions and weighted reports, solid CLI, CLI swath, spiral haul ramp in
@@ -49,7 +49,8 @@ Updated: 2026-10-25 ~05:00 UTC (architect, thread "Build block model and estimat
 2. Rotated block models and sub-cells (contract change in mc-core: needs an ADR).
 3. Pit design: switchback ramps, multiple pit bottoms, blended sector changes.
 4. Routes and stockpiles in Lane; re-routing ore when a route is full.
-5. Underground: ore drives, stope shapes beyond grid boxes, development schedule.
+5. Underground: stope shapes beyond grid boxes, footwall drives and drawpoints,
+   development schedule.
 6. Interoperability: OMF export (check licence of the `omf` package first).
 
 ## Owner owes

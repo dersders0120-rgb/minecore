@@ -9,7 +9,10 @@ Layout (a common footwall spiral):
   point of the spiral circle, then the decline spirals around the centre at
   constant ``radius`` and ``gradient`` down to the deepest level;
 * at every level elevation a horizontal crosscut runs from the decline to the
-  nearest ore block centroid of that level.
+  nearest ore block centroid of that level;
+* from there an ore drive runs along strike (the principal plan direction of
+  that level's ore blocks) over the full extent of the level's ore, through
+  the crosscut's end point (``ore_drives``).
 
 Quantities are reported as metres and excavated volume/tonnes for given
 drive sizes. This is a concept layout: no ventilation, sumps, stockpile
@@ -43,6 +46,7 @@ class DeclineDesign:
     height: float = 5.5  # drive height, m
     density: float = 2.7  # t/m3 of waste rock
     clockwise: bool = True  # spiral direction going down
+    ore_drives: bool = True  # drive along strike on every level
 
     def __post_init__(self) -> None:
         if not 0.01 <= self.gradient <= 0.25:
@@ -57,6 +61,11 @@ class LevelAccess:
     start: Floats  # on the decline
     end: Floats  # nearest ore block centroid on the level
     length: float
+    drive: Floats | None = None  # 2 x 3 ore drive end points, through ``end``
+
+    @property
+    def drive_length(self) -> float:
+        return 0.0 if self.drive is None else float(np.linalg.norm(self.drive[1] - self.drive[0]))
 
 
 @dataclass(frozen=True)
@@ -75,8 +84,12 @@ class Development:
         return float(sum(a.length for a in self.accesses))
 
     @property
+    def drive_length(self) -> float:
+        return float(sum(a.drive_length for a in self.accesses))
+
+    @property
     def total_length(self) -> float:
-        return self.decline_length + self.crosscut_length
+        return self.decline_length + self.crosscut_length + self.drive_length
 
     @property
     def volume(self) -> float:
@@ -91,6 +104,11 @@ class Development:
         lines += [
             Polyline(f"XCUT_{a.elevation:.0f}", np.vstack([a.start, a.end]), closed=False)
             for a in self.accesses
+        ]
+        lines += [
+            Polyline(f"DRIVE_{a.elevation:.0f}", a.drive, closed=False)
+            for a in self.accesses
+            if a.drive is not None and a.drive_length > 0
         ]
         return lines
 
@@ -125,8 +143,24 @@ def design_development(  # noqa: PLR0913 - options are keyword-only
         start = np.array([line[k, 0], line[k, 1], level])
         j = int(np.argmin(np.linalg.norm(on_level[:, :2] - start[:2], axis=1)))
         end = np.array([on_level[j, 0], on_level[j, 1], level])
-        accesses.append(LevelAccess(level, start, end, float(np.linalg.norm(end - start))))
+        drive = _ore_drive(on_level, end) if design.ore_drives else None
+        accesses.append(LevelAccess(level, start, end, float(np.linalg.norm(end - start)), drive))
     return Development(line, tuple(accesses), c, design)
+
+
+def _ore_drive(on_level: Floats, through: Floats) -> Floats:
+    """Drive along the principal plan axis of the level's ore, through ``through``."""
+    xy = on_level[:, :2]
+    if len(xy) < 2:
+        return np.vstack([through, through])
+    centred = xy - xy.mean(axis=0)
+    _, _, vt = np.linalg.svd(centred, full_matrices=False)
+    strike = vt[0]
+    t = (xy - through[:2]) @ strike
+    a = through[:2] + t.min() * strike
+    b = through[:2] + t.max() * strike
+    z = through[2]
+    return np.array([[a[0], a[1], z], [b[0], b[1], z]])
 
 
 def _spiral_centre(ore: Floats, portal: Floats, design: DeclineDesign) -> Floats:

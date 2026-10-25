@@ -6,6 +6,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QFileDialog,
@@ -169,6 +170,9 @@ class DeclineDialog(QDialog):
         form.addRow("Cevherden uzaklık (m)", self.standoff)
         form.addRow("Galeri genişliği / yüksekliği (m)", _row(self.drive_w, self.drive_h))
         form.addRow("Spiral yönü", self.direction)
+        self.drives = QCheckBox("Her katta cevher doğrultusunda galeri (ore drive)")
+        self.drives.setChecked(True)
+        form.addRow(self.drives)
         run = QPushButton("Dekline ve kat galerilerini tasarla")
         run.clicked.connect(self._guard(lambda: self.run(None)))
         export = QPushButton("DXF olarak kaydet...")
@@ -210,6 +214,7 @@ class DeclineDialog(QDialog):
             self.drive_w.value(),
             self.drive_h.value(),
             clockwise=self.direction.currentIndex() == 0,
+            ore_drives=self.drives.isChecked(),
         )
         self.dev = d = development_from_model(
             BlockModel.open(self.project, self.model.currentText()),
@@ -223,7 +228,8 @@ class DeclineDialog(QDialog):
         )
         self.text.setText(
             f"Dekline {d.decline_length:,.0f} m, {len(d.accesses)} kat galerisi "
-            f"{d.crosscut_length:,.0f} m; toplam {d.total_length:,.0f} m, "
+            f"{d.crosscut_length:,.0f} m, cevher galerileri {d.drive_length:,.0f} m; "
+            f"toplam {d.total_length:,.0f} m, "
             f"{d.volume:,.0f} m³ ({d.tonnes:,.0f} t) kazı. Çizgiler 'dekline' adıyla "
             "kaydedildi (3B görünümde)."
         )

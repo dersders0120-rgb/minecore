@@ -227,7 +227,7 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     ug.add_argument("--rock")
     ug.add_argument("--dxf")
 
-    dec = commands.add_parser("decline", help="underground decline and level crosscuts")
+    dec = commands.add_parser("decline", help="underground decline, level crosscuts and ore drives")
     dec.add_argument("project")
     dec.add_argument("model")
     dec.add_argument("--portal", type=float, nargs=3, required=True, metavar=("X", "Y", "Z"))
@@ -240,6 +240,7 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     dec.add_argument("--drive", type=float, nargs=2, default=[5.0, 5.5], metavar=("W", "H"))
     dec.add_argument("--density", type=float, default=2.7)
     dec.add_argument("--anticlockwise", action="store_true")
+    dec.add_argument("--no-drives", action="store_true", help="crosscuts only, no ore drives")
     dec.add_argument("--dxf")
     dec.add_argument("--save", default="dekline", help="store centrelines as a string set")
 
@@ -453,6 +454,7 @@ def decline_command(args: argparse.Namespace, out: TextIO) -> int:
             args.drive[1],
             args.density,
             not args.anticlockwise,
+            not args.no_drives,
         )
         dev = development_from_model(
             BlockModel.open(project, args.model),
@@ -466,9 +468,13 @@ def decline_command(args: argparse.Namespace, out: TextIO) -> int:
             save_as=args.save,
         )
         for a in dev.accesses:
-            out.write(f"level {a.elevation:.1f}: crosscut {a.length:,.0f} m\n")
+            out.write(
+                f"level {a.elevation:.1f}: crosscut {a.length:,.0f} m, "
+                f"ore drive {a.drive_length:,.0f} m\n"
+            )
         out.write(
             f"decline {dev.decline_length:,.0f} m, crosscuts {dev.crosscut_length:,.0f} m, "
+            f"ore drives {dev.drive_length:,.0f} m, "
             f"total {dev.total_length:,.0f} m, {dev.volume:,.0f} m3, {dev.tonnes:,.0f} t\n"
         )
     return 0

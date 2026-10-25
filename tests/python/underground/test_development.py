@@ -47,6 +47,35 @@ def test_decline_rules(clockwise: bool) -> None:
         assert a.length == pytest.approx(np.linalg.norm(a.end - a.start))
         assert a.length >= 40.0 - 1e-6
     assert dev.volume == pytest.approx(dev.total_length * 5.0 * 5.5)
+    # Ore drives along strike (x) through the crosscut end, over the level's ore extent.
+    for a in dev.accesses:
+        assert a.drive is not None
+        assert np.allclose(a.drive[:, 1], a.end[1])
+        assert np.allclose(a.drive[:, 2], a.elevation)
+        assert sorted(a.drive[:, 0]) == pytest.approx([2.5, 37.5])
+        assert a.drive_length == pytest.approx(35.0)
+    assert dev.drive_length == pytest.approx(35.0 * len(dev.accesses))
+    assert dev.total_length == pytest.approx(
+        dev.decline_length + dev.crosscut_length + dev.drive_length
+    )
+    layers = {p.layer for p in dev.polylines()}
+    assert "DRIVE_-118" in layers or "DRIVE_-117" in layers
+
+
+def test_inclined_strike_and_no_drives() -> None:
+    # Ore along a 30 degree strike in plan.
+    s = np.arange(0.0, 60.0, 5.0)
+    ang = np.radians(30.0)
+    ore = np.column_stack([s * np.cos(ang), s * np.sin(ang), np.full(s.size, -100.0)])
+    dev = design_development(ore, (200.0, 0.0, 0.0), [-100.0], DeclineDesign())
+    (a,) = dev.accesses
+    assert a.drive is not None
+    d = a.drive[1] - a.drive[0]
+    assert abs(np.degrees(np.arctan2(d[1], d[0])) % 180.0 - 30.0) < 1e-6
+    assert a.drive_length == pytest.approx(55.0)
+    off = design_development(ore, (200.0, 0.0, 0.0), [-100.0], DeclineDesign(ore_drives=False))
+    assert off.accesses[0].drive is None
+    assert off.drive_length == 0.0
 
 
 def test_validation() -> None:
