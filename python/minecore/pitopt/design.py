@@ -171,3 +171,18 @@ def export_pit(  # noqa: PLR0913 - options are keyword-only
     if save_surface:
         surfaces.save_surface(project, save_surface, mined_out)
     return PitExport(last, int(mined.sum()), solid.volume(), len(lines), mined_out)
+
+
+def edge_blocks(grid: Grid, mined: Mask) -> int:
+    """Mined blocks on the lateral faces of the model.
+
+    The optimiser cannot see slope constraints beyond the model, so a pit
+    that reaches the side of the model is probably truncated: build a wider
+    model (padding) before trusting it.
+    """
+    nx, ny, nz = grid.count
+    cube = np.asarray(mined, bool).reshape(nz, ny, nx)
+    side = np.zeros_like(cube)
+    side[:, 0, :] = side[:, -1, :] = True
+    side[:, :, 0] = side[:, :, -1] = True
+    return int((cube & side).sum())

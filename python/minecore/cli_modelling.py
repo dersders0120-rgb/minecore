@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Any, TextIO
 
@@ -39,7 +40,7 @@ from minecore.drillholes.workflow import composite_table, hole_geometry, save_co
 from minecore.estimation import Ellipsoid, Method, Search, experimental, fit_spherical
 from minecore.pitopt import Economics, PriceUnit, SlopeProfile, optimise_pit, pushbacks, schedule
 from minecore.pitopt.benchdesign import BenchGeometry, design_from_model
-from minecore.pitopt.design import export_pit
+from minecore.pitopt.design import edge_blocks, export_pit
 from minecore.pitopt.economics import PitOptError
 from minecore.pitopt.optimise import Schedule, store
 from minecore.pitopt.scheduling import ConstrainedSchedule, Limits, schedule_constrained
@@ -433,6 +434,12 @@ def pit_command(args: argparse.Namespace, out: TextIO) -> int:
         else:
             sched = schedule(result, phase, args.rate, args.discount)
         store(model, result, econ, slope, phase, sched)
+        edge = edge_blocks(model.grid, result.shell > 0)
+        if edge:
+            sys.stderr.write(
+                f"warning: the largest shell touches the model side with {edge} blocks; "
+                "it may be truncated (create the model with padding)\n"
+            )
         if args.json:
             json.dump(
                 {

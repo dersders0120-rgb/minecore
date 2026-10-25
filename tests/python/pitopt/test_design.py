@@ -11,7 +11,7 @@ from hypothesis.extra.numpy import arrays
 
 from minecore.blockmodel import Grid
 from minecore.io.dxf import Polyline, write_dxf
-from minecore.pitopt.design import _loops, bench_outlines, pit_solid, pit_surface
+from minecore.pitopt.design import _loops, bench_outlines, edge_blocks, pit_solid, pit_surface
 from minecore.solids import read_dxf_3dfaces
 from minecore.surfaces import Surface
 
@@ -90,3 +90,11 @@ def test_open_polyline_flag(tmp_path: Path) -> None:
     i = lines.index("POLYLINE")
     assert lines[i + 2] == "A_B"
     assert lines[lines.index("70", i) + 1] == "8"
+
+
+def test_edge_blocks() -> None:
+    grid, mined = _box_grid()
+    assert edge_blocks(grid, mined) == 0
+    wide = mined.reshape(6, 8, 8).copy()
+    wide[5, 0, 3] = True
+    assert edge_blocks(grid, wide.ravel()) == 1

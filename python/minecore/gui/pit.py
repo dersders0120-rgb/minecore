@@ -43,6 +43,7 @@ from minecore.pitopt import (
     pushbacks,
 )
 from minecore.pitopt.benchdesign import BenchGeometry, DesignReport, design_from_model
+from minecore.pitopt.design import edge_blocks
 from minecore.pitopt.optimise import store
 from minecore.pitopt.scheduling import ConstrainedSchedule, Limits, schedule_constrained
 from minecore.pitopt.width import apply_mining_width
@@ -317,6 +318,14 @@ class PitDialog(QDialog):
         )
         self.phase, self.sched = None, None
         self._show_shells()
+        edge = edge_blocks(model.grid, self.pit.shell > 0)
+        if edge:
+            self.inform(
+                "Ocak",
+                f"Uyarı: en büyük kabuk {edge:,} blokla modelin yan sınırına değiyor. "
+                "Model dışındaki şev kısıtları görülemez; kabuk kesik olabilir. "
+                "Blok modelini daha geniş (dolgu payı ile) oluşturun.",
+            )
 
     def _show_shells(self) -> None:
         r = self.pit

@@ -150,7 +150,7 @@ def test_pit_dialog_shells_pushbacks_and_save(qapp: QApplication, tmp_path: Path
     assert dialog.sched is not None
     assert dialog.sched_table.rowCount() == len(dialog.sched.rows) + 1
     dialog.save()
-    assert len(notes) == 2
+    assert len([n for n in notes if not n.startswith("Uyarı")]) == 2
     assert "pit_period" in BlockModel.open(project, "BM").attributes
     out = tmp_path / "pit.csv"
     write_pit_reports(out, dialog.pit, dialog.sched)
@@ -342,9 +342,7 @@ def test_bench_design_dialog(qapp: QApplication, tmp_path: Path) -> None:
     model = BlockModel.create(project, "BM", grid)
     shell = np.zeros((5, 12, 12))
     shell[3:, 4:8, 4:8] = 1.0
-    model.set_attributes(
-        {"pit_shell": shell.ravel(), "pit_value": np.ones(grid.blocks)}, {}, "pit"
-    )
+    model.set_attributes({"pit_shell": shell.ravel(), "pit_value": np.ones(grid.blocks)}, {}, "pit")
     parent = QWidget()
     dialog = BenchDesignDialog(project, parent)
     assert dialog.model.currentText() == "BM"
