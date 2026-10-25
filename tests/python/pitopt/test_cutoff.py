@@ -66,6 +66,8 @@ def test_mill_limited_balances_opportunity_cost() -> None:
 )
 # Mine-mill balance inside one grade class: needs the split class (balancing point).
 @example(2525386.0, 1969849.0, 2524447.0, 0.001953125)
+# Passes that cycle between two cut-offs without converging: the best pass is kept.
+@example(2525296.0, 1969734.0, 2518555.0, 0.001953125)
 def test_lane_beats_every_constant_cutoff(mine: float, mill: float, fixed: float, d: float) -> None:
     inp = _inputs(mine_capacity=mine, mill_capacity=mill, fixed=fixed, discount=d)
     lane = optimise_cutoffs(inp, GRADES, TONNES).npv
@@ -112,3 +114,28 @@ def test_royalty_and_payables_lower_the_lane_net_price(tmp_path: object) -> None
     assert taxed.npv == pytest.approx(same.npv)
     assert [y.cutoff for y in taxed.years] == pytest.approx([y.cutoff for y in same.years])
     project.close()
+
+
+@pytest.mark.parametrize("d", [0.0, 0.1])
+@pytest.mark.parametrize("mine", [2e6, math.inf])
+def test_constant_policy_value_matches_the_year_by_year_schedule(d: float, mine: float) -> None:
+    from minecore.pitopt.cutoff import _best_constant, _Reserve  # noqa: PLC0415
+
+    inp = _inputs(mine_capacity=mine, mill_capacity=1.5e6, fixed=2e6, discount=d)
+    k, npv = _best_constant(inp, _Reserve(GRADES, TONNES, 1.0))
+    cuts = np.r_[np.inf, np.sort(GRADES)[::-1]]
+    if k < len(cuts):  # a plain grade candidate: compare with the independent valuation
+        assert npv == pytest.approx(constant_cutoff_npv(inp, GRADES, TONNES, cuts[k]), rel=1e-9)
+    best = max(constant_cutoff_npv(inp, GRADES, TONNES, c) for c in np.r_[GRADES, 99.0])
+    assert npv >= best * (1 - 1e-12)
+
+
+def test_lane_falls_back_to_a_better_constant_cutoff() -> None:
+    # Lane's fixed point here is 1e-6 below the best constant cut-off.
+    inp = _inputs(mine_capacity=2525294.0, mill_capacity=1969735.0, fixed=2518560.0, discount=2**-9)
+    result = optimise_cutoffs(inp, GRADES, TONNES)
+    best = max(constant_cutoff_npv(inp, GRADES, TONNES, c) for c in np.r_[GRADES, 99.0])
+    assert result.policy == "constant"
+    assert result.npv >= best * (1 - 1e-12)
+    assert len({y.cutoff for y in result.years}) == 1
+    assert sum(y.material_t for y in result.years) == pytest.approx(TONNES.sum())

@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from minecore.blockmodel import Grid
-from minecore.pitopt.benchdesign import BenchGeometry, Ramp, Sector, design_pit
+from minecore.pitopt.benchdesign import BenchGeometry, Ramp, Sector, design_pit, parse_exits
 from minecore.pitopt.economics import PitOptError
 
 
@@ -190,3 +190,91 @@ def test_sectors_with_a_ramp() -> None:
     pit = design_pit(grid, mined, g, ramp=Ramp(15.0, 0.10), sectors=sectors)
     assert pit.ramp is not None
     assert pit.inside(grid.centroids()[mined]).all()
+
+
+def _two_cones(gap: float, small_r: float = 60.0) -> tuple[Grid, np.ndarray]:
+    """Two inverted cones (floors at 0 m) whose centres are ``gap`` metres apart."""
+    grid = Grid((0.0, 0.0, 0.0), (10.0, 10.0, 10.0), (90, 50, 12))
+    c = grid.centroids()
+    a = np.hypot(c[:, 0] - 200.0, c[:, 1] - 250.0) < 60.0 + c[:, 2]
+    b = np.hypot(c[:, 0] - 200.0 - gap, c[:, 1] - 250.0) < small_r + c[:, 2]
+    return grid, (a | b) & (c[:, 2] > 0.0)
+
+
+def test_separate_pits_each_get_a_ramp() -> None:
+    grid, mined = _two_cones(gap=500.0, small_r=45.0)
+    g = BenchGeometry(70.0, 10.0, 6.0)
+    plain = design_pit(grid, mined, g)
+    assert (plain.pits, plain.bottoms) == (2, 2)
+    pit = design_pit(grid, mined, g, ramp=Ramp(25.0, 0.10, 90.0, exits=(270.0,)))
+    assert pit.pits == 2
+    assert pit.pits_without_ramp == 0
+    assert len(pit.ramps) == 2
+    assert pit.ramp is pit.ramps[0]
+    big, small = pit.ramps
+    # Largest pit first; each road runs from its own floor to the surface and leaves
+    # on its own requested side (big pit: east of x = 200; small pit: west of x = 700).
+    for road, cx, east in ((big, 200.0, True), (small, 700.0, False)):
+        assert road[-1, 2] == pytest.approx(0.0, abs=0.5)
+        assert road[0, 2] == pytest.approx(120.0, abs=0.6)
+        assert np.hypot(road[-1, 0] - cx, road[-1, 1] - 250.0) < 80.0  # starts on its floor
+        exit_az = math.degrees(math.atan2(road[0, 0] - cx, road[0, 1] - 250.0)) % 360.0
+        assert exit_az == pytest.approx(90.0 if east else 270.0, abs=10.0)
+    lengths = [float(np.linalg.norm(np.diff(r, axis=0), axis=1).sum()) for r in pit.ramps]
+    assert pit.ramp_length == pytest.approx(sum(lengths))
+    assert sum(line.layer == "DESIGN_RAMP" for line in pit.strings()) == 2
+    # Both roads are cut: the design follows each road's elevation.
+    for road in pit.ramps:
+        i = np.round((road[:, 0] - pit.x[0]) / (pit.x[1] - pit.x[0])).astype(int)
+        j = np.round((road[:, 1] - pit.y[0]) / (pit.y[1] - pit.y[0])).astype(int)
+        assert np.median(np.abs(pit.z[j, i] - road[:, 2])) <= 0.5
+    assert (pit.z <= plain.z + 1e-9).all()
+
+
+def test_merged_pit_counts_bottoms_and_gets_one_ramp() -> None:
+    grid, mined = _two_cones(gap=150.0)  # the cones overlap above their floors
+    pit = design_pit(grid, mined, BenchGeometry(70.0, 10.0, 6.0), ramp=Ramp(25.0, 0.10))
+    assert (pit.pits, pit.bottoms) == (1, 2)
+    assert len(pit.ramps) == 1
+
+
+def test_shallow_satellite_pit_gets_its_own_road(monkeypatch: pytest.MonkeyPatch) -> None:
+    from minecore.pitopt import benchdesign  # noqa: PLC0415
+
+    grid = Grid((0.0, 0.0, 0.0), (10.0, 10.0, 10.0), (90, 50, 12))
+    c = grid.centroids()
+    big = (np.hypot(c[:, 0] - 200.0, c[:, 1] - 250.0) < 60.0 + c[:, 2]) & (c[:, 2] > 0.0)
+    tiny = (np.hypot(c[:, 0] - 700.0, c[:, 1] - 250.0) < 8.0) & (c[:, 2] > 100.0)
+    g = BenchGeometry(70.0, 10.0, 6.0)
+    pit = design_pit(grid, big | tiny, g, ramp=Ramp(25.0, 0.10))
+    assert (pit.pits, len(pit.ramps), pit.pits_without_ramp) == (2, 2, 0)
+    assert pit.ramps[1][-1, 2] == pytest.approx(100.0, abs=0.5)  # from the satellite's floor
+    # A satellite whose road cannot be traced is left without one and counted; the
+    # main pit's failure is still an error.
+    trace = benchdesign._trace_ramp
+    calls: list[int] = []
+
+    def second_fails(*args: object, **kw: object) -> object:
+        calls.append(1)
+        if len(calls) == 2:
+            raise PitOptError("too small")
+        return trace(*args, **kw)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(benchdesign, "_trace_ramp", second_fails)
+    pit = design_pit(grid, big | tiny, g, ramp=Ramp(25.0, 0.10))
+    assert (pit.pits, len(pit.ramps), pit.pits_without_ramp) == (2, 1, 1)
+    calls.clear()
+    calls.append(1)  # the next call is the second: the main pit's road fails
+    with pytest.raises(PitOptError):
+        design_pit(grid, big | tiny, g, ramp=Ramp(25.0, 0.10))
+
+
+def test_parse_exits() -> None:
+    assert parse_exits("180; 270,0") == (180.0, 270.0, 0.0)
+    assert parse_exits(" ") == ()
+    assert Ramp(25.0, 0.1, 90.0, exits=(180.0,)).exit_of(0) == 90.0
+    assert Ramp(25.0, 0.1, 90.0, exits=(180.0,)).exit_of(1) == 180.0
+    assert Ramp(25.0, 0.1, 90.0, exits=(180.0,)).exit_of(2) == 90.0
+    for bad in ("x", "360", "-5"):
+        with pytest.raises(PitOptError):
+            parse_exits(bad)

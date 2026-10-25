@@ -76,6 +76,9 @@ class LaneResult:
     years: tuple[LaneYear, ...]
     npv: float
     iterations: int
+    # "lane", or "constant" when one cut-off kept every year beats Lane's policy
+    # (Lane's iteration is a fixed point, not a global optimum over cut-off paths).
+    policy: str = "lane"
 
 
 class _Reserve:
@@ -154,9 +157,13 @@ class _Year:
     limit: str
 
 
-def _year(inp: LaneInputs, res: _Reserve, remaining: float, value: float) -> _Year:
+def _year(
+    inp: LaneInputs, res: _Reserve, remaining: float, value: float, fixed_k: int | None = None
+) -> _Year:
     c, x, q = _with_balances(inp, res)
     k, time = _best(inp, res, inp.discount * value)
+    if fixed_k is not None:
+        k = fixed_k
     material = min(remaining, 1.0 / time[k])
     ore = material * x[k]
     metal = inp.recovery * material * q[k]
@@ -201,6 +208,7 @@ def optimise_cutoffs(  # noqa: PLR0913 - options are keyword-only
     values: list[float] = []
     rows: list[_Year] = []
     iterations = 0
+    best: tuple[float, list[_Year], list[float]] | None = None
     while iterations < max_iterations:
         iterations += 1
         remaining, rows = res.total, []
@@ -216,11 +224,56 @@ def optimise_cutoffs(  # noqa: PLR0913 - options are keyword-only
         values = new
         if done:
             break
+        # Each pass is a feasible schedule valued exactly; when the passes cycle
+        # between neighbouring cut-offs instead of converging, the best is kept.
+        if best is None or new[0] > best[0]:
+            best = (new[0], rows, new)
+    else:
+        if best is not None:
+            _, rows, values = best
+    policy = "lane"
+    k, npv = _best_constant(inp, res)
+    if npv > values[0] + 1e-9 * abs(values[0]):
+        policy, rows = "constant", []
+        remaining = res.total
+        while remaining > 1e-9 * res.total and len(rows) < max_years:
+            rows.append(_year(inp, res, remaining, 0.0, k))
+            remaining -= rows[-1].material
+        values = [0.0] * (len(rows) + 1)
+        for t in range(len(rows) - 1, -1, -1):
+            values[t] = (rows[t].cash + values[t + 1]) / (1.0 + inp.discount)
     years = tuple(
         LaneYear(t + 1, r.cutoff, r.material, r.ore, r.grade, r.metal, r.cash, values[t], r.limit)
         for t, r in enumerate(rows)
     )
-    return LaneResult(years, values[0], iterations)
+    return LaneResult(years, values[0], iterations, policy)
+
+
+def _best_constant(inp: LaneInputs, res: _Reserve) -> tuple[int, float]:
+    """Candidate (incl. balancing points) with the highest NPV when kept every year."""
+    _, x, q = _with_balances(inp, res)
+    metal = inp.recovery * q
+    time = np.maximum.reduce(
+        [
+            np.full_like(x, 1.0 / inp.mine_capacity),
+            x / inp.mill_capacity,
+            metal / inp.market_capacity,
+        ]
+    )
+    per_t = (inp.price - inp.selling) * metal - inp.processing * x - inp.mining - inp.fixed * time
+    d = inp.discount
+    with np.errstate(divide="ignore"):
+        rate = np.where(time > 0, 1.0 / time, np.inf)  # tonnes per year
+    bounded = np.isfinite(rate)
+    full = np.where(bounded, np.floor(res.total / np.where(bounded, rate, 1.0) * (1 + 1e-12)), 0.0)
+    rest = np.where(
+        bounded, np.clip(res.total - full * np.where(bounded, rate, 0.0), 0.0, None), res.total
+    )
+    annuity = (1.0 - (1.0 + d) ** -full) / d if d > 0 else full
+    tonnes_pv = np.where(bounded, rate, 0.0) * annuity + rest * (1.0 + d) ** -(full + 1)
+    npv = per_t * tonnes_pv
+    k = int(np.argmax(npv))
+    return k, float(npv[k])
 
 
 def constant_cutoff_npv(
@@ -237,7 +290,7 @@ def constant_cutoff_npv(
     remaining, npv, year = res.total, 0.0, 0
     while remaining > 1e-9 * res.total:
         year += 1
-        material = min(remaining, 1.0 / time)
+        material = min(remaining, 1.0 / time) if time > 0 else remaining
         npv += material * per_t / (1.0 + inp.discount) ** year
         remaining -= material
     return npv

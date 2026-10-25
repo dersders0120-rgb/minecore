@@ -605,6 +605,33 @@ def test_bench_design_dialog(qapp: QApplication, tmp_path: Path) -> None:
     project.close()
 
 
+def test_bench_design_dialog_two_pits(qapp: QApplication, tmp_path: Path) -> None:
+    from minecore.blockmodel import Grid  # noqa: PLC0415
+    from minecore.gui.pit import BenchDesignDialog  # noqa: PLC0415
+
+    project = Project.create(tmp_path / "d2.mcproj", "d2")
+    grid = Grid((0.0, 0.0, 0.0), (10.0, 10.0, 10.0), (40, 12, 5))
+    model = BlockModel.create(project, "BM", grid)
+    shell = np.zeros((5, 12, 40))
+    shell[2:, 4:8, 4:8] = 1.0
+    shell[3:, 4:8, 30:34] = 1.0
+    model.set_attributes({"pit_shell": shell.ravel(), "pit_value": np.ones(grid.blocks)}, {}, "pit")
+    parent = QWidget()
+    dialog = BenchDesignDialog(project, parent)
+    dialog.ramp_on.setChecked(True)
+    dialog.ramp_w.setValue(8.0)
+    dialog.ramp_exits.setText("180")
+    dialog.run()
+    assert dialog.report is not None
+    pit = dialog.report.pit
+    assert pit.pits == 2
+    assert len(pit.ramps) + pit.pits_without_ramp == 2
+    text = dialog.result_label.text()
+    assert "Ayrı ocak sayısı 2" in text
+    assert "Rampa 1:" in text
+    project.close()
+
+
 def test_cutoff_dialog(qapp: QApplication, tmp_path: Path) -> None:
     from minecore.blockmodel import Grid  # noqa: PLC0415
     from minecore.gui.pit import CutoffDialog  # noqa: PLC0415
