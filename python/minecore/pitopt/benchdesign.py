@@ -504,8 +504,8 @@ def _side_bottoms(
         while lo < hi:  # lowest level whose basin holds both bottoms
             mid = (lo + hi) // 2
             labels, _ = label(design <= cand[mid] + 1e-6, structure=eight)
-            ids = set(np.unique(labels[area]).tolist()) - {0}
-            if ids & set(np.unique(labels[deep]).tolist()):
+            joined = set(np.unique(labels[area]).tolist()) - {0}
+            if joined & set(np.unique(labels[deep]).tolist()):
                 hi = mid
             else:
                 lo = mid + 1
