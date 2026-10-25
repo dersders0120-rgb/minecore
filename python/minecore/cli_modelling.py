@@ -294,7 +294,8 @@ def bm_command(args: argparse.Namespace, out: TextIO) -> int:
             out.write(
                 f"{args.name}: {imported.rows} rows -> {imported.model.grid.count}, "
                 f"{imported.blocks_filled} blocks, "
-                f"{imported.merged_rows} merged sub-blocks; attributes {', '.join(imported.attributes)}\n"
+                f"{imported.merged_rows} merged sub-blocks; "
+                f"attributes {', '.join(imported.attributes)}\n"
             )
             return 0
         if args.bm_command == "variogram":
