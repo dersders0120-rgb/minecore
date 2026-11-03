@@ -1,6 +1,6 @@
 # MineCore — rules for every contributor (human or AI)
 
-MineCore is a proprietary, desktop-first mining engineering platform aiming at
+MineCore is an open source (MIT), desktop-first mining engineering platform aiming at
 the depth of Datamine Studio, Micromine, Deswik, Surpac and Vulcan. It is built
 as professional engineering software, never as a demo. The product owner is a
 mining engineer; reply to them in Turkish. Code, identifiers and docs are English.

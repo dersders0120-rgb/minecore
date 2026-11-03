@@ -5,7 +5,7 @@ data, geological modelling, geostatistics, block modelling, resource evaluation,
 open-pit and underground design, and scheduling, built on one shared project
 model, unit system and geometry kernel.
 
-Proprietary software. All rights reserved. See `LICENSE`.
+Open source under the [MIT License](LICENSE). Contributions are welcome.
 
 ## Layout
 

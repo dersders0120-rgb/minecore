@@ -1,4 +1,4 @@
-# Dependency policy for a proprietary, commercially distributed product.
+# Dependency policy for an MIT-licensed product that others may redistribute.
 # Any change to this file needs an ADR.
 
 [graph]
@@ -25,16 +25,6 @@ allow = [
     "Unicode-3.0",
     "MPL-2.0",
 ]
-
-[[licenses.clarify]]
-crate = "mc-core"
-expression = "LicenseRef-MineCore-Proprietary"
-license-files = []
-
-[[licenses.clarify]]
-crate = "mc-py"
-expression = "LicenseRef-MineCore-Proprietary"
-license-files = []
 
 [licenses.private]
 ignore = true

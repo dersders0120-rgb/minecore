@@ -6,7 +6,7 @@ members = ["crates/mc-core", "crates/mc-py"]
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
-license = "LicenseRef-MineCore-Proprietary"
+license = "MIT"
 publish = false
 authors = ["MineCore"]
 
