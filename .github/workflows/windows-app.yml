@@ -7,6 +7,9 @@ on:
     paths: [".github/workflows/windows-app.yml", "packaging/**", "python/minecore/**", "pyproject.toml"]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 concurrency:
   group: windows-app-${{ github.ref }}
   cancel-in-progress: true
