@@ -74,4 +74,4 @@ jobs:
         with:
           name: MineCore-windows
           path: dist/MineCore
-          retention-days: 30
+          retention-days: 7

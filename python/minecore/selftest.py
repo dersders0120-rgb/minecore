@@ -271,6 +271,7 @@ def _steps(work: Path) -> list[tuple[str, list[str]]]:
                 "au",
             ],
         ),
+        ("omf export", ["omf", "export", p, str(work / "x.omf")]),
     ]
 
 

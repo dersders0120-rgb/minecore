@@ -48,6 +48,7 @@ from minecore.geology.implicit import interval_contacts, model_domain
 from minecore.gradecontrol import GradeControlError, grade_control, read_holes_csv
 from minecore.haulroads import RoadNetwork
 from minecore.io.dxf import Polyline, write_dxf
+from minecore.io.omf_io import export_omf, import_omf
 from minecore.pitopt import Economics, PriceUnit, SlopeProfile, optimise_pit, pushbacks, schedule
 from minecore.pitopt.benchdesign import (
     BenchGeometry,
@@ -304,6 +305,21 @@ def add_parsers(commands: Any) -> None:  # noqa: PLR0915 - argument tables
     ug.add_argument("--rock")
     ug.add_argument("--dxf")
 
+    om = commands.add_parser("omf", help="Open Mining Format exchange")
+    om_cmds = om.add_subparsers(dest="omf_command", required=True)
+    om_ex = om_cmds.add_parser(
+        "export", help="write block models, surfaces, solids, strings, holes"
+    )
+    om_ex.add_argument("project")
+    om_ex.add_argument("path")
+    om_ex.add_argument("--model", action="append", help="block model (repeat; default all)")
+    om_ex.add_argument("--surface", action="append", help="surface (repeat; default all)")
+    om_ex.add_argument("--solid", action="append", help="solid (repeat; default all)")
+    om_ex.add_argument("--strings", action="append", help="string set (repeat; default all)")
+    om_ex.add_argument("--no-holes", action="store_true", help="leave out drillhole traces")
+    om_im = om_cmds.add_parser("import", help="read every supported element")
+    om_im.add_argument("project")
+    om_im.add_argument("path")
     hr = commands.add_parser("haul", help="shortest haul route along road strings")
     hr.add_argument("project")
     hr.add_argument("roads", help="string set with the road centrelines")
@@ -743,6 +759,27 @@ def plot_command(args: argparse.Namespace, out: TextIO) -> int:
             f"{args.out}: {r.blocks} blocks, {r.holes} holes, {r.samples} samples, "
             f"surfaces {r.surface_lines}, solids {r.solid_segments}\n"
         )
+    return 0
+
+
+def omf_command(args: argparse.Namespace, out: TextIO) -> int:
+    with Project.open(args.project) as project:
+        if args.omf_command == "export":
+            report = export_omf(
+                project,
+                Path(args.path),
+                block_models=args.model,
+                surfaces=args.surface,
+                solids=args.solid,
+                strings=args.strings,
+                drillholes=not args.no_holes,
+            )
+        else:
+            report = import_omf(project, Path(args.path))
+    for line in report.written:
+        out.write(f"ok: {line}\n")
+    for line in report.skipped:
+        out.write(f"skipped: {line}\n")
     return 0
 
 
@@ -1615,4 +1652,5 @@ HANDLERS = {
     "decline": decline_command,
     "gc": gc_command,
     "haul": haul_command,
+    "omf": omf_command,
 }

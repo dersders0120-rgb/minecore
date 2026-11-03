@@ -119,3 +119,30 @@ class RoadNetwork:
             float(s_d),
             float(e_d),
         )
+
+
+def parse_points(text: str) -> dict[str, tuple[float, float, float]]:
+    """``"kuzey:1200,3400,850; guney:..."`` -> named points."""
+    out = {}
+    for item in text.split(";"):
+        if not item.strip():
+            continue
+        name, sep, xyz = item.partition(":")
+        try:
+            x, y, z = (float(v) for v in xyz.split(","))
+        except ValueError:
+            raise HaulRoadError(f"{item.strip()!r} is not name:x,y,z") from None
+        if not sep or not name.strip():
+            raise HaulRoadError(f"{item.strip()!r} is not name:x,y,z")
+        out[name.strip()] = (x, y, z)
+    return out
+
+
+def haul_lengths(
+    net: RoadNetwork,
+    exit_xyz: tuple[float, float, float],
+    targets: dict[str, tuple[float, float, float]],
+    ramp_grade: float = 0.03,
+) -> dict[str, Route]:
+    """Route from the pit exit to every named target (plant, dumps)."""
+    return {name: net.route(exit_xyz, xyz, ramp_grade) for name, xyz in targets.items()}

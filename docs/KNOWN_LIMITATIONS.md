@@ -398,6 +398,18 @@ What MineCore cannot do yet, and what each gap depends on. Updated every session
   road strings (Dijkstra on string vertices). Roads join only where vertices
   lie within the snap tolerance; crossings without a shared vertex are not
   junctions. Ramp/flat split by a single grade threshold; no rolling
-  resistance, rimpull curves or speed limits per road. The route length is
-  not yet fed automatically into the fleet or dump haul distances (type it
-  in). Smoke-tested only.
+  resistance, rimpull curves or speed limits per road. The fleet page
+  ("Mesafeleri yol ağından al") fills the plant distance and the haul of the
+  dumps already listed from routes out of one pit exit point; the in-pit leg
+  and the ramp stay modelled from the bench lift. Smoke-tested only.
+
+## Data exchange (OMF)
+
+- `io.omf_io` (CLI `omf export|import`, GUI File menu): OMF v1 through the
+  MIT `omf` package. Block models on regular grids only (rotation about z;
+  dipping or sub-blocked models and non-uniform tensors are skipped), numeric
+  cell attributes only; surfaces export their plan triangulation and import
+  as points (re-triangulated in plan); closed or tagged triangle surfaces
+  import as solids; drillholes export as desurveyed traces only (no interval
+  data). Cell order assumed i fastest (OMF convention); round trip tested
+  in MineCore only, not yet against Leapfrog/Deswik files.

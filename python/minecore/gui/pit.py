@@ -904,6 +904,10 @@ class PitDialog(QDialog):
             "kadar yerleştirilir; yüzey mesafesi (tesise) cevher için kullanılır."
         )
         form.addRow("Döküm sahaları", self.fl_dumps)
+        roads = QPushButton("Mesafeleri yol ağından al...")
+        roads.setToolTip("Ocak çıkışından tesise ve döküm sahalarına en kısa yol mesafesi.")
+        roads.clicked.connect(self._guard(self.distances_from_roads))
+        form.addRow(roads)
         self.fl_to_cash = QCheckBox("Nakliye-yükleme maliyetini nakit akışına ekle")
         self.fl_to_cash.setToolTip(
             "Madencilik maliyeti taşımayı içermiyorsa işaretleyin; "
@@ -923,6 +927,20 @@ class PitDialog(QDialog):
         self.fleet: list[FleetRow] = []
         self.dump_plan: list[DumpPeriod] = []
         return page
+
+    def distances_from_roads(self) -> None:
+        from minecore.gui.haulroads import RoadDistanceDialog  # noqa: PLC0415
+
+        dumps = parse_dumps(self.fl_dumps.text())
+        dialog = RoadDistanceDialog(self.project, self, [d.name for d in dumps])
+        if not dialog.exec():
+            return
+        self.fl_surface.setValue(round(dialog.plant_m))
+        items = [
+            f"{d.name}:{d.capacity_t / 1e6:g}:{dialog.dump_m.get(d.name, d.haul_m):.0f}"
+            for d in dumps
+        ]
+        self.fl_dumps.setText("; ".join(items))
 
     def fleet_inputs(self) -> Fleet:
         return Fleet(

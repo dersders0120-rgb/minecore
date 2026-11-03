@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
 
 from minecore.gui.layout import fit_to_screen
 from minecore.gui.resource import _row, _spin
-from minecore.haulroads import RoadNetwork
+from minecore.haulroads import RoadNetwork, haul_lengths, parse_points
 from minecore.project import Project
 from minecore.strings import String, load_strings, save_strings, string_names
 
@@ -107,3 +107,49 @@ class HaulRouteDialog(QDialog):
             f"{route.snap_end:,.2f} m. "
             "Bu mesafeyi filo / döküm alanlarındaki taşıma mesafesi alanına yazabilirsiniz."
         )
+
+
+class RoadDistanceDialog(QDialog):
+    """Pit exit -> plant and dump distances along a road network, for the fleet page.
+
+    Dump points are matched by name to the dumps already listed on the fleet page.
+    """
+
+    def __init__(self, project: Project, parent: QWidget, dump_names: list[str]) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Mesafeleri yol ağından al")
+        self.project = project
+        form = QFormLayout(self)
+        self.strings = QComboBox()
+        self.strings.addItems(string_names(project))
+        form.addRow("Yol çizgileri (çizgi seti)", self.strings)
+        self.exit = [_spin(0.0, -1e8, 1e8, 10.0, 1) for _ in range(3)]
+        form.addRow("Ocak çıkışı X / Y / Z", _row(*self.exit))
+        self.plant = [_spin(0.0, -1e8, 1e8, 10.0, 1) for _ in range(3)]
+        form.addRow("Tesis (cevher boşaltma) X / Y / Z", _row(*self.plant))
+        self.dumps = QLineEdit("; ".join(f"{n}:0,0,0" for n in dump_names))
+        self.dumps.setPlaceholderText("örn. kuzey:1200,3400,850; guney:900,2100,820 (ad:x,y,z)")
+        form.addRow("Döküm noktaları", self.dumps)
+        self.snap = _spin(1.0, 0.0, 50.0, 0.5, 1)
+        form.addRow("Birleştirme toleransı (m)", self.snap)
+        ok = QPushButton("Hesapla ve filo alanlarına yaz")
+        ok.clicked.connect(self._run)
+        form.addRow(ok)
+        self.plant_m = 0.0
+        self.dump_m: dict[str, float] = {}
+
+    def _run(self) -> None:
+        try:
+            name = self.strings.currentText()
+            if not name:
+                raise RuntimeError("Önce yol çizgilerini çizin veya içe aktarın.")
+            net = RoadNetwork(load_strings(self.project, name), self.snap.value())
+            targets = {"_tesis": tuple(s.value() for s in self.plant)}
+            targets.update(parse_points(self.dumps.text()))
+            routes = haul_lengths(net, tuple(s.value() for s in self.exit), targets)
+        except Exception as exc:
+            QMessageBox.critical(self, "Yol ağı", str(exc))
+            return
+        self.plant_m = routes.pop("_tesis").length
+        self.dump_m = {n: r.length for n, r in routes.items()}
+        self.accept()
