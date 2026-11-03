@@ -321,6 +321,10 @@ class MainWindow(QMainWindow):
         project = self.menuBar().addMenu("&Proje")
         action(project, "Yeni proje...", self.new_project, "Ctrl+N")
         action(project, "Proje aç...", self.open_project, "Ctrl+O")
+        action(project, "OMF içe aktar...", self.import_omf)
+        action(
+            project, "OMF olarak dışa aktar (Leapfrog, Deswik, Micromine...)...", self.export_omf
+        )
         project.addSeparator()
         action(project, "Geri al", self.undo, "Ctrl+Z")
         action(project, "Yinele", self.redo, "Ctrl+Y")
@@ -984,6 +988,35 @@ class MainWindow(QMainWindow):
         solid = solids.load_solid(project, name)
         count = write_dxf(Path(path), faces=[(name, solid.vertices[solid.triangles])])
         self.statusBar().showMessage(f"{count:,} üçgen yazıldı: {path}")
+
+    def export_omf(self) -> None:
+        from minecore.io.omf_io import export_omf as write_omf  # noqa: PLC0415
+
+        project = self._need_project()
+        path, _ = QFileDialog.getSaveFileName(self, "OMF dışa aktar", "proje.omf", "OMF (*.omf)")
+        if not path:
+            return
+        with self._busy("OMF yazılıyor..."):
+            report = write_omf(project, Path(path))
+        text = "Yazıldı:\n" + "\n".join(report.written)
+        if report.skipped:
+            text += "\n\nAtlandı:\n" + "\n".join(report.skipped)
+        QMessageBox.information(self, "OMF", text)
+
+    def import_omf(self) -> None:
+        from minecore.io.omf_io import import_omf as read_omf  # noqa: PLC0415
+
+        project = self._need_project()
+        path, _ = QFileDialog.getOpenFileName(self, "OMF içe aktar", "", "OMF (*.omf)")
+        if not path:
+            return
+        with self._busy("OMF okunuyor..."):
+            report = read_omf(project, Path(path))
+            self.refresh()
+        text = "Eklendi:\n" + "\n".join(report.written)
+        if report.skipped:
+            text += "\n\nAtlandı:\n" + "\n".join(report.skipped)
+        QMessageBox.information(self, "OMF", text)
 
     def export_periods(self) -> None:
         from minecore.pitopt.design import period_surfaces  # noqa: PLC0415

@@ -27,6 +27,7 @@ dependencies = [
     "matplotlib>=3.9",
     "openpyxl>=3.1",
     "scipy>=1.14",
+    "omf>=1.0.1",
 ]
 
 [project.scripts]
