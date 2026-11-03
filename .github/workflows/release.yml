@@ -59,7 +59,7 @@ jobs:
           cd "$RUNNER_TEMP"
           python -c "import minecore; print('MineCore', minecore.__version__, minecore.core_build_profile())"
           minecore info
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: wheel-${{ matrix.platform.name }}
           path: dist/*.whl
@@ -73,7 +73,7 @@ jobs:
         with:
           command: sdist
           args: --out dist
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: sdist
           path: dist/*.tar.gz
