@@ -7,6 +7,14 @@ model, unit system and geometry kernel.
 
 Open source under the [MIT License](LICENSE). Contributions are welcome.
 
+## Install
+
+```sh
+pip install minecore        # Python 3.12+, Windows x64 or Linux x86_64
+minecore info               # check the install
+minecore-gui                # start the desktop application
+```
+
 ## Layout
 
 | Path | Contents |

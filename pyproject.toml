@@ -28,6 +28,11 @@ dependencies = [
     "scipy>=1.14",
 ]
 
+[project.urls]
+Homepage = "https://github.com/dersders0120-rgb/minecore"
+Source = "https://github.com/dersders0120-rgb/minecore"
+Issues = "https://github.com/dersders0120-rgb/minecore/issues"
+
 [project.scripts]
 minecore = "minecore.cli:main"
 
