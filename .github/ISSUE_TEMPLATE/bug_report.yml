@@ -1,0 +1,32 @@
+name: Bug report
+description: Something gives a wrong result, crashes or does not work as documented
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected and what you got instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Commands, GUI steps or a small data file. Remove confidential data first.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: MineCore version
+      description: Output of `minecore info`
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options: [Windows, Linux, Other]
+    validations:
+      required: true

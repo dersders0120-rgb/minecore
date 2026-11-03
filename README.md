@@ -45,5 +45,7 @@ cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace && uv run pytest
 ```
 
-Read `CLAUDE.md` before contributing; it holds the rules every human and AI
-contributor follows.
+Contributions are welcome: see [`CONTRIBUTING.md`](CONTRIBUTING.md) and the
+[`good first issue`](https://github.com/dersders0120-rgb/minecore/labels/good%20first%20issue)
+label. Read `CLAUDE.md` before contributing; it holds the rules every human and
+AI contributor follows.

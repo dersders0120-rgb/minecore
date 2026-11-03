@@ -1,0 +1,22 @@
+name: Feature request
+description: A mining, geology or geostatistics workflow MineCore should support
+labels: [enhancement]
+body:
+  - type: textarea
+    id: workflow
+    attributes:
+      label: Engineering workflow
+      description: What you are trying to do and why. Which software or method do you use for it today?
+    validations:
+      required: true
+  - type: textarea
+    id: method
+    attributes:
+      label: Method and references
+      description: Algorithm, textbook, paper or standard the feature should follow. A worked example with a known answer is very helpful.
+  - type: checkboxes
+    id: help
+    attributes:
+      label: Contribution
+      options:
+        - label: I can help implement or test this
