@@ -1,7 +1,7 @@
 # Session handoff
 
-Updated: 2026-10-25 ~14:35 UTC (architect, thread "Match Datamine Studio OP and
-NPVS": PR #38).
+Updated: 2026-11-11 (architect, thread "Prepare MineCore for safe pause").
+Resume file for a fresh session: `docs/RESUME_PROMPT.md`.
 
 ## Owner direction (binding)
 - Windows 11 only. Wants a usable program fast, accepts some bugs, tests the GUI
@@ -13,6 +13,20 @@ NPVS": PR #38).
 - Open-source libraries welcome if permissive (MIT/BSD/Apache); no GPL.
 
 ## State
+- 2026-11-11 pause check: `main` = `d7e62fc` (PR #43) holds all work; CI and
+  the Windows app build are green on it. Leftover `claude/project-thread-*`
+  branches were squash-merged (#26, #37, #43) and hold nothing new. Open PRs
+  are Dependabot version bumps only (#50-#57). `docs/RESUME_PROMPT.md` added.
+- 2026-11-03: relicensed under MIT and the repository made public
+  (ADR-0010); PyPI release workflow (Trusted Publishing, tag `v0.1.0`);
+  contributor guide, code of conduct, security policy; CI hardening
+  (read-only token, RustSec advisories, Dependabot); #43 OMF export/import
+  and haul road network distances feed the fleet; Windows artifacts kept
+  7 days.
+- 2026-10-25 after #38: #39 fleet haulage cost in the project cash flow and
+  a monthly period preset; #40 greedy schedule keeps blending targets; #41
+  underground development schedule (decline/level timing, stopes wait for
+  ready levels); #42 haul road network shortest routes and travel times.
 - Thread "Match Datamine Studio OP and NPVS" (2026-10-25): gap list vs Studio
   OP + NPVS from public knowledge (no inspection of the installed software;
   rule 7). PR #38 closes it: MILP blending targets; variable period lengths
@@ -99,11 +113,12 @@ NPVS": PR #38).
 3. Sub-cells (needs its own ADR).
 4. Routes and stockpiles in Lane; short-term (monthly shot) scheduling;
    blending in the greedy schedule.
-5. Underground: stope shapes beyond grid boxes, footwall drives and drawpoints,
-   development schedule, development lead times in the stope schedule.
-6. Haulage cost from the fleet model into the schedule cash flow; road
-   network shortest paths; dump ramps.
-7. Interoperability: OMF export (check licence of the `omf` package first).
+5. Underground: stope shapes beyond grid boxes, footwall drives and
+   drawpoints (development schedule done in #41).
+6. Dump ramps (haulage cost and road network done in #39, #42).
+7. Interoperability: further open formats (OMF done in #43); M12 installer
+   and PyPI release.
+8. Dependabot PRs #50-#57: merge when CI is green.
 
 ## Owner owes
 - Try the Windows build with real data and report problems (Yardım → Kurulumu
